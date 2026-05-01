@@ -1,0 +1,56 @@
+# =====================================================================
+# Default preprocessing profile
+# ---------------------------------------------------------------------
+# Single source of truth for preprocessing knobs. Loaded by config.py
+# whenever `preprocessing_profile: default` is in effect (the cohort
+# default). Per-participant overrides in configs/overrides/Pxx.yaml
+# still apply on top of this — they're for participant-specific
+# deviations (cuts/appends, swapped electrodes, lab-flagged bads).
+#
+# To create an alternate profile (for ML-tuning A/B comparison), copy
+# this file to configs/preprocessing/<name>.yaml, edit, and reference
+# it from default.yaml via `preprocessing_profile: <name>`. See
+# configs/preprocessing/README.md for the full workflow.
+# =====================================================================
+
+preprocessing:
+
+  # Filtering (Hz). 0.1–40 is the modal final bandpass across the cohort;
+  # individual deviations live in configs/overrides/Pxx.yaml.
+  filter:
+    bandpass:    [0.1, 40]    # final bandpass after ICA
+    notch:       [60, 120, 180, 240, 300, 360]
+    ica_highpass: 1.0         # high-pass on the COPY used for ICA training only
+
+  # Bad-channel detection. `auto` runs PyPREP's NoisyChannels; the
+  # per-participant override may add more channels via `bads_extra`.
+  bads:
+    method: auto              # "auto" | "manual"
+    pyprep_random_state: 42
+
+  # ICA settings
+  ica:
+    n_components: 20
+    random_state: 97
+    train_window_seconds: [50, 100]   # crop window used to fit ICA
+
+    # Conservative auto-exclusion via mne-icalabel.
+    # A component is excluded if its predicted label is in
+    # `artifact_labels` AND the predicted probability ≥ this threshold.
+    iclabel_artifact_prob_threshold: 0.9
+    artifact_labels: [eye blink, muscle artifact, heart beat, line noise, channel noise]
+
+  # Epoching
+  epoch:
+    tmin: -0.1
+    tmax:  2.0
+    baseline: [null, 0.0]     # YAML null → Python None (start of epoch)
+
+  # Automated rejection via autoreject. If autoreject is unavailable,
+  # falls back to `fallback_eeg_threshold` voltage threshold.
+  reject:
+    method: autoreject        # "autoreject" | "threshold"
+    fallback_eeg_threshold: 100e-6
+
+  # Quality-control: write a small HTML report per participant
+  qc_report: true

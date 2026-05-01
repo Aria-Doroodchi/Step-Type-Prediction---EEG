@@ -4,6 +4,7 @@ Usage:
     python run.py --config configs/default.yaml
     python run.py --stages preprocess src features train --model xgb
     python run.py --config configs/smoke.yaml --model logistic
+    python run.py --preprocessing-profile aggressive    # A/B a different preprocessing
 """
 
 from __future__ import annotations
@@ -28,15 +29,18 @@ STAGES = ["preprocess", "src", "features", "train"]
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", default=None)
+    p.add_argument("--preprocessing-profile", default=None,
+                   help="Name of a profile under configs/preprocessing/")
     p.add_argument("--stages", nargs="+", default=STAGES, choices=STAGES)
     p.add_argument("--participants", nargs="*")
     p.add_argument("--model", default="xgb")
     p.add_argument("--force", action="store_true")
     args = p.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, preprocessing_profile=args.preprocessing_profile)
     setup_logging(cfg.get("logging", {}).get("level", "INFO"))
     log = get_logger("run")
+    log.info("preprocessing_profile=%s", cfg.get("preprocessing_profile"))
 
     pids = args.participants or cfg["participants"]
 

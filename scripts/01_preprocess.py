@@ -24,11 +24,14 @@ from eeg_steptype.preprocessing import pipeline as preprocess
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", default=None, help="Config YAML (default: configs/default.yaml)")
+    p.add_argument("--preprocessing-profile", default=None,
+                   help="Override the preprocessing profile name "
+                        "(file under configs/preprocessing/<name>.yaml)")
     p.add_argument("--participants", nargs="*", help="Subset of participant IDs")
     p.add_argument("--force", action="store_true", help="Overwrite existing outputs")
     args = p.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, preprocessing_profile=args.preprocessing_profile)
     setup_logging(cfg.get("logging", {}).get("level", "INFO"))
     log = get_logger("scripts.01_preprocess")
 

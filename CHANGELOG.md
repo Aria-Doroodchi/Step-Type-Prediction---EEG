@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-05-01 — Global preprocessing profiles
+
+Extracted preprocessing settings out of `configs/default.yaml` into named
+profile files under `configs/preprocessing/<name>.yaml`. The active
+profile is selected by `preprocessing_profile:` in the cohort config, by
+`--preprocessing-profile` on the CLI, or by an explicit argument to
+`load_config()`. Per-participant overrides still layer on top.
+
+Why: A/B-comparing preprocessing variants for ML tuning. Hold the model
+fixed, swap the profile, retrain, and the run snapshot in
+`outputs/runs/<id>/config.yaml` records exactly which profile produced
+the result.
+
+### Added
+- `configs/preprocessing/default.yaml` — the cohort default (PyPREP bads
+  + ICLabel @ p>0.9 + autoreject + 0.1–40 Hz bandpass).
+- `configs/preprocessing/smoke.yaml` — fast variant for end-to-end smoke
+  runs (no PyPREP, half-size ICA, threshold rejection, narrow band).
+- `configs/preprocessing/README.md` — schema + workflow for adding new
+  profiles.
+- `--preprocessing-profile` CLI flag on `run.py` and `scripts/01_preprocess.py`.
+- `eeg_steptype.config.list_preprocessing_profiles()`.
+- 6 new pytest cases in `tests/test_imports.py` covering profile loading,
+  arg-override, missing-profile error, and per-participant overrides
+  beating the profile.
+
+### Changed
+- `configs/default.yaml` — the inline `preprocessing:` block is gone;
+  replaced with `preprocessing_profile: default`.
+- `configs/smoke.yaml` — adds `preprocessing_profile: smoke`.
+- `eeg_steptype.config.load_config()` — accepts a new
+  `preprocessing_profile` keyword arg; merges layers in the order
+  `profile → cohort → local`; stamps the resolved profile name into the
+  returned dict so it appears in run snapshots.
+
+---
+
 ## 2026-05-01 — Pipeline reorganization
 
 Moved from a folder of stand-alone scripts to a config-driven, installable

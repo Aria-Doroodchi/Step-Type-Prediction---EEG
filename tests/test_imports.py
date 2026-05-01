@@ -15,7 +15,6 @@ PACKAGE_MODULES = [
     "eeg_steptype.config",
     "eeg_steptype.io",
     "eeg_steptype.logging_utils",
-    # preprocessing
     "eeg_steptype.preprocessing",
     "eeg_steptype.preprocessing.montage",
     "eeg_steptype.preprocessing.load",
@@ -27,19 +26,16 @@ PACKAGE_MODULES = [
     "eeg_steptype.preprocessing.epoching",
     "eeg_steptype.preprocessing.reject",
     "eeg_steptype.preprocessing.pipeline",
-    # source_localization
     "eeg_steptype.source_localization",
     "eeg_steptype.source_localization.forward",
     "eeg_steptype.source_localization.inverse",
     "eeg_steptype.source_localization.labels",
     "eeg_steptype.source_localization.pipeline",
-    # features
     "eeg_steptype.features",
     "eeg_steptype.features.amplitude",
     "eeg_steptype.features.slopes",
     "eeg_steptype.features.psd",
     "eeg_steptype.features.assemble",
-    # models
     "eeg_steptype.models",
     "eeg_steptype.models.feature_selection",
     "eeg_steptype.models.xgb",
@@ -47,7 +43,6 @@ PACKAGE_MODULES = [
     "eeg_steptype.models.logistic",
     "eeg_steptype.models.evaluate",
     "eeg_steptype.models.train",
-    # viz
     "eeg_steptype.viz",
     "eeg_steptype.viz.results",
 ]
@@ -58,10 +53,10 @@ def test_module_imports(module_name: str) -> None:
     importlib.import_module(module_name)
 
 
+# ---------- config + override layering ----------
 def test_config_load(smoke_config_path):
     from eeg_steptype.config import load_config
     cfg = load_config(smoke_config_path)
-    assert "participants" in cfg
     assert cfg["participants"] == ["P25"]
     assert cfg["modeling"]["k_best"] == 50
 
@@ -69,30 +64,70 @@ def test_config_load(smoke_config_path):
 def test_overrides_apply():
     from eeg_steptype.config import load_config, apply_participant_override
     cfg = load_config()
-    # P02 has a multi-file raw_assembly in its override.
     p02 = apply_participant_override(cfg, "P02")
-    assert "raw_assembly" in p02
     files = [f if isinstance(f, str) else f["path"] for f in p02["raw_assembly"]["files"]]
-    assert any("P02_CNV_2.bdf" in f for f in files), \
-        "P02 override should include the second file"
+    assert any("P02_CNV_2.bdf" in f for f in files)
 
 
 def test_p37_montage_swap():
-    """P37 has B17/B22 swapped — make sure the override carries that mapping."""
     from eeg_steptype.config import load_config, apply_participant_override
     cfg = load_config()
     p37 = apply_participant_override(cfg, "P37")
-    mp = p37.get("montage_mapping_override", {})
-    assert mp.get("B17") == "CP6"
-    assert mp.get("B22") == "C2"
+    assert p37["montage_mapping_override"]["B17"] == "CP6"
+    assert p37["montage_mapping_override"]["B22"] == "C2"
 
 
 def test_p08_raw_crops():
-    """P08 has two crop windows from one file — the schema must preserve both."""
     from eeg_steptype.config import load_config, apply_participant_override
     cfg = load_config()
     p08 = apply_participant_override(cfg, "P08")
-    files = p08["raw_assembly"]["files"]
-    assert len(files) == 2
-    crops = [(f["tmin"], f["tmax"]) for f in files]
+    crops = [(f["tmin"], f["tmax"]) for f in p08["raw_assembly"]["files"]]
     assert crops == [(72.0, 135.0), (215.0, 1100.0)]
+
+
+# ---------- preprocessing-profile mechanism ----------
+def test_preprocessing_profile_default():
+    from eeg_steptype.config import load_config
+    cfg = load_config()
+    assert cfg["preprocessing_profile"] == "default"
+    assert cfg["preprocessing"]["filter"]["bandpass"] == [0.1, 40]
+    assert cfg["preprocessing"]["ica"]["n_components"] == 20
+    assert cfg["preprocessing"]["reject"]["method"] == "autoreject"
+
+
+def test_preprocessing_profile_smoke(smoke_config_path):
+    from eeg_steptype.config import load_config
+    cfg = load_config(smoke_config_path)
+    assert cfg["preprocessing_profile"] == "smoke"
+    assert cfg["preprocessing"]["filter"]["bandpass"] == [0.5, 30]
+    assert cfg["preprocessing"]["ica"]["n_components"] == 12
+    assert cfg["preprocessing"]["reject"]["method"] == "threshold"
+
+
+def test_preprocessing_profile_arg_override():
+    from eeg_steptype.config import load_config
+    cfg = load_config(preprocessing_profile="smoke")
+    assert cfg["preprocessing_profile"] == "smoke"
+    assert cfg["preprocessing"]["ica"]["n_components"] == 12
+
+
+def test_preprocessing_profile_missing_raises():
+    from eeg_steptype.config import load_config
+    with pytest.raises(FileNotFoundError):
+        load_config(preprocessing_profile="does_not_exist")
+
+
+def test_list_preprocessing_profiles():
+    from eeg_steptype.config import list_preprocessing_profiles
+    profs = list_preprocessing_profiles()
+    assert "default" in profs
+    assert "smoke" in profs
+
+
+def test_per_participant_override_beats_profile():
+    """P25 has its own filter override; it should win over the default profile."""
+    from eeg_steptype.config import load_config, apply_participant_override
+    cfg = load_config()
+    assert cfg["preprocessing"]["filter"]["bandpass"] == [0.1, 40]   # profile default
+    p25 = apply_participant_override(cfg, "P25")
+    assert p25["preprocessing"]["filter"]["bandpass"] == [0.15, 36]  # P25 wins

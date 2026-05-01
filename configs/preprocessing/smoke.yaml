@@ -1,0 +1,33 @@
+# =====================================================================
+# Smoke preprocessing profile — fast variant for end-to-end checks.
+# Inherits the default profile and tightens a few knobs to keep the
+# smoke run under a couple of minutes.
+# =====================================================================
+
+preprocessing:
+
+  filter:
+    bandpass:    [0.5, 30]    # narrower band → fewer cycles for the TFR later
+    notch:       [60]
+    ica_highpass: 1.0
+
+  bads:
+    method: manual            # skip the PyPREP scan; rely on bads_extra only
+
+  ica:
+    n_components: 12          # half of default
+    random_state: 97
+    train_window_seconds: [50, 70]
+    iclabel_artifact_prob_threshold: 0.95
+    artifact_labels: [eye blink, muscle artifact]
+
+  epoch:
+    tmin: -0.1
+    tmax:  2.0
+    baseline: [null, 0.0]
+
+  reject:
+    method: threshold         # autoreject is slow; use a flat threshold for smoke
+    fallback_eeg_threshold: 200e-6
+
+  qc_report: false

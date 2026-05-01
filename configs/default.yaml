@@ -1,21 +1,25 @@
 # =====================================================================
 # Default configuration for the EEG Step-Type Prediction pipeline.
 #
-# Per-machine overrides go in `configs/local.yaml` (gitignored).
-# Per-participant overrides go in `configs/overrides/Pxx.yaml`.
-# Both are merged on top of this file at load time.
+# Layered config (right-hand wins, see src/eeg_steptype/config.py):
+#   configs/preprocessing/<profile>.yaml ← THIS file ← local.yaml ← overrides/Pxx.yaml
+#
+# - Per-machine overrides go in `configs/local.yaml` (gitignored).
+# - Per-participant overrides go in `configs/overrides/Pxx.yaml`.
+# - Preprocessing knobs live in their own profile file under
+#   `configs/preprocessing/<profile>.yaml` so you can A/B different
+#   preprocessing recipes against the same models reproducibly.
 # =====================================================================
 
 # ---------------------------------------------------------------------
 # Paths. Override `paths.raw_root` in configs/local.yaml for your machine.
-# Other paths are resolved relative to the project root.
 # ---------------------------------------------------------------------
 paths:
   raw_root: "C:/Users/Aria/OneDrive - The University of Western Ontario/MSc/Thesis/Data/Participants"
-  data_dir: "data"                 # interim/cleaned epochs, features, src CSVs
-  outputs_dir: "outputs"           # figs, reports, run artifacts
-  bdf_subdir: ""                   # raw .bdf files relative to raw_root (e.g. "Pxx/Pxx_CNV.bdf")
-  epochs_subdir: "bad_interpolated/Epochs/CNV"  # cleaned epoch .fif files (legacy location)
+  data_dir: "data"
+  outputs_dir: "outputs"
+  bdf_subdir: ""
+  epochs_subdir: "bad_interpolated/Epochs/CNV"
 
 # ---------------------------------------------------------------------
 # Cohort
@@ -54,56 +58,17 @@ participants:
 
 conditions: [One, Two]
 
-# Trigger codes for event detection (see preprocessing/events.py)
 events:
-  one: 256        # condition trigger for "One" (straight)
-  two: 512        # condition trigger for "Two" (diagonal)
-  response: 96    # response/onset trigger paired with the condition trigger
+  one: 256
+  two: 512
+  response: 96
 
 # ---------------------------------------------------------------------
-# Preprocessing
+# Preprocessing — the full preprocessing spec (filters, ICA, rejection,
+# epoching) lives in configs/preprocessing/<profile>.yaml. Switch
+# profiles by changing this name; see configs/preprocessing/README.md.
 # ---------------------------------------------------------------------
-preprocessing:
-  # Filtering (Hz). 0.1–40 is the modal final bandpass across the cohort;
-  # individual deviations live in `configs/overrides/Pxx.yaml`.
-  filter:
-    bandpass:    [0.1, 40]    # final bandpass after ICA
-    notch:       [60, 120, 180, 240, 300, 360]
-    ica_highpass: 1.0         # high-pass on the COPY used for ICA training only
-
-  # Bad-channel detection. `auto` runs PyPREP; the per-participant override
-  # may add more channels via `bads_extra`.
-  bads:
-    method: auto              # "auto" | "manual"
-    pyprep_random_state: 42
-
-  # ICA settings
-  ica:
-    n_components: 20
-    random_state: 97
-    train_window_seconds: [50, 100]   # crop window used to fit ICA
-
-    # Conservative auto-exclusion via mne-icalabel.
-    # A component is excluded if the predicted label is NOT brain/other AND
-    # the predicted probability for the artifact label exceeds this value.
-    iclabel_artifact_prob_threshold: 0.9
-    artifact_labels: [eye blink, muscle artifact, heart beat, line noise, channel noise]
-
-  # Epoching
-  epoch:
-    tmin: -0.1
-    tmax:  2.0
-    baseline: [null, 0.0]     # YAML null → Python None (i.e. start of epoch)
-
-  # Automated rejection via autoreject (replaces the hand-tuned voltage
-  # thresholds). If `autoreject` is unavailable, falls back to the
-  # `fallback_eeg_threshold` voltage threshold.
-  reject:
-    method: autoreject        # "autoreject" | "threshold"
-    fallback_eeg_threshold: 100e-6
-
-  # Quality-control: write a small HTML report per participant
-  qc_report: true
+preprocessing_profile: default
 
 # ---------------------------------------------------------------------
 # Source localization
@@ -115,18 +80,18 @@ source_localization:
   parcellation: "aparc.a2009s"
   method: "eLORETA"
   snr: 2.0
-  bin_n: 0.125              # 1/8 second bins
+  bin_n: 0.125
   min_time: 0.0
-  cache_forward: true       # cache forward solution per participant
+  cache_forward: true
 
 # ---------------------------------------------------------------------
 # Feature extraction
 # ---------------------------------------------------------------------
 features:
-  bin_n: 0.125              # bin width in seconds
-  min_time: 0.0             # crop start (seconds)
+  bin_n: 0.125
+  min_time: 0.0
   max_time: 2.0
-  freqs:                    # for Morlet TFR
+  freqs:
     fmin: 0.5
     fmax: 40.0
     fstep: 0.5
@@ -136,7 +101,7 @@ features:
     Alpha: [8.0, 13.0]
     Beta:  [13.0, 30.0]
     Gamma: [30.0, 40.0]
-  blocks: [amplitude, slopes, psd, src]   # which feature blocks to assemble
+  blocks: [amplitude, slopes, psd, src]
 
 # ---------------------------------------------------------------------
 # Modeling
@@ -152,7 +117,7 @@ modeling:
     min_features_to_select: 200
     scoring: "roc_auc"
   gain_prune:
-    mode: "zero"            # "zero" | "percentile" | "absolute"
+    mode: "zero"
     percentile: 10
     absolute: 0.001
   shap_prune_quantile: 0.20
@@ -191,5 +156,5 @@ modeling:
 # Logging / reproducibility
 # ---------------------------------------------------------------------
 logging:
-  level: INFO              # DEBUG | INFO | WARNING | ERROR
-  stamp_runs: true         # write config snapshot + git SHA per run
+  level: INFO
+  stamp_runs: true
