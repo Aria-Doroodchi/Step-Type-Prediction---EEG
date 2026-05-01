@@ -1,0 +1,65 @@
+# =============================================================================
+# Data files — too large for Git, regenerate from preprocessing scripts
+# See data/README.md for details on the expected files.
+# =============================================================================
+
+# Master epoch CSV (~4.9 GB), produced by 01_preprocessing/CNV_epoch_extraction.py
+CNV_epochs_df.csv
+
+# R-side disk-format dataframes
+CNV_ch_df_full_disk.rds
+CNV_ch_df_sub_disk.rds
+CNV_binned.rds
+
+# Per-participant source-localized CSVs (~115 MB total),
+# produced by 01_preprocessing/SRC_writer.py
+src/
+
+# Anything else placed in data/ should not be tracked
+data/*
+!data/README.md
+!data/.gitkeep
+
+# =============================================================================
+# RStudio session files
+# =============================================================================
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+venv/
+.venv/
+env/
+
+# =============================================================================
+# IDE / editor
+# =============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =============================================================================
+# OS
+# =============================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =============================================================================
+# Empty leftover dir from reorganization (figs/ contents moved to outputs/figs/)
+# =============================================================================
+/figs/
