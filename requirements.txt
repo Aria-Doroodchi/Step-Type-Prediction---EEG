@@ -1,5 +1,7 @@
 # Python dependencies for the Step Type Prediction (EEG) project.
 # Pinned to flexible minor versions; bump as needed.
+#
+# For development install: pip install -e .[dev,lstm]
 
 # Core EEG / signal-processing
 mne>=1.6
@@ -9,6 +11,7 @@ pyvista>=0.43
 numpy>=1.24
 pandas>=2.0
 scipy>=1.10
+pyarrow>=14.0          # parquet for cached feature matrices
 
 # Plotting
 matplotlib>=3.7
@@ -17,10 +20,17 @@ matplotlib>=3.7
 scikit-learn>=1.3
 xgboost>=2.0
 
-# Deep learning (used by the LSTM line)
-tensorflow>=2.13   # Keras 2 lives here; if using Keras 3 / PyTorch backend,
-                   # replace with `keras>=3` + a backend
-# torch>=2.1       # uncomment if any script switches to PyTorch
+# Deep learning (LSTM)
+tensorflow>=2.13
+scikeras>=0.12
 
 # Explainability
 shap>=0.44
+
+# Configuration
+pyyaml>=6.0
+
+# Automated preprocessing
+pyprep>=0.4            # bad-channel detection
+mne-icalabel>=0.6      # ICA component classification (eye/heart/muscle/etc.)
+autoreject>=0.4        # automated epoch rejection thresholds

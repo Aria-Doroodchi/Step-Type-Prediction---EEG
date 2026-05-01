@@ -1,0 +1,12 @@
+# P33 — preprocessing override
+# Source: bad_interpolated/P33/P33_CNV.py
+
+bads_extra: [P9]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 4, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 57.5e-6, Two: 63.5e-6 }

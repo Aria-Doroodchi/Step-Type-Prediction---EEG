@@ -1,0 +1,17 @@
+# P19 — preprocessing override
+# Source: bad_interpolated/P19/P19_CNV.py
+# Raw cropped to 8–1090s in original script.
+
+raw_assembly:
+  files:
+    - { path: "P19/P19_CNV.bdf", tmin: 8.0, tmax: 1090.0 }
+
+bads_extra: [P8, F5, F3]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 3, 4, 6, 7, 8, 9, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 110.0e-6, Two: 87.0e-6 }

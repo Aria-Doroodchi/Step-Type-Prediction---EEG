@@ -1,0 +1,16 @@
+# P25 — preprocessing override
+# Source: bad_interpolated/P25/P25_CNV.py
+
+bads_extra: [P10, PO8]
+
+preprocessing:
+  filter:
+    bandpass: [0.15, 36]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 3, 6, 7, 9, 12, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 48.0e-6, Two: 51.5e-6 }

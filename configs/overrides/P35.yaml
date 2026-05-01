@@ -1,0 +1,12 @@
+# P35 — preprocessing override
+# Source: bad_interpolated/P35/P35_CNV.py
+
+bads_extra: [F7, P1, Fp1, Fpz, Fp2, PO8, AF7]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 7, 12, 13, 14, 15, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 127.0e-6, Two: 143.0e-6 }

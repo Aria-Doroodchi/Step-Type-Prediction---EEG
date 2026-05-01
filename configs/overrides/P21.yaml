@@ -1,0 +1,16 @@
+# P21 — preprocessing override
+# Source: bad_interpolated/P21/P21_CNV.py
+
+bads_extra: [O1, F4, CP2, PO4]
+
+preprocessing:
+  filter:
+    bandpass: [0.2, 40]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 6, 7, 9, 11, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 73.0e-6, Two: 70.0e-6 }

@@ -1,0 +1,16 @@
+# P05 — preprocessing override
+# Source: bad_interpolated/P05/P05_CNV.py
+
+bads_extra: [AF3, P1, O1, FC1, P8, PO8, O2]
+
+preprocessing:
+  filter:
+    bandpass: [0.2, 40]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 4, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 133.5e-6, Two: 136.5e-6 }

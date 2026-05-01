@@ -1,0 +1,17 @@
+# P03 — preprocessing override
+# Source: bad_interpolated/P03/P03_CNV.py
+# ICA training window extended (50–300s instead of 50–100s).
+
+bads_extra: [C1, F7, P1, P7, P9, PO3, Oz, Pz, CPz, Fz, FCz, P4, Iz, AF4, Fpz, FT7, AF3, F8]
+
+preprocessing:
+  ica:
+    train_window_seconds: [50, 300]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 3, 4, 5, 8, 9, 11, 15, 16, 17]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 72.0e-6, Two: 73.5e-6 }

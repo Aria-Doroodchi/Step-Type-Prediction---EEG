@@ -1,0 +1,17 @@
+# P14 — preprocessing override
+# Source: bad_interpolated/P14/P14_CNV.py
+# Raw cropped to 0–1092s in original script.
+
+raw_assembly:
+  files:
+    - { path: "P14/P14_CNV.bdf", tmin: 0.0, tmax: 1092.0 }
+
+bads_extra: [T7, TP7, C5]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 5, 8, 9, 11, 12, 13, 14, 15, 16, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 53.0e-6, Two: 52.5e-6 }

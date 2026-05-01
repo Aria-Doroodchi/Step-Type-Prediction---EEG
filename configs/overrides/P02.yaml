@@ -1,0 +1,18 @@
+# P02 — preprocessing override
+# Source: bad_interpolated/P02/P02_CNV.py
+# Original recording was split across two files; concatenated here.
+
+raw_assembly:
+  files:
+    - "P02/P02_CNV.bdf"
+    - "P02/P02_CNV_2.bdf"
+
+bads_extra: []
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 9, 10, 12, 13, 14, 15, 16, 17]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 65.0e-6, Two: 65.0e-6 }

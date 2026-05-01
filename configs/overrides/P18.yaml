@@ -1,0 +1,12 @@
+# P18 — preprocessing override
+# Source: bad_interpolated/P18/P18_CNV.py
+
+bads_extra: [AF7]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 100.0e-6, Two: 100.0e-6 }

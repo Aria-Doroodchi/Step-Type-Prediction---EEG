@@ -1,0 +1,12 @@
+# P07 — preprocessing override
+# Source: bad_interpolated/P07/P07_CNV.py
+
+bads_extra: [O2, FT8, PO8, Iz, Oz]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 3, 6, 7, 8, 9, 10, 11, 13, 14, 15, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 91.5e-6, Two: 105.0e-6 }

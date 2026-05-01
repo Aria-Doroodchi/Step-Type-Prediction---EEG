@@ -1,0 +1,16 @@
+# P10 — preprocessing override
+# Source: bad_interpolated/P10/P10_CNV.py
+
+bads_extra: [Iz, T8]
+
+preprocessing:
+  filter:
+    bandpass: [0.1, 30]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 5, 8, 9, 11, 12, 13, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 58.0e-6, Two: 46.5e-6 }

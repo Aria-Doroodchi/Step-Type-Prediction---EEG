@@ -1,0 +1,16 @@
+# P28 — preprocessing override
+# Source: bad_interpolated/P28/P28_CNV.py
+
+bads_extra: [P2, POz]
+
+preprocessing:
+  filter:
+    bandpass: [0.3, 40]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 2, 10, 11, 12, 13, 14, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 56.0e-6, Two: 53.0e-6 }

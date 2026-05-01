@@ -1,9 +1,26 @@
 # =============================================================================
-# Data files — too large for Git, regenerate from preprocessing scripts
+# Legacy code superseded by the reorganization.
+# These folders are kept on disk for reference but are NOT tracked. The
+# replacement code lives under src/eeg_steptype/ and scripts/.
+# =============================================================================
+01_preprocessing/
+02_models/archive/
+02_models/lstm/
+02_models/svm/
+02_models/xgboost/
+03_visualization/python/
+sandbox/
+_repo_export/
+
+# Legacy CSV from old SRC_writer.py (top-level src/ — different from new src/eeg_steptype/)
+/src/*.csv
+
+# =============================================================================
+# Data files — too large for Git, regenerate from the preprocessing scripts.
 # See data/README.md for details on the expected files.
 # =============================================================================
 
-# Master epoch CSV (~4.9 GB), produced by 01_preprocessing/CNV_epoch_extraction.py
+# Master epoch CSV (~4.9 GB), produced by legacy 01_preprocessing/CNV_epoch_extraction.py
 CNV_epochs_df.csv
 
 # R-side disk-format dataframes
@@ -11,14 +28,27 @@ CNV_ch_df_full_disk.rds
 CNV_ch_df_sub_disk.rds
 CNV_binned.rds
 
-# Per-participant source-localized CSVs (~115 MB total),
-# produced by 01_preprocessing/SRC_writer.py
-src/
+# New pipeline data and outputs (regenerable, large)
+data/interim/
+data/features/
+data/src/
+outputs/runs/
+outputs/qc/
+outputs/figs/
 
-# Anything else placed in data/ should not be tracked
+# Per-machine config (committed copy lives at configs/local.yaml.example)
+configs/local.yaml
+
+# Anything else placed in data/ outside the README
 data/*
 !data/README.md
 !data/.gitkeep
+
+# Raw EEG and intermediate artifacts
+*.fif
+*.bdf
+*.rds
+*.parquet
 
 # =============================================================================
 # RStudio session files
@@ -38,6 +68,8 @@ __pycache__/
 .Python
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .ipynb_checkpoints/
 venv/
 .venv/

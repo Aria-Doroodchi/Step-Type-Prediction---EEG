@@ -1,0 +1,12 @@
+# P04 — preprocessing override
+# Source: bad_interpolated/P04/P04_CNV.py
+
+bads_extra: [F5, C5, P7, Iz, AF8, F4, CP6, P10, FC4, C4, P9, FC5, FT8, PO4, Fp2]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 3, 4, 5, 7, 9, 12, 13, 15, 17, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 75.0e-6, Two: 75.0e-6 }

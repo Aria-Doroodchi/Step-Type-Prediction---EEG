@@ -1,0 +1,23 @@
+# P08 — preprocessing override
+# Source: bad_interpolated/P08/P08_CNV.py
+# Original script cropped raw to two windows (72–135s and 215–1100s) and
+# concatenated them — manual surgery that's preserved here.
+
+raw_assembly:
+  files:
+    - { path: "P08/P08_CNV.bdf", tmin: 72.0,  tmax: 135.0  }
+    - { path: "P08/P08_CNV.bdf", tmin: 215.0, tmax: 1100.0 }
+
+bads_extra: [P10, P9, F3, F1, C2, FC2]
+
+preprocessing:
+  filter:
+    bandpass: [0.2, 40]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 92.0e-6, Two: 85.0e-6 }

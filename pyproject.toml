@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eeg_steptype"
+version = "0.1.0"
+description = "Step-type prediction from EEG signals (MSc thesis pipeline)."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Abrahao Lab" }]
+license = { text = "TBD" }
+
+dependencies = [
+    "mne>=1.6",
+    "pyvista>=0.43",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "scikit-learn>=1.3",
+    "xgboost>=2.0",
+    "shap>=0.44",
+    "pyyaml>=6.0",
+    "pyarrow>=14.0",       # parquet for cached feature matrices
+    "pyprep>=0.4",         # automated bad-channel detection
+    "mne-icalabel>=0.6",   # ICA component classification
+    "autoreject>=0.4",     # automated epoch rejection
+]
+
+[project.optional-dependencies]
+lstm = ["tensorflow>=2.13", "scikeras>=0.12"]
+dev  = ["pytest>=7", "ruff>=0.1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+eeg_steptype = ["py.typed"]

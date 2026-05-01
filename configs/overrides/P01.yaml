@@ -1,0 +1,12 @@
+# P01 — preprocessing override
+# Source: bad_interpolated/P01/P01_CNV.py
+
+bads_extra: [POz]
+
+# --- Legacy hand-tuned values (preserved for comparison; auto-pipeline runs by default) ---
+# ica:
+#   manual_exclude: [0, 1, 2, 3, 4, 5, 7, 8, 9, 11, 12, 13, 15, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 88.0e-6, Two: 93.2e-6 }

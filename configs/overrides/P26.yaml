@@ -1,0 +1,12 @@
+# P26 — preprocessing override
+# Source: bad_interpolated/P26/P26_CNV.py
+
+bads_extra: []
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 4, 5, 7, 8, 10, 11, 12, 14, 15, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 90.0e-6, Two: 90.5e-6 }

@@ -1,0 +1,15 @@
+# Per-machine overrides. Copy this file to `configs/local.yaml` and edit.
+# `configs/local.yaml` is gitignored; `local.yaml.example` is committed.
+#
+# Anything you set here overrides values in `configs/default.yaml`.
+
+paths:
+  # Edit to point to the Participants folder on YOUR machine.
+  raw_root: "C:/path/to/Participants"
+
+# Optional: shrink the cohort during development for faster iteration.
+# participants: [P01, P02]
+
+# Optional: turn down logging on slower machines.
+# logging:
+#   level: WARNING

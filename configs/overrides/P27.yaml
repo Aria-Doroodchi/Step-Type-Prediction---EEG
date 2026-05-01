@@ -1,0 +1,12 @@
+# P27 — preprocessing override
+# Source: bad_interpolated/P27/P27_CNV.py
+
+bads_extra: [O1]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 3, 4, 5, 7, 8, 9, 11, 13, 14, 15, 16, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 150.0e-6, Two: 150.0e-6 }

@@ -1,0 +1,22 @@
+# P17 — preprocessing override
+# Source: bad_interpolated/P17/P17_CNV.py
+# Heavy left-hemisphere bads (27 channels). Original script set reject=None
+# and called epochs.drop([...]) by hand — preserved as legacy below.
+
+bads_extra: [Fp1, AF7, AF3, F1, F3, F5, F7, FT7, FC5, FC3, FC1, C5, TP7,
+             P5, P7, P9, PO7, O1, Iz, Oz, POz, T8, P8, P10, PO8, PO4, O2]
+
+preprocessing:
+  filter:
+    bandpass: [0.3, 40]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 4, 5, 9, 10, 11, 12, 13, 14, 16, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold        # original used reject=None + manual epochs.drop
+#     thresholds: { One: 180.0e-6, Two: 200.0e-6 }
+#     # manual_drop:
+#     #   One: []              # populate from epochs.drop([...]) in original
+#     #   Two: []

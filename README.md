@@ -1,13 +1,48 @@
 # Step Type Prediction — EEG
 
-Machine-learning pipeline for predicting **step type** — *straight* vs
-*diagonal* — from EEG signals recorded during a stepping task. Part of
-an MSc thesis project.
+Machine-learning pipeline for predicting **step type** — *straight* (`One`)
+vs *diagonal* (`Two`) — from EEG signals recorded during a stepping task.
+Part of an MSc thesis project.
 
-The classification target is the binary condition label (`One` =
-straight, `Two` = diagonal) attached to each epoch. Features are drawn
-from electrode-level amplitudes, power spectral density (PSD), and
-source-space activity reconstructed via eLORETA.
+Features come from electrode-level amplitudes, power spectral density
+(Morlet TFR), and source-space activity reconstructed via eLORETA.
+
+---
+
+## Quick start
+
+```bash
+# 1. Install (editable)
+pip install -e .
+
+# 2. Point the pipeline at your raw data folder
+cp configs/local.yaml.example configs/local.yaml
+# …edit `paths.raw_root` in configs/local.yaml…
+
+# 3. Smoke test (~30 s — checks the pipeline end-to-end on synthetic data)
+make test
+
+# 4. Full run (preprocessing → src → features → XGBoost training)
+make all                        # all stages, default model = xgb
+make train MODEL=lstm           # just the training stage with a different model
+```
+
+Stage-by-stage runs:
+
+```bash
+python scripts/01_preprocess.py            # raw .bdf → cleaned epochs .fif
+python scripts/02_source_localize.py       # epochs → per-participant src CSV
+python scripts/03_extract_features.py      # epochs+src → cached parquet
+python scripts/04_train.py --model xgb     # features → metrics CSV
+python scripts/05_visualize.py --run outputs/runs/<run_id>
+```
+
+Or in one Python process:
+
+```bash
+python run.py --config configs/default.yaml --model xgb
+python run.py --stages features train --participants P25 P26 --model logistic
+```
 
 ---
 
@@ -15,106 +50,192 @@ source-space activity reconstructed via eLORETA.
 
 ```
 .
-├── 01_preprocessing/        # Build features from the raw .fif epoch files
-│   ├── CNV_epoch_extraction.py     # → master epoch CSV
-│   └── SRC_writer.py               # → per-participant source-localized CSVs
+├── configs/
+│   ├── default.yaml          # all knobs: paths, participants, params, grids
+│   ├── local.yaml.example    # per-machine override (commit local.yaml as gitignored)
+│   ├── smoke.yaml            # tiny config for end-to-end smoke runs
+│   └── overrides/            # one YAML per participant — preserves manual cuts/appends
+│       ├── P01.yaml … P39.yaml
+│       └── README.md
 │
-├── 02_models/               # Classifiers
-│   ├── xgboost/
-│   │   ├── CNV_XGB_4.3.py          ← current XGBoost model
-│   │   └── archive/                # earlier iterations + VERSIONS.md
-│   ├── lstm/
-│   │   ├── CNV_LSTM_3.py           ← current LSTM model
-│   │   └── archive/                # earlier iterations + VERSIONS.md
-│   ├── svm/
-│   │   └── CNV_ML_SVM_1.py
-│   ├── R/
-│   │   ├── CNV_model.R             # XGBoost in R
-│   │   └── CNV_XGB_ch.Rmd          # knitted analysis report
-│   └── archive/                    # early electrode-level baselines + VERSIONS.md
+├── src/eeg_steptype/         # importable package (pip install -e .)
+│   ├── config.py             # YAML loading + per-participant merge
+│   ├── io.py                 # standard path layout
+│   ├── logging_utils.py      # logger + run-stamping
+│   ├── preprocessing/        # raw .bdf → cleaned epochs
+│   │   ├── montage.py        ├── load.py        ├── bads.py
+│   │   ├── filter.py         ├── reference.py   ├── ica.py
+│   │   ├── events.py         ├── epoching.py    ├── reject.py
+│   │   └── pipeline.py
+│   ├── source_localization/  # epochs → src CSV (cached forward+inverse)
+│   │   ├── forward.py  ├── inverse.py  ├── labels.py  └── pipeline.py
+│   ├── features/             # amplitude, slopes, PSD, assemble → parquet
+│   │   ├── amplitude.py  ├── slopes.py  ├── psd.py  └── assemble.py
+│   ├── models/               # feature selection + classifier factories
+│   │   ├── feature_selection.py     # corr / KBest / RFECV / gain / SHAP
+│   │   ├── xgb.py  ├── svm.py  ├── lstm.py  ├── logistic.py
+│   │   ├── train.py          # generic per-participant fit/eval driver
+│   │   └── evaluate.py       # confusion matrix + cohort rollup
+│   └── viz/                  # plots
 │
-├── 03_visualization/        # Plots: topomaps, source brain graphs, results
-│   ├── python/
-│   └── R/
+├── scripts/                  # thin per-stage CLI orchestrators
+│   ├── 01_preprocess.py        02_source_localize.py
+│   ├── 03_extract_features.py  04_train.py
+│   └── 05_visualize.py
 │
-├── sandbox/                 # Ad-hoc / exploratory
-│   └── test.py
+├── tests/                    # smoke tests
+│   ├── test_imports.py       # every module imports cleanly
+│   ├── test_smoke_pipeline.py# synthetic-data end-to-end run
+│   └── conftest.py
 │
-├── data/                    # Data files live here locally; gitignored
-│   └── README.md            # what's expected, how to regenerate
+├── data/                     # gitignored
+│   ├── interim/epochs/         cleaned .fif
+│   ├── src/                    per-participant src CSVs
+│   └── features/               cached feature parquets
 │
 ├── outputs/
-│   ├── figs/                # Generated figures (LORETA, topomaps)
-│   └── reports/             # Knitted HTML reports
+│   ├── runs/<run_id>/          metrics.csv, rollup.csv, config.yaml, git_sha.txt
+│   ├── qc/                     per-participant preprocessing reports
+│   └── figs/                   topomaps, brain plots
 │
-├── ML.Rproj                 # RStudio project file
-├── requirements.txt         # Python dependencies
-├── .gitignore
-└── README.md
+├── run.py                    # single-process pipeline driver
+├── Makefile                  # `make smoke`, `make preprocess`, `make train MODEL=…`
+├── pyproject.toml            # installable package
+├── requirements.txt
+└── REORG_PROPOSAL.md         # design doc this layout was built from
 ```
+
+---
+
+## Configuration
+
+Three YAMLs are deep-merged at load time, in this order:
+
+1. **`configs/default.yaml`** — committed; project defaults (paths,
+   participant list, all hyper-parameters and grids).
+2. **`configs/local.yaml`** — gitignored; per-machine overrides. The only
+   thing most users need to set is `paths.raw_root`.
+3. **`configs/overrides/Pxx.yaml`** — applied on top *only when that
+   participant is being processed*. This is where each participant's manual
+   surgery (cuts, appends, swapped electrodes, lab-flagged bad channels)
+   lives. See [`configs/overrides/README.md`](configs/overrides/README.md)
+   for the full schema.
+
+**Example — P02 had two raw files concatenated:**
+
+```yaml
+# configs/overrides/P02.yaml
+raw_assembly:
+  files:
+    - "P02/P02_CNV.bdf"
+    - "P02/P02_CNV_2.bdf"
+```
+
+**Example — P08 had two crop windows from one file:**
+
+```yaml
+raw_assembly:
+  files:
+    - { path: "P08/P08_CNV.bdf", tmin: 72.0,  tmax: 135.0  }
+    - { path: "P08/P08_CNV.bdf", tmin: 215.0, tmax: 1100.0 }
+```
+
+---
 
 ## Pipeline
 
 ```
-raw .fif epochs (Participants/) ──► 01_preprocessing/CNV_epoch_extraction.py
-                                  ──► 01_preprocessing/SRC_writer.py
-
-                                            │
-                                            ▼
-
-                              02_models/{xgboost, lstm, svm, R}/
-
-                                            │
-                                            ▼
-
-                              03_visualization/{python, R}/
-                              outputs/figs/, outputs/reports/
+raw .bdf  ──►  01_preprocess          (auto: PyPREP bads, ICLabel, autoreject)
+           ──►  02_source_localize    (cached forward + inverse, eLORETA)
+           ──►  03_extract_features   (amplitude, slopes, PSD → parquet)
+           ──►  04_train              (corr → KBest → RFECV → gain → SHAP → GridSearch)
+           ──►  05_visualize
 ```
 
-## Version history of the model scripts
+What each stage produces:
 
-Each model family was developed iteratively. The "current" version sits
-at the top of its `02_models/<family>/` folder, and earlier numbered
-versions live in `archive/` alongside a `VERSIONS.md` that summarizes
-what changed between consecutive versions:
+| Stage | Inputs | Outputs |
+|---|---|---|
+| 01 preprocess  | `{raw_root}/Pxx/Pxx_CNV.bdf` | `data/interim/epochs/Pxx_CNV_{One,Two}-epo.fif` |
+| 02 src         | epoch .fif                   | `data/src/Pxx_{One,Two}_src.csv` |
+| 03 features    | epoch .fif + src CSV         | `data/features/Pxx_{One,Two}_features.parquet` |
+| 04 train       | feature parquets             | `outputs/runs/<run_id>/{metrics.csv, rollup.csv, config.yaml, git_sha.txt}` |
+| 05 visualize   | metrics.csv                  | `outputs/runs/<run_id>/per_participant_accuracy.png` |
 
-- [`02_models/xgboost/archive/VERSIONS.md`](02_models/xgboost/archive/VERSIONS.md)
-- [`02_models/lstm/archive/VERSIONS.md`](02_models/lstm/archive/VERSIONS.md)
-- [`02_models/archive/VERSIONS.md`](02_models/archive/VERSIONS.md)
-  (early electrode-level baselines that preceded the XGBoost / LSTM
-  split)
+Every stage is **idempotent**: re-running a stage skips participants whose
+output already exists, unless `--force` is passed.
 
-For exact line-by-line diffs use `git log -p <file>` or
-`diff -u <a> <b>`.
+---
+
+## Smoke testing
+
+```bash
+make test       # pytest: imports + synthetic-data pipeline (~30–60 s)
+make smoke      # end-to-end run on configs/smoke.yaml (1 participant, logistic)
+```
+
+`configs/smoke.yaml` shrinks every expensive knob:
+
+- 1 participant, 1 condition pair
+- 4 time bins instead of 16
+- Two frequency bands (Theta, Alpha) instead of five
+- `n_iterations=1` for RFECV (vs 5)
+- Tiny GridSearchCV grid for logistic regression (`C ∈ {0.1, 1.0}`)
+- SHAP pruning disabled
+- Forward solution caching off
+
+A full XGBoost run on 30 participants takes hours; `make smoke` with
+logistic regression on 1 participant takes well under a minute.
+
+---
+
+## Reproducibility
+
+Every training run writes a stamped folder under `outputs/runs/<run_id>/`:
+
+- `config.yaml` — full merged config snapshot
+- `git_sha.txt` — repo commit at run time
+- `env.json`   — Python version, platform, argv
+- `metrics.csv` — per-participant scores
+- `rollup.csv`  — cohort totals
+
+This means a result can be reproduced by checking out the recorded git SHA
+and running `python run.py --config <runs/.../config.yaml>`.
+
+---
 
 ## Setup
 
-### Python
-
 ```bash
 python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e .[dev,lstm]         # editable install + extras
 ```
 
-### R
+The optional `lstm` extra pulls in TensorFlow + scikeras (large download);
+omit it if you only run XGBoost / SVM / logistic.
 
-Open `ML.Rproj` in RStudio. The R modeling scripts use `xgboost`,
-`caret`, `tidyverse`, `Matrix`, `plotly`, `gt`, `pracma`, `reshape2`,
-`ggstatsplot`. Install via `install.packages(...)` as needed.
+### R side
 
-### Data
+The legacy R scripts in `02_models/R/` and `03_visualization/R/` are kept
+for compatibility but aren't part of the new automated pipeline.
 
-Data files are not in the repo. See [`data/README.md`](data/README.md)
-for what's expected and how to regenerate it from the raw `.fif` epochs.
+---
 
-## Known portability issue
+## Migration notes
 
-The scripts currently hard-code Windows OneDrive paths of the form
-`C:/Users/Aria/OneDrive - The University of Western Ontario/...`. These
-need to be edited before the scripts will run on a different machine.
-A future cleanup pass should replace them with a single configurable
-project root (config file or environment variable).
+This layout was built from the proposal in
+[`REORG_PROPOSAL.md`](REORG_PROPOSAL.md), which documents the rationale for
+each module split and the rejected alternatives. The 7-phase migration plan
+in that document is fully applied.
+
+The old per-participant preprocessing scripts at
+`bad_interpolated/Pxx/Pxx_CNV.py` were translated module-by-module into
+`src/eeg_steptype/preprocessing/` plus 33 YAML override files preserving
+every hand-tuned parameter (cuts, appends, channel swaps, bads,
+ICA-exclude lists, rejection thresholds). The legacy hand-tuned values are
+kept as commented blocks inside each override so they're recoverable for
+side-by-side comparison.
 
 ## License
 

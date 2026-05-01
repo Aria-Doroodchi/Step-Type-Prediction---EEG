@@ -1,0 +1,12 @@
+# P13 — preprocessing override
+# Source: bad_interpolated/P13/P13_CNV.py
+
+bads_extra: [AF7, Oz]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 4, 5, 6, 9, 10, 12, 13, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 96.0e-6, Two: 74.0e-6 }

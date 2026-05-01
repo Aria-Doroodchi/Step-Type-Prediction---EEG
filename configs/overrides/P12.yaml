@@ -1,0 +1,16 @@
+# P12 — preprocessing override
+# Source: bad_interpolated/P12/P12_CNV.py
+
+bads_extra: [P1, PO8, P9, T7, P3, P5, PO3, POz, Pz, PO7, O1, PO4, O2]
+
+preprocessing:
+  filter:
+    bandpass: [0.2, 36]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 3, 7, 8, 9, 12, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 42.0e-6, Two: 42.0e-6 }

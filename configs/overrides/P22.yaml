@@ -1,0 +1,14 @@
+# P22 — preprocessing override
+# Source: bad_interpolated/P22/P22_CNV.py
+# Note: original had bads list and ICA exclude commented out.
+# (Not in default cohort; kept for completeness if added later.)
+
+bads_extra: []
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: []
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 57.0e-6, Two: 63.0e-6 }

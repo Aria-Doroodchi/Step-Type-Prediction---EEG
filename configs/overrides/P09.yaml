@@ -1,0 +1,12 @@
+# P09 — preprocessing override
+# Source: bad_interpolated/P09/P09_CNV.py
+
+bads_extra: [PO4, O2, P10, PO7, AFz]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 3, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 41.0e-6, Two: 41.0e-6 }

@@ -1,0 +1,16 @@
+# P30 — preprocessing override
+# Source: bad_interpolated/P30/P30_CNV.py
+
+bads_extra: []
+
+preprocessing:
+  filter:
+    bandpass: [0.2, 40]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 100.0e-6, Two: 85.5e-6 }

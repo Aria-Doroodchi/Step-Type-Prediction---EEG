@@ -1,0 +1,12 @@
+# P15 — preprocessing override
+# Source: bad_interpolated/P15/P15_CNV.py
+
+bads_extra: [O1, Oz, O2]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 3, 4, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 120.0e-6, Two: 115.0e-6 }

@@ -1,0 +1,17 @@
+# P23 — preprocessing override
+# Source: bad_interpolated/P23/P23_CNV.py
+# Raw cropped to 15–1086s in original script.
+
+raw_assembly:
+  files:
+    - { path: "P23/P23_CNV.bdf", tmin: 15.0, tmax: 1086.0 }
+
+bads_extra: [T7, Pz, T8, TP8, P8, PO8, P10, FT7, FC6]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 70.0e-6, Two: 64.0e-6 }

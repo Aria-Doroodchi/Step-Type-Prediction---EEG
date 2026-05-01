@@ -1,0 +1,30 @@
+# P37 — preprocessing override
+# Source: bad_interpolated/P37/P37_CNV.py
+# Manual surgery: cropped to two windows (0–525s and 580–1091s),
+# concatenated. Also has a non-standard electrode mapping that swaps
+# B17 ↔ B22 vs. the cohort default — preserved here.
+
+raw_assembly:
+  files:
+    - { path: "P37/P37_CNV.bdf", tmin: 0.0,   tmax: 525.0  }
+    - { path: "P37/P37_CNV.bdf", tmin: 580.0, tmax: 1091.0 }
+
+# Default cohort mapping has B17→C2 and B22→CP6. P37's recording had
+# these labels swapped at acquisition, so we swap them back here.
+montage_mapping_override:
+  B17: CP6
+  B22: C2
+
+bads_extra: [CP6, P4, CP5, Fpz, PO3, F1]
+
+preprocessing:
+  filter:
+    bandpass: [0.1, 36]
+
+# --- Legacy hand-tuned values ---
+# ica:
+#   manual_exclude: [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 13, 14, 15, 16, 17, 18, 19]
+# preprocessing:
+#   reject:
+#     method: threshold
+#     thresholds: { One: 79.0e-6, Two: 76.5e-6 }
