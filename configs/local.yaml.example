@@ -10,6 +10,11 @@ paths:
 # Optional: shrink the cohort during development for faster iteration.
 # participants: [P01, P02]
 
+# Optional: opt into all per-participant tuning from configs/overrides/Pxx.yaml.
+# Default runs only apply raw_assembly crops/appends for uniform preprocessing.
+# participant_overrides:
+#   mode: full
+
 # Optional: turn down logging on slower machines.
 # logging:
 #   level: WARNING

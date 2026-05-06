@@ -58,6 +58,7 @@ def rfecv_iterated(
     min_features_to_select: int = 200,
     scoring: str = "roc_auc",
     n_splits: int = 2,
+    n_jobs: int = 1,
 ) -> tuple[list[str], np.ndarray]:
     """Run RFECV n times with different folds; return the union of always-kept
     features plus the *mean* feature importances across iterations.
@@ -76,7 +77,7 @@ def rfecv_iterated(
             step=step,
             cv=cv,
             scoring=scoring,
-            n_jobs=-1,
+            n_jobs=n_jobs,
             min_features_to_select=min_features_to_select,
         )
         sel.fit(X, y)

@@ -5,11 +5,12 @@ Pipeline stages (each in its own module):
     montage   constants for the 64-channel BioSemi → 10-20 mapping
     load      raw assembly: single file or concat-with-crops via override
     bads      automated bad-channel detection (PyPREP)
-    filter    notch + bandpass
-    reference average reference projection
+    asr       transient burst correction before ICA
+    filter    ZapLine line-noise removal + bandpass
+    reference provisional CAR for ICA + final CSD
     ica       fit + auto-classify (ICLabel) + apply
     events    extract condition-paired response events
     epoching  build epochs around response events
-    reject    automated artifact rejection (autoreject), with threshold fallback
+    reject    AutoReject-local epoch repair/rejection
     pipeline  orchestrator: ties them together for one participant
 """

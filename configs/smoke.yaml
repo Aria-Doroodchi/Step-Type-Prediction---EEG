@@ -1,7 +1,7 @@
 # =====================================================================
 # Smoke-test config — runs the full pipeline end-to-end in seconds.
-# Layered on top of configs/default.yaml; only the values listed here
-# are overridden. Use it via:
+# Layered on top of configs/default.yaml; only the values listed here are
+# overridden. Use it via:
 #
 #     make smoke
 #     python run.py --config configs/smoke.yaml --model logistic
@@ -11,36 +11,57 @@
 # heavy (LORETA, GridSearch, RFECV, SHAP) actually runs at full size.
 # =====================================================================
 
-# Use the smoke preprocessing profile (skips PyPREP, smaller ICA,
-# threshold rejection). See configs/preprocessing/smoke.yaml.
-preprocessing_profile: smoke
-
 # Single participant only.
 participants: [P25]
 
+# Mirror the default workflow: participant YAMLs only contribute raw .bdf
+# assembly unless a run explicitly opts into full override mode.
+participant_overrides:
+  mode: raw_assembly_only
+
+resources:
+  n_jobs: 2
+
 # Tiny TFR / band setup so PSD computes in a few seconds.
 features:
-  bin_n: 0.5
-  min_time: 0.0
+  bin_n: 0.5                 # 2 late-CNV time-bins instead of 8 full-window bins
+  min_time: 1.0
   max_time: 2.0
   freqs:
     fmin: 4.0
-    fmax: 12.0
+    fmax: 12.0               # only Theta + Alpha
     fstep: 4.0
   freq_bands:
     Theta: [4.0,  8.0]
     Alpha: [8.0, 13.0]
-  blocks: [amplitude, slopes, psd]
+  blocks: [amplitude, slopes, psd]   # skip src by default for smoke
 
-# Strip LORETA: cache_forward off; coarser binning if it does run.
+# Strip LORETA: cache_forward off (we won't typically run src in smoke);
+# if smoke does run src, the binning is coarser.
 source_localization:
   bin_n: 0.5
   cache_forward: false
 
-# Compact the modeling stack: small grids, single RFECV iter, no SHAP.
+# Compact the modeling stack: small grids, single RFECV iteration, no SHAP.
 modeling:
   test_size: 0.30
   random_state: 1
+  cv:
+    mode: repeated_stratified
+    n_splits: 2
+    n_repeats: 1
+    inner_splits: 2
+    chronological_check: false
+  search:
+    method: auto
+    n_jobs: null
+    n_iter: 4
+    halving:
+      resource: n_estimators
+      min_resources: 10
+      max_resources: 50
+      factor: 2
+      aggressive_elimination: false
   correlation_threshold: 0.95
   k_best: 50
   rfecv:
@@ -50,22 +71,25 @@ modeling:
     scoring: "roc_auc"
   gain_prune:
     mode: "zero"
-  shap_prune_quantile: 0.0
+  shap_prune_quantile: 0.0   # effectively disable (keep all)
   inner_cv_splits: 2
 
+  # Tiny logistic-regression grid for the smoke run.
   logistic:
     param_grid:
       C: [0.1, 1.0]
 
+  # Tiny xgb grid (used if --model xgb is passed against smoke).
   xgb:
     n_estimators: 50
-    n_jobs: 2
+    n_jobs: null
     param_grid:
       max_depth: [2]
       learning_rate: [0.1]
       subsample: [1.0]
       colsample_bytree: [1.0]
 
+  # Tiny svm grid.
   svm:
     param_grid:
       C: [1.0]

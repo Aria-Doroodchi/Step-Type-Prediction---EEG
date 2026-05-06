@@ -33,6 +33,11 @@ def epochs_path(cfg: dict, participant_id: str, condition: str) -> Path:
     return data_root(cfg) / "interim" / "epochs" / f"{participant_id}_CNV_{condition}-epo.fif"
 
 
+def source_epochs_path(cfg: dict, participant_id: str, condition: str) -> Path:
+    """EEG-potential epochs for source localization before final CSD."""
+    return data_root(cfg) / "interim" / "source_epochs" / f"{participant_id}_CNV_{condition}-epo.fif"
+
+
 def src_csv_path(cfg: dict, participant_id: str, condition: str) -> Path:
     """Source-localized per-epoch label time-courses produced by 02_source_localize."""
     return data_root(cfg) / "src" / f"{participant_id}_{condition}_src.csv"
@@ -40,7 +45,9 @@ def src_csv_path(cfg: dict, participant_id: str, condition: str) -> Path:
 
 def features_path(cfg: dict, participant_id: str, condition: str) -> Path:
     """Wide feature matrix per (participant, condition) produced by 03_extract_features."""
-    return data_root(cfg) / "features" / f"{participant_id}_{condition}_features.parquet"
+    fcfg = cfg.get("features", {})
+    suffix = _feature_window_suffix(fcfg)
+    return data_root(cfg) / "features" / f"{participant_id}_{condition}_features{suffix}.parquet"
 
 
 def qc_report_path(cfg: dict, participant_id: str) -> Path:
@@ -49,6 +56,16 @@ def qc_report_path(cfg: dict, participant_id: str) -> Path:
 
 def run_dir(cfg: dict, run_id: str) -> Path:
     return outputs_root(cfg) / "runs" / run_id
+
+
+def _feature_window_suffix(fcfg: dict) -> str:
+    if "min_time" not in fcfg or "max_time" not in fcfg:
+        return ""
+    return f"_t{_time_token(fcfg['min_time'])}-{_time_token(fcfg['max_time'])}"
+
+
+def _time_token(value) -> str:
+    return str(float(value)).replace(".", "p").replace("-", "m")
 
 
 # ---------------------------------------------------------------------------

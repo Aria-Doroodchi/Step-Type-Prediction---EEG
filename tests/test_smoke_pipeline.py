@@ -17,7 +17,6 @@ fall back gracefully but the test would otherwise be hardware-dependent.
 from __future__ import annotations
 
 from pathlib import Path
-import shutil
 
 import numpy as np
 import pandas as pd
@@ -100,6 +99,110 @@ def test_features_and_train_end_to_end(isolated_cfg, tmp_path):
     assert not metrics.empty
     expected = {"participant_id", "overall_accuracy", "accuracy_One", "accuracy_Two", "auc"}
     assert expected.issubset(set(metrics.columns))
+
+
+def _synthetic_raw(cfg: dict, participant_id: str, *, n_pairs_per_condition: int = 6):
+    """Create a tiny continuous Raw with paired condition/response triggers."""
+    import mne
+
+    sfreq = 100.0
+    ch_names = ["Cz", "Fz", "Pz", "C3", "C4", "F3", "F4", "P3", "P4", "Oz", "Stim"]
+    ch_types = ["eeg"] * 10 + ["stim"]
+    duration = n_pairs_per_condition * 2 * 3.0 + 3.0
+    n_samples = int(duration * sfreq)
+    rng = np.random.default_rng(abs(hash(participant_id)) % (2 ** 32))
+
+    data = rng.normal(0, 2e-6, size=(len(ch_names), n_samples))
+    data[-1, :] = 0.0
+    events = []
+    sample = int(0.5 * sfreq)
+    for i in range(n_pairs_per_condition * 2):
+        condition = "One" if i % 2 == 0 else "Two"
+        condition_code = int(cfg["events"]["one"] if condition == "One" else cfg["events"]["two"])
+        response_code = int(cfg["events"]["response"])
+        cond_sample = sample
+        resp_sample = sample + int(0.5 * sfreq)
+        data[-1, cond_sample] = condition_code
+        data[-1, resp_sample] = response_code
+        events.append((condition, resp_sample))
+
+        # Add a condition-specific late-CNV-scale signal so downstream
+        # features/training have nonconstant structure.
+        window = slice(resp_sample + int(1.0 * sfreq), resp_sample + int(2.0 * sfreq))
+        data[0, window] += (1e-6 if condition == "One" else 2e-6)
+        sample += int(3.0 * sfreq)
+
+    info = mne.create_info(ch_names, sfreq=sfreq, ch_types=ch_types)
+    info.set_montage("standard_1020", on_missing="ignore")
+    return mne.io.RawArray(data, info, verbose=False)
+
+
+def test_two_participant_full_workflow_smoke(isolated_cfg, monkeypatch):
+    """Run preprocess -> source -> features -> train for two synthetic participants."""
+    from eeg_steptype.io import epochs_path, features_path, run_dir, source_epochs_path, src_csv_path
+    from eeg_steptype.preprocessing import pipeline as preprocess
+    from eeg_steptype.source_localization import pipeline as src_loc
+    from eeg_steptype.features import assemble
+    from eeg_steptype.models.train import run as run_train
+
+    cfg = isolated_cfg
+    cfg["participants"] = ["S01", "S02"]
+    cfg["participant_overrides"]["mode"] = "none"
+    cfg["preprocessing"]["line_noise"]["method"] = "none"
+    cfg["preprocessing"]["bads"]["method"] = "manual"
+    cfg["preprocessing"]["asr"]["enabled"] = False
+    cfg["preprocessing"]["ica"]["n_components"] = 2
+    cfg["preprocessing"]["reject"]["method"] = "threshold"
+    cfg["features"]["blocks"] = ["amplitude", "slopes", "psd", "src"]
+    cfg["features"]["freqs"] = {"fmin": 4.0, "fmax": 8.0, "fstep": 4.0}
+    cfg["features"]["freq_bands"] = {"Theta": [4.0, 8.0]}
+    cfg["source_localization"]["bin_n"] = cfg["features"]["bin_n"]
+    cfg["modeling"]["cv"] = {
+        "mode": "repeated_stratified",
+        "n_splits": 2,
+        "n_repeats": 1,
+        "inner_splits": 2,
+        "chronological_check": False,
+    }
+
+    monkeypatch.setattr(
+        preprocess,
+        "load_raw",
+        lambda cfg, participant_id: _synthetic_raw(cfg, participant_id),
+    )
+    monkeypatch.setattr(src_loc, "load_labels", lambda cfg: ([object()], ["synthetic_label"]))
+    monkeypatch.setattr(src_loc, "build_forward", lambda info, cfg, participant_id=None: {"src": None})
+    monkeypatch.setattr(src_loc, "compute_noise_cov", lambda epochs: object())
+    monkeypatch.setattr(src_loc, "build_inverse", lambda info, fwd, noise_cov: object())
+    monkeypatch.setattr(src_loc, "apply_to_evoked", lambda evoked, inv_op, cfg: evoked)
+    monkeypatch.setattr(
+        src_loc,
+        "extract_label_courses",
+        lambda stc, labels, src: np.atleast_2d(stc.data[:1]),
+    )
+    monkeypatch.setattr(src_loc, "validate_source_assets", lambda cfg: None)
+
+    for pid in cfg["participants"]:
+        preprocess.run(pid, cfg, force=True)
+        for cond in cfg["conditions"]:
+            assert epochs_path(cfg, pid, cond).exists()
+            assert source_epochs_path(cfg, pid, cond).exists()
+
+    for pid in cfg["participants"]:
+        src_loc.run(pid, cfg, force=True)
+        for cond in cfg["conditions"]:
+            assert src_csv_path(cfg, pid, cond).exists()
+
+    for pid in cfg["participants"]:
+        assemble.run(pid, cfg, force=True)
+        for cond in cfg["conditions"]:
+            assert features_path(cfg, pid, cond).exists()
+
+    metrics = run_train(cfg, model="logistic", run_id="two_participant_full_smoke")
+    assert set(metrics["participant_id"]) == {"S01", "S02"}
+    assert {"cv_mode", "fold", "overall_accuracy", "search_method"}.issubset(metrics.columns)
+    assert (run_dir(cfg, "two_participant_full_smoke") / "metrics.csv").exists()
+    assert (run_dir(cfg, "two_participant_full_smoke") / "rollup.csv").exists()
 
 
 def test_evaluate_metrics_shape():

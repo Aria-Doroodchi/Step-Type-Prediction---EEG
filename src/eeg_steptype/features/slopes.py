@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
-
 import mne
 import numpy as np
 import pandas as pd
@@ -14,33 +12,21 @@ def binned_slopes(
     bin_n: float,
     ch_names: list[str],
 ) -> pd.DataFrame:
-    df = epochs.to_data_frame()
-    df["bin"] = (df["time"] // bin_n).astype(int)
-    df = df.drop(columns=[c for c in ("Stim", "condition") if c in df.columns])
+    data = epochs.get_data(picks=ch_names)
+    times = epochs.times
+    bins = (times // bin_n).astype(int)
+    unique_bins = np.unique(bins)
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="Polyfit may be poorly conditioned")
-        slopes = (df
-                  .groupby(["epoch", "bin"])
-                  .apply(
-                      lambda x: x[ch_names].apply(
-                          lambda y: np.polyfit(x["time"], y, 1)[0]
-                      ),
-                      include_groups=False,
-                  )
-                  .reset_index())
-
-    long = slopes.melt(
-        id_vars=["epoch", "bin"],
-        value_vars=ch_names,
-        var_name="channel",
-        value_name="slope",
-    )
-    wide = (long
-            .pivot(index="epoch", columns=["channel", "bin"], values="slope")
-            .reset_index())
-    wide.columns = [
-        f"slope_{ch}_bin_{b}" if isinstance(ch, str) and ch != "epoch" else "epoch"
-        for ch, b in [(c if isinstance(c, tuple) else (c, "")) for c in wide.columns]
-    ]
-    return wide
+    out = {"epoch": epochs.selection}
+    for b in unique_bins:
+        mask = bins == b
+        t = times[mask]
+        denom = np.sum((t - t.mean()) ** 2)
+        if denom == 0:
+            slopes = np.zeros(data.shape[:2])
+        else:
+            weights = (t - t.mean()) / denom
+            slopes = np.einsum("ect,t->ec", data[:, :, mask], weights)
+        for idx, ch in enumerate(ch_names):
+            out[f"slope_{ch}_bin_{b}"] = slopes[:, idx]
+    return pd.DataFrame(out)

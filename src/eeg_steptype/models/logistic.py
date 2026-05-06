@@ -14,8 +14,8 @@ def make_logistic(cfg: dict, *, scale_pos_weight: float = 1.0):
     return LogisticRegression(
         max_iter=2000,
         random_state=rs,
-        # `scale_pos_weight` for parity with the XGB call; LR uses class_weight.
-        class_weight={0: 1.0, 1: float(scale_pos_weight)},
+        # Fold-local balancing is handled by sklearn inside GridSearchCV.
+        class_weight="balanced",
         solver="liblinear",
     )
 

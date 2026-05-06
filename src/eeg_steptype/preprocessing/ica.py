@@ -3,13 +3,14 @@
 Conservative auto-exclusion: a component is excluded only if ``mne-icalabel``
 classifies it into one of the artifact labels (eye, muscle, heart, line,
 channel) with probability > ``iclabel_artifact_prob_threshold``. The
-threshold defaults to 0.9 — components below the threshold are kept.
+threshold defaults to 0.8 — components below the threshold are kept.
 
-Per-participant overrides:
+Per-participant overrides in full override mode:
 
     ica:
-      n_components: 20
-      train_window_seconds: [50, 100]
+      method: picard
+      extended: true
+      n_components: rank_minus_one
       manual_exclude: [3, 12]   # add to whatever ICLabel returns
       manual_keep:    [7]       # remove from the auto-exclude set
 
@@ -30,21 +31,28 @@ log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 def fit_ica(raw: mne.io.BaseRaw, cfg: dict) -> mne.preprocessing.ICA:
+    """Fit ICA on the full-duration high-pass training copy."""
     ica_cfg = cfg["preprocessing"]["ica"]
-    tmin, tmax = ica_cfg["train_window_seconds"]
-    hp = cfg["preprocessing"]["filter"]["ica_highpass"]
+    n_components = _resolve_n_components(raw, cfg)
+    method = ica_cfg.get("method", "picard")
+    extended = bool(ica_cfg.get("extended", True))
+    fit_params = {}
+    if method == "picard":
+        fit_params["extended"] = extended
 
     log.info(
-        "Fitting ICA: n_components=%d, train_window=[%s, %s], hp=%.2f",
-        ica_cfg["n_components"], tmin, tmax, hp,
+        "Fitting ICA on full data: method=%s, extended=%s, n_components=%s",
+        method, extended, n_components,
     )
 
-    train = raw.copy().crop(tmin=tmin, tmax=tmax).filter(l_freq=hp, h_freq=None)
     ica = mne.preprocessing.ICA(
-        n_components=ica_cfg["n_components"],
+        n_components=n_components,
         random_state=ica_cfg["random_state"],
+        method=method,
+        fit_params=fit_params or None,
+        max_iter=ica_cfg.get("max_iter", "auto"),
     )
-    ica.fit(train)
+    ica.fit(raw)
     return ica
 
 
@@ -55,7 +63,7 @@ def auto_exclude(
 ) -> list[int]:
     """Return component indices to exclude using ICLabel + override hooks."""
     ica_cfg = cfg["preprocessing"]["ica"]
-    threshold = float(ica_cfg.get("iclabel_artifact_prob_threshold", 0.9))
+    threshold = float(ica_cfg.get("iclabel_artifact_prob_threshold", 0.8))
     artifact_labels = set(ica_cfg.get("artifact_labels", [
         "eye blink", "muscle artifact", "heart beat",
         "line noise", "channel noise",
@@ -81,8 +89,28 @@ def apply_ica(
     exclude: list[int],
 ) -> mne.io.BaseRaw:
     ica.exclude = list(exclude)
+    log.info("Applying ICA unmixing to 0.1-40 Hz analysis copy")
     ica.apply(raw)
     return raw
+
+
+def _resolve_n_components(raw: mne.io.BaseRaw, cfg: dict) -> int | float | None:
+    requested = cfg["preprocessing"]["ica"].get("n_components", "rank_minus_one")
+    if requested in (None, "none"):
+        return None
+    if requested == "rank_minus_one":
+        rank = _eeg_rank(raw)
+        n_components = max(1, rank - 1)
+        log.info("ICA EEG rank=%d; using n_components=rank-1=%d", rank, n_components)
+        return n_components
+    return requested
+
+
+def _eeg_rank(raw: mne.io.BaseRaw) -> int:
+    ranks = mne.compute_rank(raw, rank=None, proj=True, verbose=False)
+    if "eeg" in ranks:
+        return int(ranks["eeg"])
+    return len(mne.pick_types(raw.info, eeg=True, exclude=[]))
 
 
 # ---------------------------------------------------------------------------

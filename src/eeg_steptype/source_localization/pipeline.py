@@ -18,8 +18,9 @@ import numpy as np
 import pandas as pd
 
 from ..config import apply_participant_override
-from ..io import epochs_path, src_csv_path, write_csv
+from ..io import source_epochs_path, src_csv_path, write_csv
 from ..logging_utils import get_logger
+from ..preflight import validate_source_assets, validate_source_epochs
 from .forward import build_forward
 from .inverse import compute_noise_cov, build_inverse, apply_to_evoked
 from .labels import load_labels, extract_label_courses
@@ -30,6 +31,7 @@ log = get_logger(__name__)
 
 def run(participant_id: str, cfg: dict, *, force: bool = False) -> None:
     cfg = apply_participant_override(cfg, participant_id)
+    validate_source_assets(cfg)
     sl = cfg["source_localization"]
     bin_n = float(sl.get("bin_n", 0.125))
     min_t = float(sl.get("min_time", 0.0))
@@ -43,11 +45,12 @@ def run(participant_id: str, cfg: dict, *, force: bool = False) -> None:
             log.info("[%s/%s] src csv exists; skipping.", participant_id, cond)
             continue
 
-        epo_path = epochs_path(cfg, participant_id, cond)
+        epo_path = source_epochs_path(cfg, participant_id, cond)
         if not epo_path.exists():
-            log.warning("[%s/%s] epochs file missing: %s", participant_id, cond, epo_path)
+            log.warning("[%s/%s] source epochs file missing: %s", participant_id, cond, epo_path)
             continue
 
+        validate_source_epochs(cfg, participant_id, cond)
         epochs = mne.read_epochs(str(epo_path), preload=True)
 
         # Build the heavy machinery ONCE for this (participant, condition).

@@ -12,6 +12,8 @@ import mne
 
 from ..io import data_root, ensure_dir
 from ..logging_utils import get_logger
+from ..preflight import locate_source_assets
+from ..resources import resolve_n_jobs
 
 
 log = get_logger(__name__)
@@ -38,15 +40,33 @@ def build_forward(
         log.info("Loading cached forward: %s", cache)
         return mne.read_forward_solution(str(cache))
 
-    sl = cfg["source_localization"]
-    src = mne.read_source_spaces(sl["src_file"])
-    bem = mne.read_bem_solution(sl["bem_file"])
-    trans = sl["trans_file"]
+    assets = locate_source_assets(cfg)
+    src = mne.read_source_spaces(str(assets["source_localization.src_file"]))
+    bem = _read_or_make_bem_solution(assets["source_localization.bem_file"])
+    trans = str(assets["source_localization.trans_file"])
 
     log.info("Building forward solution …")
-    fwd = mne.make_forward_solution(info, trans=trans, src=src, bem=bem, n_jobs=-1)
+    fwd = mne.make_forward_solution(
+        info,
+        trans=trans,
+        src=src,
+        bem=bem,
+        n_jobs=resolve_n_jobs(cfg, default=-8),
+    )
 
     if cache is not None:
         mne.write_forward_solution(str(cache), fwd, overwrite=True)
         log.info("Cached forward to %s", cache)
     return fwd
+
+
+def _read_or_make_bem_solution(path: Path):
+    """Read a BEM solution, or build one from a BEM surface file."""
+    try:
+        return mne.read_bem_solution(str(path))
+    except RuntimeError as exc:
+        if "No BEM solution found" not in str(exc):
+            raise
+    surfaces = mne.read_bem_surfaces(str(path))
+    log.info("Building BEM solution from surface file: %s", path)
+    return mne.make_bem_solution(surfaces)

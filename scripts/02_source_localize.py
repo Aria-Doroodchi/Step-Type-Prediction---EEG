@@ -23,9 +23,17 @@ def main() -> None:
     p.add_argument("--config", default=None)
     p.add_argument("--participants", nargs="*")
     p.add_argument("--force", action="store_true")
+    p.add_argument(
+        "--participant-override-mode",
+        choices=["raw_assembly_only", "full", "none"],
+        default=None,
+        help="Accepted for workflow consistency; source localization does not apply participant YAMLs.",
+    )
     args = p.parse_args()
 
     cfg = load_config(args.config)
+    if args.participant_override_mode:
+        cfg.setdefault("participant_overrides", {})["mode"] = args.participant_override_mode
     setup_logging(cfg.get("logging", {}).get("level", "INFO"))
     log = get_logger("scripts.02_source_localize")
 

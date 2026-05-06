@@ -21,9 +21,17 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", default=None)
     p.add_argument("--run", required=True, help="Path to a runs/<id>/ directory")
+    p.add_argument(
+        "--participant-override-mode",
+        choices=["raw_assembly_only", "full", "none"],
+        default=None,
+        help="Accepted for workflow consistency; visualization uses run outputs.",
+    )
     args = p.parse_args()
 
     cfg = load_config(args.config)
+    if args.participant_override_mode:
+        cfg.setdefault("participant_overrides", {})["mode"] = args.participant_override_mode
     setup_logging(cfg.get("logging", {}).get("level", "INFO"))
     log = get_logger("scripts.05_visualize")
 

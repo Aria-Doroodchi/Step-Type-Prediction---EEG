@@ -1,0 +1,20 @@
+
+-------------------------------------------------------------------------------
+   ROBOCOPY     ::     Robust File Copy for Windows                              
+-------------------------------------------------------------------------------
+
+  Started : May 6, 2026 4:39:02 PM
+   Source : C:\Users\Ali D\OneDrive - The University of Western Ontario\MSc\Thesis\Data\ML_V2\
+     Dest : C:\Users\Ali D\Documents\ML\
+
+    Files : *.*
+	    
+  Options : *.* /FFT /S /E /DCOPY:DA /COPY:DAT /XO /R:3 /W:5 
+
+------------------------------------------------------------------------------
+
+	                  20	C:\Users\Ali D\OneDrive - The University of Western Ontario\MSc\Thesis\Data\ML_V2\
+	*EXTRA Dir        -1	C:\Users\Ali D\Documents\ML\.git\
+	*EXTRA Dir        -1	C:\Users\Ali D\Documents\ML\pytest-cache-files-fnv1dqqa\
+	  *EXTRA File 		  29.3 m	CNV_binned.rds
+	    Newer     		       0	robocopy-copy.log

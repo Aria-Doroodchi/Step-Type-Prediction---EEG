@@ -1,25 +1,21 @@
 # =====================================================================
 # Default configuration for the EEG Step-Type Prediction pipeline.
 #
-# Layered config (right-hand wins, see src/eeg_steptype/config.py):
-#   configs/preprocessing/<profile>.yaml ← THIS file ← local.yaml ← overrides/Pxx.yaml
-#
-# - Per-machine overrides go in `configs/local.yaml` (gitignored).
-# - Per-participant overrides go in `configs/overrides/Pxx.yaml`.
-# - Preprocessing knobs live in their own profile file under
-#   `configs/preprocessing/<profile>.yaml` so you can A/B different
-#   preprocessing recipes against the same models reproducibly.
+# Per-machine overrides go in `configs/local.yaml` (gitignored).
+# Per-participant overrides go in `configs/overrides/Pxx.yaml`.
+# Both are merged on top of this file at load time.
 # =====================================================================
 
 # ---------------------------------------------------------------------
 # Paths. Override `paths.raw_root` in configs/local.yaml for your machine.
+# Other paths are resolved relative to the project root.
 # ---------------------------------------------------------------------
 paths:
   raw_root: "C:/Users/Aria/OneDrive - The University of Western Ontario/MSc/Thesis/Data/Participants"
-  data_dir: "data"
-  outputs_dir: "outputs"
-  bdf_subdir: ""
-  epochs_subdir: "bad_interpolated/Epochs/CNV"
+  data_dir: "data"                 # interim/cleaned epochs, features, src CSVs
+  outputs_dir: "outputs"           # figs, reports, run artifacts
+  bdf_subdir: ""                   # raw .bdf files relative to raw_root (e.g. "Pxx/Pxx_CNV.bdf")
+  epochs_subdir: "bad_interpolated/Epochs/CNV"  # cleaned epoch .fif files (legacy location)
 
 # ---------------------------------------------------------------------
 # Cohort
@@ -58,40 +54,139 @@ participants:
 
 conditions: [One, Two]
 
-events:
-  one: 256
-  two: 512
-  response: 96
+# ---------------------------------------------------------------------
+# Runtime resources
+# ---------------------------------------------------------------------
+resources:
+  # Project convention: negative values reserve that many logical CPUs.
+  # n_jobs: -8 means "use all processors except 8" across sklearn, XGBoost,
+  # AutoReject, and other maintained pipeline stages.
+  n_jobs: -8
 
 # ---------------------------------------------------------------------
-# Preprocessing — the full preprocessing spec (filters, ICA, rejection,
-# epoching) lives in configs/preprocessing/<profile>.yaml. Switch
-# profiles by changing this name; see configs/preprocessing/README.md.
+# Channel subsets for training-time comparisons.
 # ---------------------------------------------------------------------
-preprocessing_profile: default
+channel_selection:
+  mode: full                  # "full" | "roi"
+  roi:
+    name: medial_foot_motor
+    channels: [Cz, FCz, CPz, C1, C2, FC1, FC2, CP1, CP2, C3, C4, FC3, FC4, CP3, CP4, Fz, Pz]
+
+# ---------------------------------------------------------------------
+# Per-participant overrides
+# ---------------------------------------------------------------------
+participant_overrides:
+  # Default runs keep preprocessing/modeling parameters uniform across the
+  # cohort. The only participant-specific exception is raw .bdf assembly
+  # (manual crops/appends), which reflects data-collection issues that cannot
+  # be inferred reliably.
+  #
+  # Use "full" to opt into all participant YAML tweaks for fine-tuning, or
+  # "none" to ignore participant YAMLs entirely.
+  mode: raw_assembly_only
+
+# Trigger codes for event detection (see preprocessing/events.py)
+events:
+  one: 256        # condition trigger for "One" (straight)
+  two: 512        # condition trigger for "Two" (diagonal)
+  response: 96    # response/onset trigger paired with the condition trigger
+
+# ---------------------------------------------------------------------
+# Preprocessing
+# ---------------------------------------------------------------------
+preprocessing:
+  # Filtering (Hz). 0.1–40 is the modal final bandpass across the cohort;
+  # individual deviations live in `configs/overrides/Pxx.yaml`.
+  filter:
+    bandpass:    [0.1, 40]    # final bandpass after ICA
+    ica_highpass: 1.0         # high-pass on the COPY used for ICA training only
+
+  # Line-noise removal. ZapLine runs once at the line frequency before bad
+  # channel detection and ICA; high-frequency harmonics are later removed by
+  # the final 40 Hz low-pass.
+  line_noise:
+    method: zapline
+    freq: 60
+    nremove: 1
+
+  # Referencing. CAR is provisional for ICA only; CSD is applied before
+  # epoching so stage-1 .fif outputs are CSD-transformed for analysis.
+  reference:
+    csd:
+      lambda2: 1.0e-5
+      stiffness: 4
+
+  # Bad-channel detection. `auto` runs PyPREP; the per-participant override
+  # may add more channels via `bads_extra`.
+  bads:
+    method: auto              # "auto" | "manual"
+    random_state: 42
+    ransac: true
+    channel_wise: false
+    reject_by_annotation: "omit"
+
+  # Artifact Subspace Reconstruction: removes transient high-variance bursts
+  # before ICA so decomposition is not dominated by movement/muscle spikes.
+  asr:
+    enabled: true
+    k: 20
+
+  # ICA settings
+  ica:
+    method: picard
+    extended: true
+    n_components: rank_minus_one
+    random_state: 97
+    max_iter: auto
+
+    # Conservative auto-exclusion via mne-icalabel.
+    # A component is excluded if the predicted label is NOT brain/other AND
+    # the predicted probability for the artifact label exceeds this value.
+    iclabel_artifact_prob_threshold: 0.8
+    artifact_labels: [eye blink, muscle artifact, heart beat, line noise, channel noise]
+
+  # Epoching
+  epoch:
+    tmin: -0.1
+    tmax:  2.0
+    baseline: [null, 0.0]     # YAML null → Python None (i.e. start of epoch)
+
+  # Local AutoReject repairs/interpolates bad sensors within an epoch and only
+  # drops trials when the CV-tuned consensus says too many sensors are bad.
+  reject:
+    method: autoreject        # "autoreject" | "threshold" (legacy fallback)
+    n_interpolate: [1, 4, 8, 16]
+    consensus: [0.2, 0.4, 0.6, 0.8]
+    cv: 10
+    random_state: 42
+    n_jobs: null
+
+  # Quality-control: write a small HTML report per participant
+  qc_report: true
 
 # ---------------------------------------------------------------------
 # Source localization
 # ---------------------------------------------------------------------
 source_localization:
-  src_file:   "fsaverage-src.fif"
-  bem_file:   "fsaverage-bem-sol.fif"
-  trans_file: "fsaverage-trans.fif"
+  subjects_dir: "."
+  src_file:   "fsaverage/bem/fsaverage-ico-5-src.fif"
+  bem_file:   "fsaverage/bem/fsaverage-inner_skull-bem-sol.fif"
+  trans_file: "fsaverage/bem/fsaverage-trans.fif"
   parcellation: "aparc.a2009s"
   method: "eLORETA"
   snr: 2.0
-  bin_n: 0.125
+  bin_n: 0.125              # 1/8 second bins
   min_time: 0.0
-  cache_forward: true
+  cache_forward: true       # cache forward solution per participant
 
 # ---------------------------------------------------------------------
 # Feature extraction
 # ---------------------------------------------------------------------
 features:
-  bin_n: 0.125
-  min_time: 0.0
+  bin_n: 0.125              # bin width in seconds
+  min_time: 1.0             # primary prediction window: late CNV motor preparation
   max_time: 2.0
-  freqs:
+  freqs:                    # for Morlet TFR
     fmin: 0.5
     fmax: 40.0
     fstep: 0.5
@@ -101,7 +196,35 @@ features:
     Alpha: [8.0, 13.0]
     Beta:  [13.0, 30.0]
     Gamma: [30.0, 40.0]
-  blocks: [amplitude, slopes, psd, src]
+  blocks: [amplitude, slopes, psd, src]   # add cnv_benchmark for shrinkage-LDA baseline
+  cnv_benchmark:
+    enabled: false
+    bin_n: 0.25
+    channels: [Cz, FCz, CPz, C1, C2, FC1, FC2, CP1, CP2]
+
+# Prediction-window analyses. The primary model uses late CNV (1.0-2.0 s).
+# Secondary analyses can compare the full 0-2 s window with cropped-training
+# augmentation and a sliding-window AUC time-course for interpretation.
+prediction_windows:
+  primary:
+    name: late_cnv
+    min_time: 1.0
+    max_time: 2.0
+  secondary:
+    full_cnv:
+      min_time: 0.0
+      max_time: 2.0
+      cropped_training:
+        enabled: true
+        window_size: 1.0
+        stride: 0.25
+        test_aggregation: mean_proba
+    sliding_auc:
+      enabled: true
+      window_size: 0.25
+      stride: 0.125
+      min_time: 0.0
+      max_time: 2.0
 
 # ---------------------------------------------------------------------
 # Modeling
@@ -109,6 +232,22 @@ features:
 modeling:
   test_size: 0.30
   random_state: 1
+  cv:
+    mode: repeated_stratified       # "repeated_stratified" | "grouped" | "chronological"
+    n_splits: 5
+    n_repeats: 20
+    inner_splits: 3
+    chronological_check: true       # run a no-shuffle temporal sanity check alongside primary CV
+  search:
+    method: auto                    # "auto" = HalvingRandomSearchCV for XGB, GridSearchCV otherwise
+    n_jobs: null                    # null avoids nested XGB oversubscription; set explicitly to override
+    n_iter: 100                     # candidate configs sampled before successive halving
+    halving:
+      resource: n_estimators
+      min_resources: 100
+      max_resources: 1000
+      factor: 3
+      aggressive_elimination: false
   correlation_threshold: 0.9
   k_best: 500
   rfecv:
@@ -117,7 +256,7 @@ modeling:
     min_features_to_select: 200
     scoring: "roc_auc"
   gain_prune:
-    mode: "zero"
+    mode: "zero"            # "zero" | "percentile" | "absolute"
     percentile: 10
     absolute: 0.001
   shap_prune_quantile: 0.20
@@ -127,7 +266,7 @@ modeling:
     objective: "binary:logistic"
     eval_metric: "logloss"
     tree_method: "hist"
-    n_jobs: 16
+    n_jobs: null
     param_grid:
       max_depth:         [2, 4, 8, 16]
       min_child_weight:  [1]
@@ -152,9 +291,28 @@ modeling:
     units_grid:    [32, 64, 128]
     dropout_grid:  [0.2, 0.4]
 
+  # Future covariance-based comparator: estimate fold-local covariance with
+  # OAS shrinkage before any Riemannian classifier sees the data.
+  riemannian:
+    estimator: xdawn_covariances
+    covariance_estimator: oas
+    xdawn:
+      nfilter: 4
+    fbcsp_bands:
+      Mu: [8.0, 13.0]
+      Beta: [13.0, 30.0]
+
+  # Future CNN comparator: standardize each channel with Braindecode-style
+  # exponential moving statistics inside each CV fold.
+  cnn:
+    standardize:
+      factor_new: 0.001
+      init_block_size: 1000
+      eps: 1.0e-4
+
 # ---------------------------------------------------------------------
 # Logging / reproducibility
 # ---------------------------------------------------------------------
 logging:
-  level: INFO
-  stamp_runs: true
+  level: INFO              # DEBUG | INFO | WARNING | ERROR
+  stamp_runs: true         # write config snapshot + git SHA per run

@@ -7,7 +7,7 @@ runs become near-instant after the first preprocess+features pass.
 
 from __future__ import annotations
 
-from pathlib import Path
+import re
 
 import mne
 import numpy as np
@@ -22,7 +22,9 @@ from ..io import (
     read_parquet,
 )
 from ..logging_utils import get_logger
+from ..resources import resolve_n_jobs
 from .amplitude import binned_mean_amplitude
+from .cnv_benchmark import cnv_motor_amplitude_benchmark
 from .psd import band_power, freq_array, freq_bands
 from .slopes import binned_slopes
 
@@ -52,7 +54,9 @@ def build_for_participant_condition(
 
     fcfg = cfg["features"]
     bin_n = float(fcfg["bin_n"])
-    epochs = epochs.crop(tmin=float(fcfg["min_time"]), tmax=float(fcfg["max_time"]))
+    tmin = float(fcfg["min_time"])
+    tmax = min(float(fcfg["max_time"]), float(epochs.tmax))
+    epochs = epochs.crop(tmin=tmin, tmax=tmax)
 
     ch_names = [c for c in epochs.ch_names if c != "Stim"]
 
@@ -73,13 +77,28 @@ def build_for_participant_condition(
             epochs, bin_n, ch_names,
             freqs=freq_array(cfg),
             freq_bands=freq_bands(cfg),
+            n_jobs=resolve_n_jobs(cfg, default=-8),
+        ))
+
+    if "cnv_benchmark" in requested and fcfg.get("cnv_benchmark", {}).get("enabled", True):
+        bcfg = fcfg.get("cnv_benchmark", {})
+        log.info("[%s/%s] CNV benchmark amplitude …", participant_id, condition)
+        blocks.append(cnv_motor_amplitude_benchmark(
+            epochs,
+            bin_n=float(bcfg.get("bin_n", 0.25)),
+            channels=bcfg.get("channels"),
         ))
 
     if "src" in requested:
         src_path = src_csv_path(cfg, participant_id, condition)
         if src_path.exists():
             log.info("[%s/%s] joining src csv: %s", participant_id, condition, src_path)
-            blocks.append(pd.read_csv(src_path))
+            blocks.append(_filter_src_window(
+                pd.read_csv(src_path),
+                bin_n=bin_n,
+                tmin=tmin,
+                tmax=tmax,
+            ))
         else:
             log.warning("[%s/%s] src csv missing (%s); features will not include "
                         "source-space columns.", participant_id, condition, src_path)
@@ -93,6 +112,7 @@ def build_for_participant_condition(
 
     df["condition"] = condition
     df["participant_id"] = participant_id
+    df["block_id"] = _block_ids(epochs)
 
     write_parquet(df, out)
     log.info("[%s/%s] wrote features %s (shape=%s)",
@@ -114,6 +134,40 @@ def build_for_participant(
             participant_id, cond, cfg, force=force,
         ))
     return pd.concat(parts, ignore_index=True)
+
+
+def _block_ids(epochs: mne.Epochs) -> np.ndarray:
+    """Return per-epoch block labels when recording metadata provides them."""
+    metadata = epochs.metadata
+    if metadata is not None and "block_id" in metadata.columns:
+        return metadata["block_id"].to_numpy()
+    if metadata is not None and "block" in metadata.columns:
+        return metadata["block"].to_numpy()
+    return np.full(len(epochs), "unknown", dtype=object)
+
+
+def _filter_src_window(
+    df: pd.DataFrame,
+    *,
+    bin_n: float,
+    tmin: float,
+    tmax: float,
+) -> pd.DataFrame:
+    """Keep only source-space bins that overlap the active prediction window."""
+    keep = [
+        col for col in df.columns
+        if col == "epoch" or _src_bin_overlaps_window(col, bin_n, tmin, tmax)
+    ]
+    return df[keep]
+
+
+def _src_bin_overlaps_window(column: str, bin_n: float, tmin: float, tmax: float) -> bool:
+    m = re.search(r"_bin_(\d+)$", column)
+    if not m:
+        return True
+    start = int(m.group(1)) * bin_n
+    end = start + bin_n
+    return start < tmax and end > tmin
 
 
 def correlation_drop(df: pd.DataFrame, threshold: float = 0.9) -> pd.DataFrame:

@@ -25,7 +25,14 @@ make test
 # 4. Full run (preprocessing → src → features → XGBoost training)
 make all                        # all stages, default model = xgb
 make train MODEL=lstm           # just the training stage with a different model
+make all OVERRIDE_MODE=full     # opt into participant-specific fine-tuning
+make train CHANNEL_MODE=roi     # train on medial foot-motor ROI features
+make train PREDICTION_WINDOW=full_cnv  # secondary full-window analysis
 ```
+
+See [`SCRIPT_GUIDES.md`](SCRIPT_GUIDES.md) for copy-paste commands covering
+the standard smoke tests, the two-participant end-to-end smoke test, and a
+full XGBoost pipeline run.
 
 Stage-by-stage runs:
 
@@ -42,6 +49,10 @@ Or in one Python process:
 ```bash
 python run.py --config configs/default.yaml --model xgb
 python run.py --stages features train --participants P25 P26 --model logistic
+python run.py --config configs/default.yaml --participant-override-mode full
+python scripts/04_train.py --model xgb --channel-mode roi
+python scripts/03_extract_features.py --prediction-window full_cnv
+python scripts/04_train.py --model xgb --prediction-window full_cnv
 ```
 
 ---
@@ -116,10 +127,14 @@ Three YAMLs are deep-merged at load time, in this order:
 2. **`configs/local.yaml`** — gitignored; per-machine overrides. The only
    thing most users need to set is `paths.raw_root`.
 3. **`configs/overrides/Pxx.yaml`** — applied on top *only when that
-   participant is being processed*. This is where each participant's manual
-   surgery (cuts, appends, swapped electrodes, lab-flagged bad channels)
-   lives. See [`configs/overrides/README.md`](configs/overrides/README.md)
-   for the full schema.
+   participant is being processed*. Default runs apply only `raw_assembly`
+   from these files, so cohort preprocessing stays uniform except for manual
+   raw `.bdf` crops/appends that cannot be automated reliably. Full
+   participant-specific tuning remains available by setting
+   `participant_overrides.mode: full` or passing
+   `--participant-override-mode full`. See
+   [`configs/overrides/README.md`](configs/overrides/README.md) for the full
+   schema.
 
 **Example — P02 had two raw files concatenated:**
 
@@ -145,7 +160,7 @@ raw_assembly:
 ## Pipeline
 
 ```
-raw .bdf  ──►  01_preprocess          (auto: PyPREP bads, ICLabel, autoreject)
+raw .bdf  ──►  01_preprocess          (ZapLine, PyPREP bads, ASR, CAR→Picard ICA→CSD, autoreject)
            ──►  02_source_localize    (cached forward + inverse, eLORETA)
            ──►  03_extract_features   (amplitude, slopes, PSD → parquet)
            ──►  04_train              (corr → KBest → RFECV → gain → SHAP → GridSearch)
@@ -156,7 +171,7 @@ What each stage produces:
 
 | Stage | Inputs | Outputs |
 |---|---|---|
-| 01 preprocess  | `{raw_root}/Pxx/Pxx_CNV.bdf` | `data/interim/epochs/Pxx_CNV_{One,Two}-epo.fif` |
+| 01 preprocess  | `{raw_root}/Pxx/Pxx_CNV.bdf` | `data/interim/epochs/Pxx_CNV_{One,Two}-epo.fif` (CSD-referenced) |
 | 02 src         | epoch .fif                   | `data/src/Pxx_{One,Two}_src.csv` |
 | 03 features    | epoch .fif + src CSV         | `data/features/Pxx_{One,Two}_features.parquet` |
 | 04 train       | feature parquets             | `outputs/runs/<run_id>/{metrics.csv, rollup.csv, config.yaml, git_sha.txt}` |
@@ -164,6 +179,27 @@ What each stage produces:
 
 Every stage is **idempotent**: re-running a stage skips participants whose
 output already exists, unless `--force` is passed.
+
+Training can compare two channel configurations without rebuilding features:
+`--channel-mode full` keeps the full feature parquet, while
+`--channel-mode roi` restricts electrode amplitude, slope, and PSD features to
+the medial foot-motor cluster declared in `configs/default.yaml`. Source-space
+features and metadata are left intact. Future Riemannian/CNN model paths keep
+all channels by design.
+
+The primary prediction window is late CNV, `1.0-2.0 s`, where foot-motor
+preparation is expected to be most discriminative. Feature cache filenames are
+window-aware, so `late_cnv` and secondary `full_cnv` runs do not reuse each
+other's parquets. Secondary settings for cropped-training augmentation and a
+sliding-window AUC time-course are recorded in `configs/default.yaml` for
+follow-up analyses.
+
+Future Riemannian/SCP comparators are scaffolded but not used by the current
+XGBoost path. `configs/default.yaml` records an xDAWN-covariance tangent-space
+path with OAS covariance, broadband covariance tangent-space features, and
+mu/beta FBCSP-style log-variance features. An opt-in `cnv_benchmark` feature
+block computes 250 ms mean-amplitude bins over the 9 medial motor channels for
+a shrinkage-LDA benchmark.
 
 ---
 
@@ -234,8 +270,8 @@ The old per-participant preprocessing scripts at
 `src/eeg_steptype/preprocessing/` plus 33 YAML override files preserving
 every hand-tuned parameter (cuts, appends, channel swaps, bads,
 ICA-exclude lists, rejection thresholds). The legacy hand-tuned values are
-kept as commented blocks inside each override so they're recoverable for
-side-by-side comparison.
+kept as commented provenance inside each override, while default runs use
+uniform AutoReject-local epoch repair/rejection.
 
 ## License
 

@@ -21,15 +21,19 @@ dependencies = [
     "scikit-learn>=1.3",
     "xgboost>=2.0",
     "shap>=0.44",
+    "braindecode>=0.8",    # CNN EEG standardization utilities
     "pyyaml>=6.0",
     "pyarrow>=14.0",       # parquet for cached feature matrices
     "pyprep>=0.4",         # automated bad-channel detection
+    "meegkit>=0.1.9",      # ZapLine line-noise removal
+    "python-picard>=0.8",  # Picard ICA solver for MNE
     "mne-icalabel>=0.6",   # ICA component classification
-    "autoreject>=0.4",     # automated epoch rejection
+    "autoreject>=0.4",     # local epoch repair/rejection
 ]
 
 [project.optional-dependencies]
 lstm = ["tensorflow>=2.13", "scikeras>=0.12"]
+riemannian = ["pyriemann>=0.7"]
 dev  = ["pytest>=7", "ruff>=0.1"]
 
 [tool.setuptools.packages.find]

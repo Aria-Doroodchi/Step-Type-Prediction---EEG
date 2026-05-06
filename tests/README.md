@@ -11,7 +11,8 @@ Imports every module in the `eeg_steptype` package and verifies:
 - Per-participant overrides apply correctly. Spot-checks:
   - **P02** — multi-file `raw_assembly` (concat).
   - **P08** — two crop windows in `raw_assembly`.
-  - **P37** — `montage_mapping_override` swaps `B17`↔`B22`.
+  - **P25** — default mode ignores non-raw tuning for uniform preprocessing.
+  - **P37** — full override mode keeps the `B17`↔`B22` montage swap available.
 
 Run first; if this fails, nothing else can.
 

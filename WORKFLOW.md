@@ -140,37 +140,7 @@ If the participant has no override file, the pipeline uses the defaults
 (single-file load, no crops, auto-detected bads, ICLabel auto-exclude,
 autoreject thresholds).
 
-### Scenario F — A/B different preprocessing recipes against the same model
-
-You suspect the default ICA (conservative @ p>0.9) is leaving artifacts
-in. You want to compare with a stricter version while keeping the model
-identical, so any metric difference is attributable purely to
-preprocessing.
-
-```bash
-# 1. Create a new profile alongside default.yaml.
-cp configs/preprocessing/default.yaml configs/preprocessing/strict_ica.yaml
-#    Edit strict_ica.yaml: lower iclabel_artifact_prob_threshold to 0.7
-
-# 2. Re-run preprocessing → src → features → train under the new profile.
-#    --preprocessing-profile overrides whatever the config file says.
-python run.py --preprocessing-profile strict_ica --force
-
-# 3. Compare runs side by side. The profile name is stamped into every run.
-ls outputs/runs/
-#   xgb_20260520_140100/  ← preprocessing_profile: default
-#   xgb_20260520_180300/  ← preprocessing_profile: strict_ica
-
-# 4. To make this stick as the new default, edit configs/default.yaml:
-#    preprocessing_profile: strict_ica
-```
-
-The full preprocessing spec lives in *one file*; switching it doesn't
-require touching scripts or modifying multiple configs. Per-participant
-overrides (raw_assembly cuts, electrode swaps, lab-flagged bads) still
-work — they apply on top of whichever profile is active.
-
-### Scenario G — quick sanity check on changes you just made to the code
+### Scenario F — quick sanity check on changes you just made to the code
 
 ```bash
 make test
@@ -185,19 +155,14 @@ edit anything under `src/eeg_steptype/` to catch breakage early.
 
 ## How config flows through
 
-Four YAMLs are deep-merged at load time, in this order (right-hand wins):
+All three YAMLs are deep-merged at load time:
 
 ```
-configs/preprocessing/<profile>.yaml  ←  configs/default.yaml  ←  configs/local.yaml  ←  configs/overrides/Pxx.yaml
-   (committed; the global               (committed; cohort,        (gitignored,           (per-participant,
-   preprocessing profile —              modeling, src_loc          per-machine            applied only when
-   filters, ICA, rejection,             knobs, plus picks the      paths)                 processing Pxx)
-   epoching)                             profile name)
+configs/default.yaml   ←   configs/local.yaml   ←   configs/overrides/Pxx.yaml
+   (committed)              (gitignored,                (per-participant,
+   project defaults)         per-machine paths)          applied only when
+                                                         processing Pxx)
 ```
-
-The profile is selected by `preprocessing_profile:` in `default.yaml`
-(or `local.yaml`), or `--preprocessing-profile <name>` on the CLI.
-Available profiles are whatever YAMLs exist in `configs/preprocessing/`.
 
 So when the preprocessing stage processes P02, the config it sees is:
 
@@ -246,8 +211,7 @@ Same code, same config, same data → same result.
 |---|---|
 | Change the participant list | `configs/default.yaml` → `participants:` |
 | Change model hyperparameters | `configs/default.yaml` → `modeling.{xgb,svm,lstm}.param_grid` |
-| Tweak preprocessing project-wide | `configs/preprocessing/<active-profile>.yaml` |
-| A/B-test a preprocessing variant | Copy a new profile, run with `--preprocessing-profile <name>` |
+| Tweak filter cutoffs project-wide | `configs/default.yaml` → `preprocessing.filter` |
 | Tweak filter cutoffs for one participant | `configs/overrides/Pxx.yaml` |
 | Change which feature blocks compose | `configs/default.yaml` → `features.blocks` |
 | Add a new model type | `src/eeg_steptype/models/<name>.py` + register in `train.py` |

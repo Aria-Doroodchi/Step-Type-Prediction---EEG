@@ -1,8 +1,14 @@
 # Per-participant overrides
 
-One YAML file per participant: `Pxx.yaml`. Anything in this file overrides
-values in `configs/default.yaml` *only* when that participant is being
-processed.
+One YAML file per participant: `Pxx.yaml`. Default runs apply only the
+`raw_assembly` section from this file when that participant is being
+processed. This keeps preprocessing parameters uniform across the cohort
+while preserving manual `.bdf` crops/appends that reflect data-collection
+issues.
+
+Set `participant_overrides.mode: full` in a config, or pass
+`--participant-override-mode full`, to apply the full participant YAML for
+fine-tuning. Set the mode to `none` to ignore participant YAMLs entirely.
 
 The most common reason to create one of these files is that the participant's
 raw recording needed manual surgery (cuts, multiple files concatenated)
@@ -43,6 +49,23 @@ ica:
   manual_keep: []             # indices the auto-classifier flagged but you want to keep
 
 # -------------------------------------------------------------------
+# Epoch repair/rejection is AutoReject-local by default. It CV-tunes
+# per-channel thresholds plus n_interpolate/consensus, repairing epochs by
+# interpolation where possible before dropping them.
+#
+# Legacy preprocessing.reject.thresholds entries from the old scripts are
+# intentionally redundant for default runs. Keep them only as commented
+# provenance, or opt into a threshold fallback explicitly in full override
+# mode if you are doing a side-by-side legacy comparison.
+# -------------------------------------------------------------------
+# preprocessing:
+#   reject:
+#     method: autoreject
+#     n_interpolate: [1, 4, 8, 16]
+#     consensus: [0.2, 0.4, 0.6, 0.8]
+#     random_state: 42
+
+# -------------------------------------------------------------------
 # Anything else from default.yaml can also be overridden here, e.g.:
 # -------------------------------------------------------------------
 # preprocessing:
@@ -52,7 +75,8 @@ ica:
 
 ## What gets merged where
 
-`configs/default.yaml`  ←  `configs/local.yaml`  ←  `configs/overrides/Pxx.yaml`
+`configs/default.yaml`  ←  `configs/local.yaml`  ←  selected participant override
 
-(Right-hand wins. Per-participant overrides are applied last and only
-when that participant is the active one.)
+Right-hand wins. In the default `raw_assembly_only` mode, "selected
+participant override" means only `raw_assembly`. In `full` mode, it means the
+entire `configs/overrides/Pxx.yaml` file.

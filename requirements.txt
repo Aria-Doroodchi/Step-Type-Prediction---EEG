@@ -27,10 +27,16 @@ scikeras>=0.12
 # Explainability
 shap>=0.44
 
+# Future comparator normalization
+# Optional Riemannian comparator: pip install -e .[riemannian]
+braindecode>=0.8        # exponential moving standardization for CNN path
+
 # Configuration
 pyyaml>=6.0
 
 # Automated preprocessing
 pyprep>=0.4            # bad-channel detection
+meegkit>=0.1.9         # ZapLine line-noise removal
+python-picard>=0.8     # Picard ICA solver for MNE
 mne-icalabel>=0.6      # ICA component classification (eye/heart/muscle/etc.)
-autoreject>=0.4        # automated epoch rejection thresholds
+autoreject>=0.4        # local epoch repair/rejection with CV-tuned thresholds

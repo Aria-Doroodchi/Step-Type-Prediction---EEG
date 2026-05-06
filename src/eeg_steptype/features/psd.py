@@ -14,6 +14,7 @@ def band_power(
     *,
     freqs: np.ndarray,
     freq_bands: dict[str, tuple[float, float]],
+    n_jobs: int = 1,
 ) -> pd.DataFrame:
     """Return wide DataFrame: one row per epoch; columns ``{channel}_{band}_bin_{b}``."""
     n_cycles = freqs / 2.0
@@ -23,6 +24,7 @@ def band_power(
         n_cycles=n_cycles,
         return_itc=False,
         average=False,
+        n_jobs=n_jobs,
     )
     df = power.to_data_frame()
 
