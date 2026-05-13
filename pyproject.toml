@@ -29,6 +29,7 @@ dependencies = [
     "python-picard>=0.8",  # Picard ICA solver for MNE
     "mne-icalabel>=0.6",   # ICA component classification
     "autoreject>=0.4",     # local epoch repair/rejection
+    "nibabel>=5.0",        # FreeSurfer surface I/O required by source localization
 ]
 
 [project.optional-dependencies]

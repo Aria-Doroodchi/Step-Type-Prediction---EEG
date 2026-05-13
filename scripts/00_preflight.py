@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from eeg_steptype.config import load_config
-from eeg_steptype.preflight import run_preflight
+from eeg_steptype.preflight import locate_source_assets, locate_subjects_dir, run_preflight
 
 
 def main() -> None:
@@ -24,6 +24,9 @@ def main() -> None:
     cfg = load_config(args.config)
     run_preflight(cfg)
     print("Preflight OK")
+    print(f"subjects_dir: {locate_subjects_dir(cfg)}")
+    for key, path in locate_source_assets(cfg).items():
+        print(f"{key}: {path}")
 
 
 if __name__ == "__main__":

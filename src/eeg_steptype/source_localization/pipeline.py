@@ -22,7 +22,12 @@ from ..io import source_epochs_path, src_csv_path, write_csv
 from ..logging_utils import get_logger
 from ..preflight import validate_source_assets, validate_source_epochs
 from .forward import build_forward
-from .inverse import compute_noise_cov, build_inverse, apply_to_evoked
+from .inverse import (
+    apply_to_evoked,
+    build_inverse,
+    compute_noise_cov,
+    ensure_average_reference_projection,
+)
 from .labels import load_labels, extract_label_courses
 
 
@@ -52,6 +57,7 @@ def run(participant_id: str, cfg: dict, *, force: bool = False) -> None:
 
         validate_source_epochs(cfg, participant_id, cond)
         epochs = mne.read_epochs(str(epo_path), preload=True)
+        epochs = ensure_average_reference_projection(epochs)
 
         # Build the heavy machinery ONCE for this (participant, condition).
         fwd = build_forward(epochs.info, cfg, participant_id=participant_id)

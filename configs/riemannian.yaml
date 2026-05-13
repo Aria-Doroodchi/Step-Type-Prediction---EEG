@@ -1,0 +1,87 @@
+# =====================================================================
+# Riemannian speed tier — covariance + xDAWN + tangent-space + LDA.
+#
+# Target: ~30 s - 2 min/participant on a multi-core workstation (training
+# is intrinsically much lighter than XGB; most of the time goes to xDAWN
+# fitting and tangent-space projection per CV fold).
+#
+# Pipeline (see src/eeg_steptype/models/riemannian.py):
+#   RiemannianFeatureUnion(
+#       xdawn -> covariance -> tangent space,
+#       broadband covariance -> tangent space,
+#       FBCSP log-variance,
+#   ) -> BalancedShrinkageLDA
+#
+# Tensor input: this tier loads the cached epoch tensor at
+# data/features/tensor/<pid>_<cond>_epochs_t0p0-2p0.npz and feeds raw
+# (n_epochs, n_channels, n_times) arrays to the pipeline. The classical
+# feature parquet (binned amplitudes / slopes / PSD / src) is NOT used.
+#
+# Activate with:
+#     python run.py --speed-tier riemannian
+#     python scripts/04_train.py --speed-tier riemannian
+# (You don't need to also pass --model riemannian; this overlay sets it
+# via modeling.default_model.)
+# =====================================================================
+
+# resources.n_jobs is intentionally inherited from default.yaml / local.yaml.
+# Override on the CLI with --n-jobs if you want a per-run change.
+
+# Riemannian classifiers benefit from the full motor-preparation interval --
+# the covariance structure changes meaningfully across early / mid / late CNV.
+features:
+  min_time: 0.0
+  max_time: 2.0
+
+# Force the resolved prediction window name so checkpoints / metrics CSV
+# carry the right tag even when --prediction-window is not passed.
+_prediction_window: full_cnv
+
+modeling:
+  test_size: 0.30
+  random_state: 1
+  default_model: riemannian       # bound to this tier; --model on the CLI still wins
+
+  cv:
+    mode: repeated_stratified
+    n_splits: 5
+    n_repeats: 5
+    inner_splits: 3
+    chronological_check: false
+
+  search:
+    method: grid                  # small grid -> exhaustive is fine and fastest
+    n_jobs: null                  # pinned to 1 inside parallel-participants workers
+
+  # Feature-selection stages are silently skipped by the tensor-input training
+  # path, but we set them explicitly so the config snapshot in
+  # outputs/runs/<id>/config.yaml is unambiguous.
+  rfecv:
+    enabled: false
+  gain_prune:
+    enabled: false
+  shap_prune:
+    enabled: false
+
+  parallel:
+    # Reserve 8 cores; use the rest as parallel-participant workers. The
+    # Riemannian pipeline is light per fold, so don't reserve extra headroom.
+    participants: -8
+
+  riemannian:
+    covariance_estimator: oas    # Oracle Approximating Shrinkage -- robust per fold
+    xdawn:
+      nfilter: 4                 # default; the grid below sweeps 2/4/6
+    fbcsp_bands:
+      Mu:   [8.0,  13.0]
+      Beta: [13.0, 30.0]
+    param_grid:
+      # Tunes xDAWN spatial filters and the OAS-vs-LWF shrinkage choice.
+      # The Pipeline step names (features, classifier) are deliberately
+      # native -- maybe_prefix_param_grid leaves these alone.
+      features__nfilter: [2, 4, 6]
+      features__covariance_estimator: ["oas", "lwf"]
+
+logging:
+  level: INFO
+  stamp_runs: true

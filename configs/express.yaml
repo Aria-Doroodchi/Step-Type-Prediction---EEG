@@ -1,0 +1,99 @@
+# =====================================================================
+# Express speed tier — balanced fast workflow (recommended default).
+#
+# Target: ~4-8 min/participant on a multi-core workstation.
+# Expected AUC drop vs default: ~2-4%.
+#
+# Keeps a single light RFECV pass and the gain-prune refit so the final
+# feature set is still informed. Drops the SHAP refit and most CV repeats
+# to recover an order of magnitude in wall time. Use this for day-to-day
+# iteration when you need numbers you can broadly trust.
+#
+# Layered on top of configs/default.yaml. Activate with:
+#     python scripts/04_train.py --speed-tier express
+#     python run.py --speed-tier express --stages train
+# =====================================================================
+
+# resources.n_jobs is intentionally inherited from default.yaml / local.yaml.
+# Override on the CLI with --n-jobs if you want a per-run change.
+
+modeling:
+  test_size: 0.30
+  random_state: 1
+
+  cv:
+    mode: repeated_stratified
+    n_splits: 5
+    n_repeats: 2
+    inner_splits: 2
+    chronological_check: false
+
+  search:
+    method: halving_random
+    n_jobs: null
+    n_iter: 25
+    halving:
+      resource: n_estimators
+      min_resources: 50
+      max_resources: 400
+      factor: 3
+      aggressive_elimination: false
+
+  correlation_threshold: 0.95
+  k_best: 200
+
+  rfecv:
+    enabled: true                   # one cheap pass to prune obvious losers
+    n_iterations: 1
+    step: 0.2
+    min_features_to_select: 100
+    scoring: "roc_auc"
+
+  gain_prune:
+    enabled: true
+    refit: true                     # keep one refit after gain-pruning
+    mode: "zero"
+    percentile: 10
+    absolute: 0.001
+
+  shap_prune:
+    enabled: false                  # skip SHAP refit -- biggest single time saver
+    quantile: 0.0
+    refit: false
+
+  parallel:
+    # Reserve 8 cores; use the rest as parallel-participant workers.
+    # Matches the project's resources.n_jobs convention. Override on the
+    # CLI with --parallel-participants N.
+    participants: -8
+
+  xgb:
+    n_estimators: 400
+    objective: "binary:logistic"
+    eval_metric: "logloss"
+    tree_method: "hist"
+    n_jobs: null
+    param_grid:
+      max_depth:         [3, 6]
+      min_child_weight:  [1]
+      reg_alpha:         [0, 0.1]
+      gamma:             [0, 0.5]
+      reg_lambda:        [1, 5]
+      colsample_bytree:  [0.7]
+      colsample_bylevel: [0.8]
+      learning_rate:     [0.05, 0.1]
+      subsample:         [0.8]
+
+  svm:
+    param_grid:
+      C:      [0.1, 1.0, 10.0]
+      gamma:  ["scale", 0.01]
+      kernel: [rbf, linear]
+
+  logistic:
+    param_grid:
+      C: [0.01, 0.1, 1.0, 10.0]
+
+logging:
+  level: INFO
+  stamp_runs: true

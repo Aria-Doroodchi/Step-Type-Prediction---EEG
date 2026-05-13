@@ -19,10 +19,12 @@ PYTHON  ?= python
 CONFIG  ?= configs/default.yaml
 SMOKE   ?= configs/smoke.yaml
 MODEL   ?= xgb
+RUN_ID ?=
 CHANNEL_MODE ?=
 PREDICTION_WINDOW ?=
 OVERRIDE_MODE ?=
 OVERRIDE_ARGS := $(if $(OVERRIDE_MODE),--participant-override-mode $(OVERRIDE_MODE),)
+RUN_ARGS := $(if $(RUN_ID),--run-id $(RUN_ID),)
 CHANNEL_ARGS := $(if $(CHANNEL_MODE),--channel-mode $(CHANNEL_MODE),)
 WINDOW_ARGS := $(if $(PREDICTION_WINDOW),--prediction-window $(PREDICTION_WINDOW),)
 
@@ -57,12 +59,12 @@ features: src
 	$(PYTHON) scripts/03_extract_features.py --config $(CONFIG) $(OVERRIDE_ARGS) $(WINDOW_ARGS)
 
 train: features
-	$(PYTHON) scripts/04_train.py --config $(CONFIG) --model $(MODEL) $(OVERRIDE_ARGS) $(CHANNEL_ARGS) $(WINDOW_ARGS)
+	$(PYTHON) scripts/04_train.py --config $(CONFIG) --model $(MODEL) $(RUN_ARGS) $(OVERRIDE_ARGS) $(CHANNEL_ARGS) $(WINDOW_ARGS)
 
 all: preflight train
 
 full-xgb: preflight
-	$(PYTHON) run.py --config $(CONFIG) --model xgb $(OVERRIDE_ARGS) $(CHANNEL_ARGS) $(WINDOW_ARGS)
+	$(PYTHON) run.py --config $(CONFIG) --model xgb $(RUN_ARGS) $(OVERRIDE_ARGS) $(CHANNEL_ARGS) $(WINDOW_ARGS)
 
 # ---- Cleanup -------------------------------------------------------
 clean:

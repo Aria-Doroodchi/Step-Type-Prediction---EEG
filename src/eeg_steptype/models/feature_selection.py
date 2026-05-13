@@ -28,8 +28,29 @@ log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
+def _drop_constant_columns(X: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Return (X without constant numeric columns, list of dropped column names).
+
+    A column is "constant" if it has zero variance (or is all-NaN). Such columns
+    carry no information, and they trip up downstream ANOVA F-tests with a
+    spurious divide-by-zero warning. Filtering them at this seam keeps every
+    later feature-selection step well-defined.
+    """
+    numeric = X.select_dtypes(include=[np.number])
+    # nunique(dropna=False) treats NaN as its own value, so all-NaN columns
+    # also report 1 unique value -- exactly what we want to drop.
+    constant = [c for c in numeric.columns if numeric[c].nunique(dropna=False) <= 1]
+    if not constant:
+        return X, []
+    return X.drop(columns=constant), constant
+
+
 def correlation_drop(X: pd.DataFrame, threshold: float = 0.9) -> list[str]:
     """Return surviving feature names after dropping highly correlated ones."""
+    X, constants = _drop_constant_columns(X)
+    if constants:
+        log.info("[corr-drop] dropped %d zero-variance column(s) before correlation step",
+                 len(constants))
     corr = X.select_dtypes(include=[np.number]).corr().abs()
     upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
     drop = [c for c in upper.columns if any(upper[c] > threshold)]
@@ -40,6 +61,10 @@ def correlation_drop(X: pd.DataFrame, threshold: float = 0.9) -> list[str]:
 
 
 def select_kbest(X: pd.DataFrame, y: pd.Series, k: int) -> list[str]:
+    X, constants = _drop_constant_columns(X)
+    if constants:
+        log.info("[k-best] dropped %d zero-variance column(s) before ANOVA F",
+                 len(constants))
     k = min(int(k), X.shape[1])
     sel = SelectKBest(score_func=f_classif, k=k)
     sel.fit(X, y)

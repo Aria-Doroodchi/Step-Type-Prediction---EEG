@@ -1,14 +1,10 @@
 # =============================================================================
 # Legacy code superseded by the reorganization.
-# These folders are kept on disk for reference but are NOT tracked. The
-# replacement code lives under src/eeg_steptype/ and scripts/.
+# Previous-version Python pipeline lives under legacy/ for reference but is NOT
+# tracked. The replacement code lives under src/eeg_steptype/ and scripts/.
+# See legacy/README.md for the old-file -> new-file mapping.
 # =============================================================================
-01_preprocessing/
-02_models/archive/
-02_models/lstm/
-02_models/svm/
-02_models/xgboost/
-03_visualization/python/
+legacy/
 sandbox/
 _repo_export/
 

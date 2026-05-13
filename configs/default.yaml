@@ -170,8 +170,8 @@ preprocessing:
 source_localization:
   subjects_dir: "."
   src_file:   "fsaverage/bem/fsaverage-ico-5-src.fif"
-  bem_file:   "fsaverage/bem/fsaverage-inner_skull-bem-sol.fif"
-  trans_file: "fsaverage/bem/fsaverage-trans.fif"
+  bem_file:   "fsaverage/bem/fsaverage-5120-5120-5120-bem-sol.fif"
+  trans_file: "fsaverage"
   parcellation: "aparc.a2009s"
   method: "eLORETA"
   snr: 2.0

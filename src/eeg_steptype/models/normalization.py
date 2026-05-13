@@ -25,16 +25,17 @@ def make_normalizer(model_name: str, cfg: dict):
     """Return the normalization transformer for ``model_name``.
 
     ``None`` means the estimator should not be wrapped at all. This keeps the
-    current XGB path bit-for-bit closest to the existing behavior.
+    XGB path bit-for-bit closest to the existing behavior, and also lets
+    ``riemannian`` return a fully-formed pipeline from its own factory
+    (``make_xdawn_covariance_pipeline``) without being double-wrapped here.
     """
-    if model_name == "riemannian":
-        from .riemannian import make_normalizer as make_riemannian_normalizer
-
-        return make_riemannian_normalizer(cfg)
     if model_name == "cnn":
         from .cnn import make_normalizer as make_cnn_normalizer
 
         return make_cnn_normalizer(cfg)
+    # riemannian returns its own (features, classifier) pipeline from
+    # make_riemannian() and does not want an outer (normalize, classifier)
+    # wrap on top of it.
     return None
 
 
@@ -49,8 +50,17 @@ def maybe_wrap_estimator(estimator, model_name: str, cfg: dict):
 
 
 def maybe_prefix_param_grid(param_grid: dict, estimator) -> dict:
-    """Prefix classifier params when estimator is a Pipeline."""
+    """Prefix classifier params for the (normalize, classifier) wrapper.
+
+    Native pipelines from model factories (e.g. Riemannian's
+    ``Pipeline([("features", ...), ("classifier", ...)])``) already use their
+    own step names in the param grid, so we only apply the
+    ``classifier__`` prefix when we recognise the wrapper layout this module
+    builds.
+    """
     if not isinstance(estimator, Pipeline):
+        return param_grid
+    if list(estimator.named_steps.keys()) != ["normalize", "classifier"]:
         return param_grid
     return {
         key if key.startswith("classifier__") else f"classifier__{key}": value

@@ -1,0 +1,97 @@
+# =====================================================================
+# Lightning speed tier — fastest fast workflow.
+#
+# Target: ~1-3 min/participant on a multi-core workstation.
+# Expected AUC drop vs default: ~5-10%.
+#
+# Use this for very fast dev loops (debugging a feature, checking a code
+# path), not for results you would report. Strips RFECV, SHAP, and the
+# gain-prune refit; uses a single CV repeat with a tiny grid search and
+# small XGB ensembles.
+#
+# Layered on top of configs/default.yaml. Activate with:
+#     python scripts/04_train.py --speed-tier lightning
+#     python run.py --speed-tier lightning --stages train
+# =====================================================================
+
+# resources.n_jobs is intentionally inherited from default.yaml / local.yaml.
+# Speed tiers control modeling shortcuts; the per-machine CPU budget is the
+# user's choice. Override on the CLI with --n-jobs if needed.
+
+modeling:
+  test_size: 0.30
+  random_state: 1
+
+  cv:
+    mode: repeated_stratified
+    n_splits: 3
+    n_repeats: 1
+    inner_splits: 2
+    chronological_check: false
+
+  search:
+    method: grid                    # tiny grid -> exhaustive is cheaper than halving
+    n_jobs: null                    # honored per-worker (1 inside parallel workers)
+    n_iter: 10
+    halving:
+      resource: n_estimators
+      min_resources: 25
+      max_resources: 150
+      factor: 2
+      aggressive_elimination: true
+
+  correlation_threshold: 0.95
+  k_best: 100
+
+  rfecv:
+    enabled: false                  # NEW switch: skip the iterated RFECV pass
+    n_iterations: 1
+    step: 0.2
+    min_features_to_select: 50
+    scoring: "roc_auc"
+
+  gain_prune:
+    enabled: true                   # NEW: keep gain importances available, but...
+    refit: false                    # ...don't pay for a second hyperparameter search
+    mode: "zero"
+    percentile: 10
+    absolute: 0.001
+
+  shap_prune:
+    enabled: false                  # NEW: skip SHAP entirely
+    quantile: 0.0
+    refit: false
+
+  parallel:
+    # Number of participants to train concurrently. Project convention:
+    # negative values reserve that many logical CPUs, so -8 means
+    # "use all available cores except 8" -- matching resources.n_jobs.
+    # Override on the CLI with --parallel-participants N; use 1 to force
+    # sequential execution.
+    participants: -8
+
+  xgb:
+    n_estimators: 200
+    objective: "binary:logistic"
+    eval_metric: "logloss"
+    tree_method: "hist"
+    n_jobs: null                    # forced to 1 inside parallel workers
+    param_grid:
+      max_depth:         [3, 6]
+      learning_rate:     [0.1]
+      subsample:         [0.8]
+      colsample_bytree:  [0.8]
+      reg_lambda:        [1]
+
+  svm:
+    param_grid:
+      C:      [1.0]
+      kernel: [linear]
+
+  logistic:
+    param_grid:
+      C: [0.1, 1.0]
+
+logging:
+  level: INFO
+  stamp_runs: true

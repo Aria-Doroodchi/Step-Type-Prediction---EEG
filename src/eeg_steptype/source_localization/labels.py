@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import mne
 
-from ..preflight import resolve_project_path
+from ..preflight import locate_subjects_dir
 
 
 def load_labels(cfg: dict) -> tuple[list, list[str]]:
     """Return (labels, label_names) using the configured parcellation."""
     sl = cfg["source_localization"]
-    subjects_dir = resolve_project_path(sl.get("subjects_dir", "."))
+    subjects_dir = locate_subjects_dir(cfg)
     labels = mne.read_labels_from_annot(
         "fsaverage",
         parc=sl.get("parcellation", "aparc.a2009s"),

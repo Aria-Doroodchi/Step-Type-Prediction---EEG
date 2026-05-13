@@ -195,8 +195,35 @@ def make_xdawn_covariance_pipeline(cfg: dict):
     ])
 
 
+def make_riemannian(cfg: dict, **_kwargs):
+    """Public model factory for ``--model riemannian``.
+
+    Returns the xDAWN covariance + TangentSpace + FBCSP-log-variance feature
+    union piped into a balanced shrinkage LDA. Ignores ``scale_pos_weight``
+    and ``n_features`` keyword arguments forwarded by the generic training
+    driver -- class imbalance is handled by the LDA's uniform priors and the
+    pipeline accepts native ``(n_epochs, n_channels, n_times)`` tensors.
+    """
+    return make_xdawn_covariance_pipeline(cfg)
+
+
 def param_grid(cfg: dict) -> dict:
-    return cfg.get("modeling", {}).get("riemannian", {}).get("param_grid", {})
+    """Hyperparameter grid for the Riemannian pipeline.
+
+    Keys follow the (features, classifier) pipeline step names so
+    ``maybe_prefix_param_grid`` leaves them unchanged. The default below is
+    intentionally small (xDAWN nfilter × covariance estimator) because the
+    pipeline already does heavy lifting per fold and a wider sweep buys
+    little; configs/riemannian.yaml can override it.
+    """
+    rcfg = cfg.get("modeling", {}).get("riemannian", {})
+    grid = rcfg.get("param_grid")
+    if grid:
+        return grid
+    return {
+        "features__nfilter": [2, 4, 6],
+        "features__covariance_estimator": ["oas", "lwf"],
+    }
 
 
 def _xdawn_classes():

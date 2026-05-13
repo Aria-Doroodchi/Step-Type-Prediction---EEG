@@ -1,0 +1,101 @@
+# =====================================================================
+# Quick speed tier — closest to research-grade while still fast.
+#
+# Target: ~10-15 min/participant on a multi-core workstation.
+# Expected AUC drop vs default: <1.5%.
+#
+# Keeps two RFECV iterations and a single SHAP-prune pass; trims CV
+# repeats and the hyperparameter grid so the run finishes in minutes
+# instead of hours. Use this when you need results you would publish or
+# share with collaborators but cannot wait for the full default config.
+#
+# Layered on top of configs/default.yaml. Activate with:
+#     python scripts/04_train.py --speed-tier quick
+#     python run.py --speed-tier quick --stages train
+# =====================================================================
+
+# resources.n_jobs is intentionally inherited from default.yaml / local.yaml.
+# Override on the CLI with --n-jobs if you want a per-run change.
+
+modeling:
+  test_size: 0.30
+  random_state: 1
+
+  cv:
+    mode: repeated_stratified
+    n_splits: 5
+    n_repeats: 5
+    inner_splits: 3
+    chronological_check: false
+
+  search:
+    method: halving_random
+    n_jobs: null
+    n_iter: 50
+    halving:
+      resource: n_estimators
+      min_resources: 100
+      max_resources: 600
+      factor: 3
+      aggressive_elimination: false
+
+  correlation_threshold: 0.9
+  k_best: 300
+
+  rfecv:
+    enabled: true
+    n_iterations: 2
+    step: 0.1
+    min_features_to_select: 150
+    scoring: "roc_auc"
+
+  gain_prune:
+    enabled: true
+    refit: true
+    mode: "zero"
+    percentile: 10
+    absolute: 0.001
+
+  shap_prune:
+    enabled: true
+    quantile: 0.2
+    refit: true                     # one SHAP refit -- the only major item kept
+
+  parallel:
+    # Reserve 10 cores rather than 8: SHAP-prune raises peak RAM per worker,
+    # so we trade a couple of workers for headroom on smaller boxes. Project
+    # convention: negative values reserve that many logical CPUs. Override
+    # on the CLI with --parallel-participants N.
+    participants: -10
+
+  xgb:
+    n_estimators: 600
+    objective: "binary:logistic"
+    eval_metric: "logloss"
+    tree_method: "hist"
+    n_jobs: null
+    param_grid:
+      max_depth:         [3, 6, 8]
+      min_child_weight:  [1]
+      reg_alpha:         [0, 0.1]
+      gamma:             [0, 0.3, 1]
+      reg_lambda:        [1, 3, 10]
+      colsample_bytree:  [0.6, 0.8]
+      colsample_bylevel: [0.6, 0.8]
+      learning_rate:     [0.03, 0.05]
+      subsample:         [0.7, 0.9]
+
+  svm:
+    param_grid:
+      C:      [0.1, 1.0, 10.0, 100.0]
+      gamma:  [scale, auto, 0.01, 0.1]
+      kernel: [rbf, linear]
+      degree: [2, 3]
+
+  logistic:
+    param_grid:
+      C: [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]
+
+logging:
+  level: INFO
+  stamp_runs: true

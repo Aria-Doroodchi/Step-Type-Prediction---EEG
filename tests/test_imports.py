@@ -157,6 +157,35 @@ def test_source_asset_preflight_reports_missing_files(tmp_path):
     assert "configs/local.yaml" in msg
 
 
+def test_source_asset_preflight_rejects_one_layer_bem(monkeypatch, tmp_path):
+    from eeg_steptype import preflight
+
+    bem_path = tmp_path / "one-layer-bem-sol.fif"
+    bem_path.write_bytes(b"not a real fif; read is monkeypatched")
+    monkeypatch.setattr(
+        preflight.mne,
+        "read_bem_solution",
+        lambda *args, **kwargs: {"surfs": [object()]},
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        preflight._validate_bem_model_for_eeg(bem_path)
+
+    assert "3-layer BEM" in str(exc.value)
+
+
+def test_default_source_asset_preflight_accepts_resolved_fsaverage():
+    from eeg_steptype.config import load_config
+    from eeg_steptype.preflight import locate_source_assets, run_preflight
+
+    cfg = load_config()
+    assets = locate_source_assets(cfg)
+
+    assert assets["source_localization.trans_file"] == "fsaverage"
+    assert "5120-5120-5120-bem-sol" in str(assets["source_localization.bem_file"])
+    run_preflight(cfg)
+
+
 def test_source_epoch_preflight_rejects_non_eeg_epochs(tmp_path):
     import mne
     import numpy as np
@@ -178,6 +207,39 @@ def test_source_epoch_preflight_rejects_non_eeg_epochs(tmp_path):
 
     assert "No EEG channels found" in str(exc.value)
     assert "not final CSD epochs" in str(exc.value)
+
+
+def test_forward_info_preflight_rejects_non_eeg_info():
+    import mne
+    from eeg_steptype.source_localization.forward import _validate_forward_info
+
+    info = mne.create_info(["Cz"], sfreq=100, ch_types=["csd"])
+
+    with pytest.raises(RuntimeError) as exc:
+        _validate_forward_info(info)
+
+    assert "No EEG channels found" in str(exc.value)
+
+
+def test_source_modeling_adds_average_reference_projector():
+    import mne
+    import numpy as np
+    from eeg_steptype.source_localization.inverse import ensure_average_reference_projection
+
+    info = mne.create_info(["Cz", "Fz", "Pz", "Oz"], sfreq=100, ch_types="eeg")
+    info.set_montage("standard_1020")
+    epochs = mne.EpochsArray(
+        np.zeros((2, 4, 10)),
+        info,
+        events=np.array([[0, 0, 96], [20, 0, 96]]),
+        event_id={"96": 96},
+        verbose=False,
+    )
+
+    out = ensure_average_reference_projection(epochs)
+
+    assert out is epochs
+    assert any(proj["desc"] == "Average EEG reference" for proj in epochs.info["projs"])
 
 
 def test_feature_path_is_window_aware():

@@ -12,7 +12,10 @@ smoke config is active.
 
 from __future__ import annotations
 
+import copy
+import os
 import re
+import time
 
 import numpy as np
 import pandas as pd
@@ -29,14 +32,17 @@ from sklearn.model_selection import (
 
 from ..config import apply_participant_override
 from ..features.assemble import build_for_participant
+from ..features.tensor import build_tensor_for_participant
 from ..io import write_csv, run_dir, ensure_dir
 from ..logging_utils import get_logger, make_run_id, stamp_run
+from ..progress import FoldETA, CohortETA
 from ..resources import resolve_n_jobs
 from . import feature_selection as fs
 from . import xgb as xgb_factory
 from . import svm as svm_factory
 from . import lstm as lstm_factory
 from . import logistic as logistic_factory
+from . import riemannian as riemannian_factory
 from .normalization import maybe_prefix_param_grid, maybe_wrap_estimator, unwrap_classifier
 from .evaluate import participant_metrics, cv_rollup
 
@@ -45,6 +51,12 @@ log = get_logger(__name__)
 
 
 # --- Model registry -------------------------------------------------------
+# Each entry describes how to build the model, the hyperparameter grid, and
+# which optimization stages apply. ``data_representation`` selects the
+# training data path: "tabular" uses the flat feature parquet from
+# features.assemble; "tensor" loads (n_epochs, n_channels, n_times) data
+# from features.tensor and skips the feature-selection stages entirely
+# (correlation drop, k-best, RFECV, gain, SHAP -- none apply to tensor input).
 MODEL_FACTORIES: dict[str, dict] = {
     "xgb": {
         "make":         xgb_factory.make_xgb,
@@ -52,6 +64,7 @@ MODEL_FACTORIES: dict[str, dict] = {
         "rfecv_base":   xgb_factory.make_rfecv_base,
         "supports_gain": True,
         "supports_shap": True,
+        "data_representation": "tabular",
     },
     "svm": {
         "make":         svm_factory.make_svm,
@@ -59,6 +72,7 @@ MODEL_FACTORIES: dict[str, dict] = {
         "rfecv_base":   None,
         "supports_gain": False,
         "supports_shap": False,
+        "data_representation": "tabular",
     },
     "lstm": {
         "make":         lstm_factory.make_lstm,
@@ -66,6 +80,7 @@ MODEL_FACTORIES: dict[str, dict] = {
         "rfecv_base":   None,
         "supports_gain": False,
         "supports_shap": False,
+        "data_representation": "tabular",  # legacy n_timesteps=1 path
     },
     "logistic": {
         "make":         logistic_factory.make_logistic,
@@ -73,8 +88,22 @@ MODEL_FACTORIES: dict[str, dict] = {
         "rfecv_base":   None,
         "supports_gain": False,
         "supports_shap": False,
+        "data_representation": "tabular",
+    },
+    "riemannian": {
+        "make":         riemannian_factory.make_riemannian,
+        "param_grid":   riemannian_factory.param_grid,
+        "rfecv_base":   None,
+        "supports_gain": False,
+        "supports_shap": False,
+        "data_representation": "tensor",
     },
 }
+
+
+def _participant_metrics_path(rdir, participant_id: str):
+    """Return the per-participant checkpoint path within a run directory."""
+    return ensure_dir(rdir / "participants") / f"{participant_id}_metrics.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +118,13 @@ def train_one_participant(
     """Run nested CV for one participant and return one metrics row per fold."""
     cfg = apply_participant_override(cfg, participant_id)
     factory = MODEL_FACTORIES[model_name]
+    representation = factory.get("data_representation", "tabular")
+
+    if representation == "tensor":
+        return _train_one_participant_tensor(
+            participant_id, cfg, model_name, factory,
+            channel_mode=channel_mode, cv_mode=cv_mode,
+        )
 
     df = build_for_participant(participant_id, cfg)
     df = _apply_channel_selection(df, cfg, model_name, channel_mode=channel_mode)
@@ -102,8 +138,21 @@ def train_one_participant(
     if groups is not None:
         groups = groups.reset_index(drop=True)
 
+    splits = _outer_splits(X, y, groups, cfg, cv_mode=cv_mode)
+    log.info(
+        "[%s/%s] starting nested CV: %d outer fold(s), inner grid≈%s candidate(s)",
+        participant_id, model_name, len(splits),
+        _param_grid_size(factory["param_grid"](cfg)),
+    )
+    eta = FoldETA(total_folds=len(splits))
     rows: list[dict] = []
-    for split in _outer_splits(X, y, groups, cfg, cv_mode=cv_mode):
+    for fold_idx, split in enumerate(splits, 1):
+        log.info(
+            "[%s/%s] outer fold %d/%d starting (cv_mode=%s, repeat=%d, fold=%d)",
+            participant_id, model_name, fold_idx, len(splits),
+            split.get("cv_mode"), split.get("repeat"), split.get("fold"),
+        )
+        t0 = time.perf_counter()
         row = _fit_score_split(
             participant_id,
             cfg,
@@ -114,6 +163,13 @@ def train_one_participant(
             split["train_idx"],
             split["test_idx"],
         )
+        fold_dt = time.perf_counter() - t0
+        eta.record(fold_dt)
+        log.info(
+            "[%s/%s] outer fold %d/%d done in %.1fs · %s",
+            participant_id, model_name, fold_idx, len(splits),
+            fold_dt, eta.format(),
+        )
         row.update({k: v for k, v in split.items() if not k.endswith("_idx")})
         row["channel_mode"] = _effective_channel_mode(cfg, model_name, channel_mode)
         row["prediction_window"] = cfg.get("_prediction_window", "late_cnv")
@@ -121,6 +177,189 @@ def train_one_participant(
         row["window_max_time"] = float(cfg["features"]["max_time"])
         rows.append(row)
     return rows
+
+
+def _train_one_participant_tensor(
+    participant_id: str,
+    cfg: dict,
+    model_name: str,
+    factory: dict,
+    *,
+    channel_mode: str | None,
+    cv_mode: str | None,
+) -> list[dict]:
+    """Tensor-input training path (Riemannian and future CNN).
+
+    Skips correlation drop / k-best / RFECV / gain / SHAP -- none of those
+    are well-defined on ``(n_epochs, n_channels, n_times)`` data. The
+    per-fold work is simpler: split tensor, fit search, score.
+    """
+    log.info("[%s/%s] loading epoch tensor...", participant_id, model_name)
+    bundle = build_tensor_for_participant(participant_id, cfg)
+    X = np.asarray(bundle["data"])
+    y = pd.Series(bundle["labels"]).map({"One": 0, "Two": 1}).astype(int).reset_index(drop=True)
+    block_ids = bundle.get("block_ids")
+    groups = pd.Series(block_ids).reset_index(drop=True) if block_ids is not None else None
+    log.info(
+        "[%s/%s] tensor ready: %d epochs × %d channels × %d samples (class balance %d/%d)",
+        participant_id, model_name,
+        X.shape[0], X.shape[1], X.shape[2],
+        int((y == 0).sum()), int((y == 1).sum()),
+    )
+
+    splits = _outer_splits_tensor(X, y, groups, cfg, cv_mode=cv_mode)
+    grid = factory["param_grid"](cfg)
+    inner_splits = int(_cv_config(cfg).get("inner_splits", cfg.get("modeling", {}).get("inner_cv_splits", 2)))
+    log.info(
+        "[%s/%s] starting nested CV: %d outer fold(s) × %d candidate(s) × %d inner fold(s) "
+        "= %d inner fit(s) + %d outer refit(s)",
+        participant_id, model_name,
+        len(splits), _param_grid_size(grid), inner_splits,
+        len(splits) * _param_grid_size(grid) * inner_splits, len(splits),
+    )
+    eta = FoldETA(total_folds=len(splits))
+
+    rows: list[dict] = []
+    for fold_idx, split in enumerate(splits, 1):
+        log.info(
+            "[%s/%s] outer fold %d/%d starting (cv_mode=%s, repeat=%d, fold=%d, "
+            "train=%d, test=%d)",
+            participant_id, model_name, fold_idx, len(splits),
+            split.get("cv_mode"), split.get("repeat"), split.get("fold"),
+            len(split["train_idx"]), len(split["test_idx"]),
+        )
+        t0 = time.perf_counter()
+        row = _fit_score_split_tensor(
+            participant_id, cfg, model_name, factory,
+            X, y,
+            split["train_idx"], split["test_idx"],
+        )
+        fold_dt = time.perf_counter() - t0
+        eta.record(fold_dt)
+        log.info(
+            "[%s/%s] outer fold %d/%d done in %.1fs · %s",
+            participant_id, model_name, fold_idx, len(splits),
+            fold_dt, eta.format(),
+        )
+        row.update({k: v for k, v in split.items() if not k.endswith("_idx")})
+        row["channel_mode"] = "full"          # tensor models always use every channel
+        row["prediction_window"] = cfg.get("_prediction_window", "late_cnv")
+        row["window_min_time"] = float(cfg["features"]["min_time"])
+        row["window_max_time"] = float(cfg["features"]["max_time"])
+        rows.append(row)
+    return rows
+
+
+def _fit_score_split_tensor(
+    participant_id: str,
+    cfg: dict,
+    model_name: str,
+    factory: dict,
+    X: np.ndarray,
+    y: pd.Series,
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+) -> dict:
+    """Fit and score one outer fold on tensor input. No feature selection."""
+    X_train, X_test = X[train_idx], X[test_idx]
+    y_train, y_test = y.iloc[train_idx].copy(), y.iloc[test_idx].copy()
+
+    search = _fit_search(
+        factory, cfg, model_name, X_train, y_train,
+        scale_pos_weight=_scale_pos_weight(y_train),
+    )
+    log.info("[%s/%s] outer fold best CV=%.3f, params=%s",
+             participant_id, model_name, search.best_score_, search.best_params_)
+
+    best = search.best_estimator_
+    proba = (
+        best.predict_proba(X_test)[:, 1]
+        if hasattr(best, "predict_proba")
+        else best.decision_function(X_test)
+    )
+    pred = (proba >= 0.5).astype(int)
+
+    metrics = participant_metrics(np.asarray(y_test), pred, np.asarray(proba))
+    metrics["participant_id"] = participant_id
+    metrics["model"] = model_name
+    # Report the *input* dimensionality: channels × times. The actual feature
+    # count after xDAWN + tangent space is determined by the pipeline.
+    metrics["n_features_final"] = int(X_train.shape[1] * X_train.shape[2])
+    metrics["best_params"] = str(search.best_params_)
+    metrics["inner_best_score"] = float(search.best_score_)
+    metrics["search_method"] = _search_method(cfg, model_name)
+    return metrics
+
+
+def _outer_splits_tensor(
+    X: np.ndarray,
+    y: pd.Series,
+    groups: pd.Series | None,
+    cfg: dict,
+    *,
+    cv_mode: str | None = None,
+) -> list[dict]:
+    """Outer splits for tensor input.
+
+    ``sklearn`` splitters work on any input where ``len(X)`` is the sample
+    count, so a 3-D ``np.ndarray`` is fine. The chronological sanity check is
+    not meaningful without a tabular ``epoch`` column, so it is disabled
+    here regardless of ``modeling.cv.chronological_check``.
+    """
+    cv = _cv_config(cfg)
+    mode = cv_mode or cv.get("mode", "repeated_stratified")
+    n_splits = _bounded_splits(y, int(cv.get("n_splits", 5)))
+    random_state = int(cfg["modeling"].get("random_state", 1))
+    rows: list[dict] = []
+
+    if mode == "repeated_stratified":
+        splitter = RepeatedStratifiedKFold(
+            n_splits=n_splits,
+            n_repeats=int(cv.get("n_repeats", 20)),
+            random_state=random_state,
+        )
+        for i, (train_idx, test_idx) in enumerate(splitter.split(np.zeros(len(y)), y)):
+            rows.append({
+                "cv_mode": "repeated_stratified",
+                "repeat": i // n_splits,
+                "fold":   i % n_splits,
+                "train_idx": train_idx,
+                "test_idx":  test_idx,
+            })
+        return rows
+
+    if mode == "grouped":
+        if groups is None or groups.nunique(dropna=False) < n_splits:
+            log.warning("Grouped CV requested without enough block_id groups; falling back to repeated stratified.")
+            return _outer_splits_tensor(X, y, groups, cfg, cv_mode="repeated_stratified")
+        splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+        for fold, (train_idx, test_idx) in enumerate(
+            splitter.split(np.zeros(len(y)), y, groups)
+        ):
+            rows.append({
+                "cv_mode": "grouped",
+                "repeat":  0,
+                "fold":    fold,
+                "train_idx": train_idx,
+                "test_idx":  test_idx,
+            })
+        return rows
+
+    if mode == "chronological":
+        # No tabular ordering key on tensor data; fall back to the natural
+        # epoch order with a no-shuffle KFold.
+        splitter = KFold(n_splits=n_splits, shuffle=False)
+        for fold, (train_idx, test_idx) in enumerate(splitter.split(np.arange(len(y)))):
+            rows.append({
+                "cv_mode": "chronological",
+                "repeat":  0,
+                "fold":    fold,
+                "train_idx": train_idx,
+                "test_idx":  test_idx,
+            })
+        return rows
+
+    raise ValueError("cv_mode must be one of: repeated_stratified, grouped, chronological")
 
 
 def _fit_score_split(
@@ -147,18 +386,23 @@ def _fit_score_split(
     X_train, X_test = X_train[keep], X_test[keep]
 
     # 3. Iterated RFECV (XGB only -- others fall through)
-    if factory["rfecv_base"] is not None:
+    rfecv_cfg = mcfg.get("rfecv", {})
+    rfecv_enabled = bool(rfecv_cfg.get("enabled", True))
+    if rfecv_enabled and factory["rfecv_base"] is not None:
         scale_pos_weight = _scale_pos_weight(y_train)
         rfecv_base = factory["rfecv_base"](cfg, scale_pos_weight=scale_pos_weight)
         keep, _imp = fs.rfecv_iterated(
             X_train, y_train, rfecv_base,
-            n_iterations=int(mcfg["rfecv"]["n_iterations"]),
-            step=float(mcfg["rfecv"]["step"]),
-            min_features_to_select=int(mcfg["rfecv"]["min_features_to_select"]),
-            scoring=mcfg["rfecv"].get("scoring", "roc_auc"),
+            n_iterations=int(rfecv_cfg.get("n_iterations", 5)),
+            step=float(rfecv_cfg.get("step", 0.05)),
+            min_features_to_select=int(rfecv_cfg.get("min_features_to_select", 200)),
+            scoring=rfecv_cfg.get("scoring", "roc_auc"),
             n_jobs=1,
         )
         X_train, X_test = X_train[keep], X_test[keep]
+    elif not rfecv_enabled:
+        log.info("[%s/%s] RFECV disabled by config; skipping.",
+                 participant_id, model_name)
 
     scale_pos_weight = _scale_pos_weight(y_train)
     search = _fit_search(
@@ -172,8 +416,15 @@ def _fit_score_split(
     best_classifier = unwrap_classifier(best)
 
     # 4. (Optional) gain prune + retrain
-    if factory["supports_gain"] and hasattr(best_classifier, "feature_importances_"):
-        gp = mcfg["gain_prune"]
+    gp = mcfg.get("gain_prune", {}) or {}
+    gain_prune_enabled = bool(gp.get("enabled", True))
+    gain_prune_refit = bool(gp.get("refit", True))
+    if (
+        gain_prune_enabled
+        and gain_prune_refit
+        and factory["supports_gain"]
+        and hasattr(best_classifier, "feature_importances_")
+    ):
         keep_gain = fs.gain_prune(
             best_classifier.feature_importances_, X_train.columns.tolist(),
             mode=gp.get("mode", "zero"),
@@ -188,13 +439,27 @@ def _fit_score_split(
             )
             best = search.best_estimator_
             best_classifier = unwrap_classifier(best)
+    elif not (gain_prune_enabled and gain_prune_refit):
+        log.info("[%s/%s] gain-prune refit disabled by config; skipping.",
+                 participant_id, model_name)
 
     # 5. (Optional) SHAP prune + retrain
-    if factory["supports_shap"]:
+    shap_cfg = mcfg.get("shap_prune", {}) or {}
+    shap_quantile = float(
+        shap_cfg.get("quantile", mcfg.get("shap_prune_quantile", 0.2))
+    )
+    shap_enabled = bool(shap_cfg.get("enabled", shap_quantile > 0))
+    shap_refit = bool(shap_cfg.get("refit", True))
+    if (
+        shap_enabled
+        and shap_refit
+        and shap_quantile > 0
+        and factory["supports_shap"]
+    ):
         keep_shap = fs.shap_prune(
             best_classifier,
             X_train,
-            quantile=float(mcfg.get("shap_prune_quantile", 0.2)),
+            quantile=shap_quantile,
         )
         if keep_shap and len(keep_shap) < X_train.shape[1]:
             X_train, X_test = X_train[keep_shap], X_test[keep_shap]
@@ -203,6 +468,9 @@ def _fit_score_split(
                 scale_pos_weight=scale_pos_weight,
             )
             best = search.best_estimator_
+    elif not (shap_enabled and shap_refit and shap_quantile > 0):
+        log.info("[%s/%s] SHAP prune disabled by config; skipping.",
+                 participant_id, model_name)
 
     proba = (
         best.predict_proba(X_test)[:, 1]
@@ -271,7 +539,11 @@ def _make_search_cv(
         "n_jobs": _search_n_jobs(cfg, model_name),
         "cv": cv,
         "refit": True,
-        "verbose": 0,
+        # modeling.search.verbose -- opt-in per-candidate progress from sklearn.
+        # 0=silent (default), 1=one line per candidate completion, 3=one line
+        # per candidate × CV-fold pair. Useful when staring at a slow Riemannian
+        # or XGB fit and wanting to see something move.
+        "verbose": int(mcfg.get("search", {}).get("verbose", 0)),
     }
     if method == "grid":
         return GridSearchCV(param_grid=param_grid, **common)
@@ -511,6 +783,73 @@ def _make_search_estimator(factory, cfg, model_name, *, scale_pos_weight, n_feat
 
 
 # ---------------------------------------------------------------------------
+def _parallel_participants(cfg: dict) -> int:
+    """Resolve the number of participants to train concurrently.
+
+    Defaults to 1 (sequential) for backwards compatibility. Negative values
+    follow the project convention of "reserve this many logical CPUs".
+    """
+    raw = (
+        cfg.get("modeling", {})
+        .get("parallel", {})
+        .get("participants")
+    )
+    if raw is None:
+        return 1
+    raw = int(raw)
+    if raw == 0:
+        return 1
+    if raw < 0:
+        cpus = os.cpu_count() or 1
+        return max(1, cpus - abs(raw))
+    return raw
+
+
+def _force_single_threaded_inner(cfg: dict) -> dict:
+    """Return a copy of cfg with inner XGB/search workers pinned to one thread.
+
+    Used inside joblib workers so each participant runs single-threaded and
+    we don't oversubscribe (joblib workers × XGB threads × sklearn threads).
+    """
+    out = copy.deepcopy(cfg)
+    modeling = out.setdefault("modeling", {})
+    modeling.setdefault("xgb", {})["n_jobs"] = 1
+    modeling.setdefault("search", {})["n_jobs"] = 1
+    # Cap the project-wide n_jobs so anything reading resources.n_jobs also
+    # falls back to one thread inside the worker.
+    out.setdefault("resources", {})["n_jobs"] = 1
+    out["_parallel_worker"] = True
+    return out
+
+
+def _train_one_with_checkpoint(
+    pid: str,
+    cfg: dict,
+    model: str,
+    rdir,
+    *,
+    channel_mode: str | None,
+    cv_mode: str | None,
+) -> tuple[str, list[dict] | None, Exception | None]:
+    """Train (or load) one participant. Returns (pid, rows, exc)."""
+    try:
+        participant_path = _participant_metrics_path(rdir, pid)
+        if participant_path.exists():
+            log.info("[%s] checkpoint exists; loading %s", pid, participant_path)
+            participant_df = pd.read_csv(participant_path)
+            return pid, participant_df.to_dict(orient="records"), None
+
+        participant_rows = train_one_participant(
+            pid, cfg, model, channel_mode=channel_mode, cv_mode=cv_mode,
+        )
+        participant_df = pd.DataFrame(participant_rows)
+        write_csv(participant_df, participant_path)
+        log.info("[%s] wrote training checkpoint %s", pid, participant_path)
+        return pid, participant_rows, None
+    except Exception as exc:                              # noqa: BLE001
+        return pid, None, exc
+
+
 def run(
     cfg: dict,
     *,
@@ -530,14 +869,63 @@ def run(
     if cfg.get("logging", {}).get("stamp_runs", True):
         stamp_run(rdir, cfg, model=model)
 
-    rows = []
-    for pid in cfg["participants"]:
+    n_workers = _parallel_participants(cfg)
+    participants = list(cfg["participants"])
+    rows: list[dict] = []
+    cohort_eta = CohortETA(total_participants=len(participants), n_workers=n_workers)
+
+    if n_workers <= 1:
+        for pid in participants:
+            _pid, prows, exc = _train_one_with_checkpoint(
+                pid, cfg, model, rdir,
+                channel_mode=channel_mode, cv_mode=cv_mode,
+            )
+            cohort_eta.record_completion()
+            if exc is not None:
+                log.exception("[%s] failed: %s", pid, exc)
+            else:
+                rows.extend(prows or [])
+            log.info("Cohort progress: %s", cohort_eta.format())
+    else:
+        from joblib import Parallel, delayed
+
+        worker_cfg = _force_single_threaded_inner(cfg)
+        log.info(
+            "Training %d participants with %d parallel workers (inner threads pinned to 1)",
+            len(participants), n_workers,
+        )
+        delayed_jobs = (
+            delayed(_train_one_with_checkpoint)(
+                pid, worker_cfg, model, rdir,
+                channel_mode=channel_mode, cv_mode=cv_mode,
+            )
+            for pid in participants
+        )
+        # Prefer joblib's streaming API (>=1.3) so we can update the cohort
+        # ETA as each worker returns rather than waiting for the entire pool
+        # to drain. Fall back to a synchronous list on older joblib.
         try:
-            rows.extend(train_one_participant(
-                pid, cfg, model, channel_mode=channel_mode, cv_mode=cv_mode,
-            ))
-        except Exception as exc:                      # noqa: BLE001
-            log.exception("[%s] failed: %s", pid, exc)
+            results_iter = Parallel(
+                n_jobs=n_workers, backend="loky", verbose=10,
+                return_as="generator_unordered",
+            )(delayed_jobs)
+        except TypeError:
+            try:
+                results_iter = Parallel(
+                    n_jobs=n_workers, backend="loky", verbose=10,
+                    return_as="generator",
+                )(delayed_jobs)
+            except TypeError:
+                results_iter = Parallel(
+                    n_jobs=n_workers, backend="loky", verbose=10,
+                )(delayed_jobs)
+        for pid, prows, exc in results_iter:
+            cohort_eta.record_completion()
+            if exc is not None:
+                log.exception("[%s] failed: %s", pid, exc)
+            else:
+                rows.extend(prows or [])
+            log.info("Cohort progress: %s", cohort_eta.format())
 
     df = pd.DataFrame(rows)
     write_csv(df, rdir / "metrics.csv")

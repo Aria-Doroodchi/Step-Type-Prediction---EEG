@@ -171,7 +171,11 @@ def test_two_participant_full_workflow_smoke(isolated_cfg, monkeypatch):
         lambda cfg, participant_id: _synthetic_raw(cfg, participant_id),
     )
     monkeypatch.setattr(src_loc, "load_labels", lambda cfg: ([object()], ["synthetic_label"]))
-    monkeypatch.setattr(src_loc, "build_forward", lambda info, cfg, participant_id=None: {"src": None})
+    def fake_build_forward(info, cfg, participant_id=None):
+        assert any(proj["desc"] == "Average EEG reference" for proj in info["projs"])
+        return {"src": None}
+
+    monkeypatch.setattr(src_loc, "build_forward", fake_build_forward)
     monkeypatch.setattr(src_loc, "compute_noise_cov", lambda epochs: object())
     monkeypatch.setattr(src_loc, "build_inverse", lambda info, fwd, noise_cov: object())
     monkeypatch.setattr(src_loc, "apply_to_evoked", lambda evoked, inv_op, cfg: evoked)
@@ -234,3 +238,57 @@ def test_gain_prune_zero_mode():
 
     keep = gain_prune(np.array([0.0, 0.5, 0.0, 0.1]), ["a", "b", "c", "d"], mode="zero")
     assert keep == ["b", "d"]
+
+
+def test_training_resume_skips_checkpointed_participants(isolated_cfg, monkeypatch):
+    from eeg_steptype.models import train as train_mod
+    from eeg_steptype.io import run_dir
+
+    cfg = isolated_cfg
+    cfg["participants"] = ["S01", "S02"]
+
+    calls = []
+
+    def fake_train_one_participant(participant_id, cfg, model_name, *, channel_mode=None, cv_mode=None):
+        calls.append(participant_id)
+        return [{
+            "participant_id": participant_id,
+            "model": model_name,
+            # Count columns consumed by evaluate.cohort_rollup via cv_rollup.
+            # Must be present even in stubs; otherwise the aggregator KeyErrors.
+            "total_One": 10,
+            "total_Two": 10,
+            "correct_One": 8,
+            "correct_Two": 7,
+            "overall_accuracy": 0.75,
+            "accuracy_One": 0.8,
+            "accuracy_Two": 0.7,
+            "auc": 0.77,
+            "fold": 0,
+            "repeat": 0,
+            "cv_mode": "repeated_stratified",
+            "channel_mode": "full",
+            "prediction_window": "late_cnv",
+            "window_min_time": 1.0,
+            "window_max_time": 2.0,
+            "n_features_final": 3,
+            "best_params": "{}",
+            "inner_best_score": 0.5,
+            "search_method": "grid",
+        }]
+
+    monkeypatch.setattr(train_mod, "train_one_participant", fake_train_one_participant)
+
+    run_id = "resume_smoke"
+    first = train_mod.run(cfg, model="logistic", run_id=run_id)
+    assert set(first["participant_id"]) == {"S01", "S02"}
+    assert calls == ["S01", "S02"]
+
+    calls.clear()
+    second = train_mod.run(cfg, model="logistic", run_id=run_id)
+    assert set(second["participant_id"]) == {"S01", "S02"}
+    assert calls == []
+
+    participants_dir = run_dir(cfg, run_id) / "participants"
+    assert (participants_dir / "S01_metrics.csv").exists()
+    assert (participants_dir / "S02_metrics.csv").exists()

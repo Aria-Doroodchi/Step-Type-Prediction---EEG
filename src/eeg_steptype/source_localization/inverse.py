@@ -15,6 +15,29 @@ from ..logging_utils import get_logger
 log = get_logger(__name__)
 
 
+def ensure_average_reference_projection(inst):
+    """Add MNE's mandatory EEG average-reference projector for inverse modeling."""
+    eeg_picks = mne.pick_types(inst.info, eeg=True, meg=False, exclude=[])
+    if len(eeg_picks) == 0:
+        types = sorted(set(inst.get_channel_types()))
+        raise RuntimeError(
+            "No EEG channels found before inverse modeling. "
+            f"Channel types present: {types}."
+        )
+    if _has_average_reference_projection(inst.info):
+        return inst
+    log.info("Adding EEG average-reference projector for source modeling")
+    inst.set_eeg_reference("average", projection=True, verbose=False)
+    return inst
+
+
+def _has_average_reference_projection(info: mne.Info) -> bool:
+    return any(
+        str(proj.get("desc", "")).lower() == "average eeg reference"
+        for proj in info.get("projs", [])
+    )
+
+
 def compute_noise_cov(epochs: mne.BaseEpochs) -> mne.Covariance:
     """Pre-stimulus baseline covariance over all epochs at once.
 

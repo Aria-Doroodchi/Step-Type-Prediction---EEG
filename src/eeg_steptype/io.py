@@ -50,6 +50,23 @@ def features_path(cfg: dict, participant_id: str, condition: str) -> Path:
     return data_root(cfg) / "features" / f"{participant_id}_{condition}_features{suffix}.parquet"
 
 
+def epoch_tensor_path(cfg: dict, participant_id: str, condition: str) -> Path:
+    """Cached (n_epochs, n_channels, n_times) tensor for tensor-input models.
+
+    Used by the Riemannian (and future CNN) training path. Carries per-epoch
+    block_ids and the original MNE selection so block-grouped CV and
+    chronological ordering can be reconstructed without re-reading the
+    .fif epoch file inside every CV fold.
+    """
+    fcfg = cfg.get("features", {})
+    suffix = _feature_window_suffix(fcfg)
+    return (
+        data_root(cfg)
+        / "features" / "tensor"
+        / f"{participant_id}_{condition}_epochs{suffix}.npz"
+    )
+
+
 def qc_report_path(cfg: dict, participant_id: str) -> Path:
     return outputs_root(cfg) / "qc" / f"{participant_id}.html"
 
