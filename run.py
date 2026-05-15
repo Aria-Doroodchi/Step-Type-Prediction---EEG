@@ -109,6 +109,11 @@ def main() -> None:
     cfg_path = _resolve_config_path(args.config, args.speed_tier, project_root)
     cfg = load_config(cfg_path)
     cfg = apply_prediction_window(cfg, args.prediction_window)
+    # Stamp the speed tier into the config so the run-id snapshot
+    # unambiguously identifies which tier was active, regardless of the
+    # run-id name. Used by scripts/06_compare_runs.py for tier inference.
+    if args.speed_tier and not args.config:
+        cfg["_speed_tier"] = args.speed_tier
     if args.participant_override_mode:
         cfg.setdefault("participant_overrides", {})["mode"] = args.participant_override_mode
     if args.parallel_participants is not None:

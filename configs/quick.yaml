@@ -29,7 +29,11 @@ modeling:
     chronological_check: false
 
   search:
-    method: halving_random
+    # 'auto' resolves to halving_random for XGB (which has n_estimators) and
+    # to grid for SVM / Logistic / LSTM (which don't). Setting halving_random
+    # universally would crash for non-XGB models with
+    # "Cannot use resource=n_estimators which is not supported by estimator".
+    method: auto
     n_jobs: null
     n_iter: 50
     halving:

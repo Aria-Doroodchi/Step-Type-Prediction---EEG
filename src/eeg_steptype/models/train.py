@@ -550,6 +550,19 @@ def _make_search_cv(
     if method == "halving_random":
         scfg = mcfg.get("search", {})
         hcfg = scfg.get("halving", {})
+        resource = hcfg.get("resource", "n_estimators")
+        # Defensive: HalvingRandomSearchCV raises at fit time with
+        # "Cannot use resource=<name> which is not supported by estimator <X>"
+        # when the estimator doesn't expose the configured resource parameter.
+        # SVC, LogisticRegression, KerasClassifier, etc. have no n_estimators.
+        # Fall back to exhaustive grid search rather than crashing the run.
+        if not _estimator_supports_resource(estimator, resource):
+            log.warning(
+                "search.method='halving_random' requested but estimator %s "
+                "does not expose resource=%r; falling back to GridSearchCV.",
+                type(estimator).__name__, resource,
+            )
+            return GridSearchCV(param_grid=param_grid, **common)
         xgb_cfg = mcfg.get("xgb", {})
         max_resources = int(hcfg.get("max_resources", xgb_cfg.get("n_estimators", 1000)))
         min_resources = min(int(hcfg.get("min_resources", 100)), max_resources)
@@ -560,7 +573,7 @@ def _make_search_cv(
         return HalvingRandomSearchCV(
             param_distributions=param_grid,
             n_candidates=max(1, n_candidates),
-            resource=hcfg.get("resource", "n_estimators"),
+            resource=resource,
             min_resources=min_resources,
             max_resources=max_resources,
             factor=int(hcfg.get("factor", 3)),
@@ -569,6 +582,22 @@ def _make_search_cv(
             **common,
         )
     raise ValueError("modeling.search.method must be one of: auto, grid, halving_random")
+
+
+def _estimator_supports_resource(estimator, resource: str) -> bool:
+    """Return True if the (top-level) estimator accepts ``resource`` as a param.
+
+    HalvingRandomSearchCV uses ``resource`` (typically ``n_estimators``) as
+    its successive-halving budget. The parameter must be visible at the
+    top level of the estimator's ``get_params()``; nested pipeline params
+    would need to be addressed as e.g. ``classifier__n_estimators`` and
+    that's not how the tier configs are written.
+    """
+    try:
+        params = estimator.get_params(deep=False)
+        return resource in params
+    except Exception:                                          # noqa: BLE001
+        return False
 
 
 def _search_method(cfg: dict, model_name: str) -> str:

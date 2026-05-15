@@ -1,0 +1,64 @@
+# =====================================================================
+# Rich-features overlay -- deeper feature extraction at the cost of
+# significantly more compute time in the features stage.
+#
+# Rationale: the CNV is a slow cortical potential whose energy lives
+# largely below 1 Hz, but the default Morlet TFR starts at fmin=0.5 with
+# fstep=0.5 -- so half the CNV's frequency range is invisible to the
+# current PSD feature block. This overlay extends Morlet down to 0.1 Hz
+# with finer steps, adds a Subdelta band (0.1-1.0 Hz) where the CNV
+# directly lives, and turns on the cnv_benchmark amplitude block over
+# the medial foot-motor channels.
+#
+# Modeling settings are NOT overridden -- this is a features-only
+# overlay. After the rebuild finishes, re-screen with --speed-tier
+# express on the same prediction window to test whether the new feature
+# pool moves the AUC needle.
+#
+# Compute impact (approximate):
+#   - Morlet frequencies: 80 -> 200 (2.5x)
+#   - PSD columns: ~5,000 -> ~6,100 per epoch at late_cnv (16% wider parquet)
+#   - Stage-3 wall time: ~3-5x the default
+#   - Storage: per-participant parquet ~30 MB -> ~50 MB
+#
+# Usage:
+#     python run.py --config configs/features_rich.yaml \\
+#         --participants P08 P11 P19 P23 P24 P25 P30 P39 \\
+#         --prediction-window full_cnv --stages features --force
+#
+# The window-specific parquet path means the rebuild does NOT overwrite
+# your existing default-feature late_cnv parquet unless you use
+# --prediction-window late_cnv. The new parquet writes to
+# data/features/<pid>_<cond>_features_t0p0-2p0.parquet for full_cnv.
+# =====================================================================
+
+features:
+  bin_n: 0.125                       # unchanged from default
+
+  # Extended Morlet TFR: down to 0.1 Hz so we capture the slow CNV;
+  # finer frequency resolution to give per-band PSD features more
+  # within-band discrimination.
+  freqs:
+    fmin: 0.1                        # was 0.5 -- now reaches CNV frequencies
+    fmax: 40.0
+    fstep: 0.2                       # was 0.5 -- ~2.5x more freqs
+
+  # Band definitions expanded with the new Subdelta band where the CNV
+  # directly lives, and tightened so Delta no longer eats Subdelta.
+  freq_bands:
+    Subdelta: [0.1, 1.0]             # NEW -- targets the CNV directly
+    Delta:    [1.0, 4.0]
+    Theta:    [4.0, 8.0]
+    Alpha:    [8.0, 13.0]
+    Beta:     [13.0, 30.0]
+    Gamma:    [30.0, 40.0]
+
+  # Add the cnv_benchmark amplitude block on top of the standard four
+  # blocks. It computes binned mean amplitude over the medial foot-motor
+  # channels -- interpretable CNV-tuned features that the classical
+  # models can pick up directly.
+  blocks: [amplitude, slopes, psd, src, cnv_benchmark]
+  cnv_benchmark:
+    enabled: true
+    bin_n: 0.125
+    channels: [Cz, FCz, CPz, C1, C2, FC1, FC2, CP1, CP2]
