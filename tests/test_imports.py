@@ -252,6 +252,30 @@ def test_feature_path_is_window_aware():
     assert path.name == "P01_One_features_t1p0-2p0.parquet"
 
 
+def test_feature_path_includes_optional_cache_tag():
+    from eeg_steptype.config import load_config
+    from eeg_steptype.io import features_path
+
+    cfg = load_config()
+    cfg["features"]["cache_tag"] = "bin_stats_0125"
+    path = features_path(cfg, "P01", "One")
+
+    assert path.name == "P01_One_features_t1p0-2p0_bin_stats_0125.parquet"
+
+
+def test_config_loader_accepts_multiple_overlays(tmp_path):
+    from eeg_steptype.config import load_config
+
+    first = tmp_path / "first.yaml"
+    second = tmp_path / "second.yaml"
+    first.write_text("features:\n  cache_tag: first\n", encoding="utf-8")
+    second.write_text("features:\n  cache_tag: second\n", encoding="utf-8")
+
+    cfg = load_config([first, second])
+
+    assert cfg["features"]["cache_tag"] == "second"
+
+
 def test_full_override_mode_keeps_fine_tuning_available():
     """Full mode preserves non-raw participant tuning as an opt-in path."""
     from eeg_steptype.config import load_config, apply_participant_override
@@ -824,10 +848,14 @@ def test_roi_channel_selection_filters_electrode_features():
         "epoch": [0],
         "Cz_bin_0": [1.0],
         "P8_bin_0": [2.0],
+        "amp_w0p125_Cz_std_bin_8": [2.5],
+        "amp_w0p125_P8_std_bin_8": [2.6],
         "slope_FCz_bin_0": [3.0],
         "slope_P8_bin_0": [4.0],
         "Cz_Theta_bin_0": [5.0],
         "P8_Theta_bin_0": [6.0],
+        "cnv_benchmark_FCz_bin_8": [6.5],
+        "cnv_benchmark_P8_bin_8": [6.6],
         "G_precentral-lh_bin_0": [7.0],
     })
 
@@ -838,8 +866,10 @@ def test_roi_channel_selection_filters_electrode_features():
         "condition",
         "epoch",
         "Cz_bin_0",
+        "amp_w0p125_Cz_std_bin_8",
         "slope_FCz_bin_0",
         "Cz_Theta_bin_0",
+        "cnv_benchmark_FCz_bin_8",
         "G_precentral-lh_bin_0",
     ]
 
@@ -893,6 +923,39 @@ def test_cnv_benchmark_feature_block_names_motor_bins():
     assert "epoch" in df.columns
     assert "cnv_benchmark_Cz_bin_4" in df.columns
     assert "cnv_benchmark_FCz_bin_7" in df.columns
+    assert all("Pz" not in col for col in df.columns)
+
+
+def test_rich_amplitude_feature_names_include_width_and_stat():
+    import mne
+    import numpy as np
+    from eeg_steptype.features.amplitude import binned_amplitude_features
+
+    ch_names = ["Cz", "Pz"]
+    info = mne.create_info(ch_names, sfreq=8.0, ch_types="eeg")
+    epochs = mne.EpochsArray(
+        np.arange(2 * len(ch_names) * 8, dtype=float).reshape(2, len(ch_names), 8),
+        info,
+        events=np.column_stack([
+            np.arange(2),
+            np.zeros(2, dtype=int),
+            np.ones(2, dtype=int),
+        ]),
+        tmin=1.0,
+        verbose=False,
+    )
+
+    df = binned_amplitude_features(
+        epochs,
+        bin_widths=[0.125, 0.25],
+        stats=["mean", "std", "min", "max", "median"],
+        ch_names=["Cz"],
+    )
+
+    assert "epoch" in df.columns
+    assert "amp_w0p125_Cz_mean_bin_8" in df.columns
+    assert "amp_w0p125_Cz_std_bin_8" in df.columns
+    assert "amp_w0p25_Cz_median_bin_4" in df.columns
     assert all("Pz" not in col for col in df.columns)
 
 

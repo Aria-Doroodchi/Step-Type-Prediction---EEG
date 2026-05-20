@@ -1,0 +1,7 @@
+# Combined option: full within-bin stats at multiple temporal scales.
+features:
+  cache_tag: bin_stats_pyramid_core
+  amplitude:
+    bin_widths: [0.0625, 0.125, 0.25, 0.5]
+    stats: [mean, std, min, max, median]
+

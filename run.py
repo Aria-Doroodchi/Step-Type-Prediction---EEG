@@ -35,10 +35,10 @@ SPEED_TIERS = {
 
 
 def _resolve_config_path(
-    explicit: str | None,
+    explicit: list[str] | None,
     speed_tier: str | None,
     project_root: Path,
-) -> str | None:
+) -> list[str] | str | None:
     """Pick the config path: explicit --config wins, else the speed-tier overlay."""
     if explicit:
         return explicit
@@ -49,7 +49,15 @@ def _resolve_config_path(
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default=None)
+    p.add_argument(
+        "--config",
+        nargs="+",
+        default=None,
+        help=(
+            "One or more YAML overlays. They are merged left-to-right on top "
+            "of default.yaml and local.yaml."
+        ),
+    )
     p.add_argument(
         "--speed-tier",
         choices=list(SPEED_TIERS.keys()),

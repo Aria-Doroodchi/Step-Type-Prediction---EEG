@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import yaml
 
@@ -60,7 +60,7 @@ def load_yaml(path: Path) -> dict:
 
 
 def load_config(
-    config_path: str | Path | None = None,
+    config_path: str | Path | Sequence[str | Path] | None = None,
     local_path: str | Path | None = None,
 ) -> dict:
     """Return the merged default+local+config config as a plain dict.
@@ -68,12 +68,12 @@ def load_config(
     Resolves relative path entries under ``paths`` to absolute paths rooted
     at the repo root.
     """
-    cfg_path   = Path(config_path) if config_path else None
+    cfg_paths = _config_paths(config_path)
     local_path = Path(local_path)  if local_path  else LOCAL_CONFIG_PATH
 
     cfg = load_yaml(DEFAULT_CONFIG_PATH)
     cfg = deep_merge(cfg, load_yaml(local_path))
-    if cfg_path:
+    for cfg_path in cfg_paths:
         cfg = deep_merge(cfg, load_yaml(cfg_path))
     cfg = _resolve_paths(cfg)
     return cfg
@@ -129,6 +129,14 @@ def apply_prediction_window(cfg: dict, window_name: str | None) -> dict:
     out.setdefault("features", {})["max_time"] = selected["max_time"]
     out.setdefault("_prediction_window", window_name)
     return out
+
+
+def _config_paths(config_path: str | Path | Sequence[str | Path] | None) -> list[Path]:
+    if config_path is None:
+        return []
+    if isinstance(config_path, (str, Path)):
+        return [Path(config_path)]
+    return [Path(p) for p in config_path]
 
 
 # ---------------------------------------------------------------------------

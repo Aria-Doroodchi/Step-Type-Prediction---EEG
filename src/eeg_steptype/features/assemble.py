@@ -23,7 +23,7 @@ from ..io import (
 )
 from ..logging_utils import get_logger
 from ..resources import resolve_n_jobs
-from .amplitude import binned_mean_amplitude
+from .amplitude import binned_amplitude_features
 from .cnv_benchmark import cnv_motor_amplitude_benchmark
 from .psd import band_power, freq_array, freq_bands
 from .slopes import binned_slopes
@@ -68,8 +68,19 @@ def build_for_participant_condition(
         blocks.append(binned_slopes(epochs, bin_n, ch_names))
 
     if "amplitude" in requested:
-        log.info("[%s/%s] amplitude …", participant_id, condition)
-        blocks.append(binned_mean_amplitude(epochs, bin_n, ch_names))
+        acfg = fcfg.get("amplitude", {}) or {}
+        amp_widths = acfg.get("bin_widths", [bin_n])
+        amp_stats = acfg.get("stats", ["mean"])
+        log.info(
+            "[%s/%s] amplitude (widths=%s, stats=%s) …",
+            participant_id, condition, amp_widths, amp_stats,
+        )
+        blocks.append(binned_amplitude_features(
+            epochs,
+            bin_widths=amp_widths,
+            stats=amp_stats,
+            ch_names=ch_names,
+        ))
 
     if "psd" in requested:
         log.info("[%s/%s] PSD (Morlet) …", participant_id, condition)

@@ -46,7 +46,7 @@ def src_csv_path(cfg: dict, participant_id: str, condition: str) -> Path:
 def features_path(cfg: dict, participant_id: str, condition: str) -> Path:
     """Wide feature matrix per (participant, condition) produced by 03_extract_features."""
     fcfg = cfg.get("features", {})
-    suffix = _feature_window_suffix(fcfg)
+    suffix = _feature_window_suffix(fcfg) + _feature_cache_tag_suffix(fcfg)
     return data_root(cfg) / "features" / f"{participant_id}_{condition}_features{suffix}.parquet"
 
 
@@ -81,8 +81,28 @@ def _feature_window_suffix(fcfg: dict) -> str:
     return f"_t{_time_token(fcfg['min_time'])}-{_time_token(fcfg['max_time'])}"
 
 
+def _feature_cache_tag_suffix(fcfg: dict) -> str:
+    tag = fcfg.get("cache_tag")
+    if not tag:
+        return ""
+    return f"_{_safe_token(str(tag))}"
+
+
 def _time_token(value) -> str:
     return str(float(value)).replace(".", "p").replace("-", "m")
+
+
+def _safe_token(value: str) -> str:
+    out = []
+    for ch in value.strip():
+        if ch.isalnum() or ch in {"-", "_"}:
+            out.append(ch)
+        elif ch in {".", " "}:
+            out.append("_")
+    token = "".join(out).strip("_")
+    if not token:
+        raise ValueError("features.cache_tag must contain at least one safe character")
+    return token
 
 
 # ---------------------------------------------------------------------------

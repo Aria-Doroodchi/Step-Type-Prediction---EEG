@@ -1,0 +1,7 @@
+# Baseline rich-feature amplitude binning: current 125 ms mean bins.
+features:
+  cache_tag: bin_rich_mean_0125
+  amplitude:
+    bin_widths: [0.125]
+    stats: [mean]
+

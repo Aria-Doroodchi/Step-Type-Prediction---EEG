@@ -1,0 +1,7 @@
+# Option 1: keep 125 ms bins, but expose richer within-bin summaries.
+features:
+  cache_tag: bin_stats_0125
+  amplitude:
+    bin_widths: [0.125]
+    stats: [mean, std, min, max, median]
+

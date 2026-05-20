@@ -1,0 +1,7 @@
+# Option 2: multi-scale mean-amplitude pyramid over late-CNV scale bins.
+features:
+  cache_tag: bin_pyramid_mean_core
+  amplitude:
+    bin_widths: [0.0625, 0.125, 0.25, 0.5]
+    stats: [mean]
+

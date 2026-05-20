@@ -772,6 +772,15 @@ def _keep_column_for_roi(column: str, roi: set[str]) -> bool:
 
 def _feature_channel(column: str) -> str | None:
     """Return electrode channel for amplitude/slope/PSD columns, else None."""
+    m = re.match(
+        r"^amp_w[^_]+_(?P<ch>.+?)_(?:mean|std|min|max|median)_bin_-?\d+$",
+        column,
+    )
+    if m:
+        return m.group("ch")
+    m = re.match(r"^cnv_benchmark_(?P<ch>.+?)_bin_-?\d+$", column)
+    if m:
+        return m.group("ch")
     if column.startswith("slope_"):
         m = re.match(r"^slope_(?P<ch>.+?)_bin_\d+$", column)
         return m.group("ch") if m else None

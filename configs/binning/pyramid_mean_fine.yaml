@@ -1,0 +1,7 @@
+# Option 2, finer version: emphasizes high temporal resolution.
+features:
+  cache_tag: bin_pyramid_mean_fine
+  amplitude:
+    bin_widths: [0.03125, 0.0625, 0.125, 0.25]
+    stats: [mean]
+
