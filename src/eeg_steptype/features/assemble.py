@@ -24,6 +24,7 @@ from ..io import (
 from ..logging_utils import get_logger
 from ..resources import resolve_n_jobs
 from .amplitude import binned_amplitude_features
+from .basis import bspline_basis_features, polynomial_basis_features
 from .cnv_benchmark import cnv_motor_amplitude_benchmark
 from .psd import band_power, freq_array, freq_bands
 from .slopes import binned_slopes
@@ -81,6 +82,25 @@ def build_for_participant_condition(
             stats=amp_stats,
             ch_names=ch_names,
         ))
+
+    if "basis" in requested:
+        bscfg = fcfg.get("basis", {}) or {}
+        methods = [str(m).lower() for m in bscfg.get("methods", ["polynomial"])]
+        log.info("[%s/%s] basis (%s) …", participant_id, condition, methods)
+        if "polynomial" in methods:
+            blocks.append(polynomial_basis_features(
+                epochs,
+                degree=int(bscfg.get("poly_degree", 4)),
+                ch_names=ch_names,
+                kind=str(bscfg.get("poly_kind", "legendre")).lower(),
+            ))
+        if "bspline" in methods:
+            blocks.append(bspline_basis_features(
+                epochs,
+                n_knots=int(bscfg.get("bspline_n_knots", 3)),
+                degree=int(bscfg.get("bspline_degree", 3)),
+                ch_names=ch_names,
+            ))
 
     if "psd" in requested:
         log.info("[%s/%s] PSD (Morlet) …", participant_id, condition)

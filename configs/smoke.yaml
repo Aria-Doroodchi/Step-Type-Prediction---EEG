@@ -64,6 +64,19 @@ modeling:
       aggressive_elimination: false
   correlation_threshold: 0.95
   k_best: 50
+  # Tiny stability-selection settings so the smoke run exercises the new
+  # default selector without the full path/subsample budget.
+  feature_selection:
+    method: stability
+    stability:
+      n_subsamples: 4
+      n_lambda: 4
+      threshold: 0.5
+      max_features: 20
+      min_features: 5
+    fpca:
+      enabled: false
+      n_components: 3
   rfecv:
     n_iterations: 1
     step: 0.2

@@ -385,24 +385,65 @@ def _fit_score_split(
     keep = fs.select_kbest(X_train, y_train, k=int(mcfg.get("k_best", 500)))
     X_train, X_test = X_train[keep], X_test[keep]
 
-    # 3. Iterated RFECV (XGB only -- others fall through)
-    rfecv_cfg = mcfg.get("rfecv", {})
-    rfecv_enabled = bool(rfecv_cfg.get("enabled", True))
-    if rfecv_enabled and factory["rfecv_base"] is not None:
-        scale_pos_weight = _scale_pos_weight(y_train)
-        rfecv_base = factory["rfecv_base"](cfg, scale_pos_weight=scale_pos_weight)
-        keep, _imp = fs.rfecv_iterated(
-            X_train, y_train, rfecv_base,
-            n_iterations=int(rfecv_cfg.get("n_iterations", 5)),
-            step=float(rfecv_cfg.get("step", 0.05)),
-            min_features_to_select=int(rfecv_cfg.get("min_features_to_select", 200)),
-            scoring=rfecv_cfg.get("scoring", "roc_auc"),
-            n_jobs=1,
+    # 3. In-fold selection (fit on train only, applied to test). Default is
+    #    stability selection; "rfecv" keeps the legacy iterated-RFECV path.
+    fscfg = mcfg.get("feature_selection", {}) or {}
+    method = str(fscfg.get("method", "stability")).lower()
+
+    # 3a. Optional leakage-safe functional PCA over amplitude time courses,
+    #     fit on the training fold before selection.
+    fpca_cfg = fscfg.get("fpca", {}) or {}
+    if bool(fpca_cfg.get("enabled", False)):
+        from ..features.basis import FunctionalPCABasis
+        fpca = FunctionalPCABasis(
+            n_components=int(fpca_cfg.get("n_components", 4)),
+            random_state=int(mcfg.get("random_state", 1)),
         )
-        X_train, X_test = X_train[keep], X_test[keep]
-    elif not rfecv_enabled:
-        log.info("[%s/%s] RFECV disabled by config; skipping.",
+        fpca.fit(X_train)
+        X_train, X_test = fpca.transform(X_train), fpca.transform(X_test)
+        log.info("[%s/%s] fPCA -> %d feature(s)",
+                 participant_id, model_name, X_train.shape[1])
+
+    if method == "stability":
+        scfg = fscfg.get("stability", {}) or {}
+        mf = scfg.get("max_features", 150)
+        keep, _prob = fs.stability_select(
+            X_train, y_train,
+            n_subsamples=int(scfg.get("n_subsamples", 50)),
+            sample_fraction=float(scfg.get("sample_fraction", 0.5)),
+            l1_ratio=float(scfg.get("l1_ratio", 0.5)),
+            n_lambda=int(scfg.get("n_lambda", 15)),
+            threshold=float(scfg.get("threshold", 0.6)),
+            max_features=(None if mf in (None, "none", "None") else int(mf)),
+            min_features=int(scfg.get("min_features", 10)),
+            random_state=int(mcfg.get("random_state", 1)),
+        )
+        if keep:
+            X_train, X_test = X_train[keep], X_test[keep]
+    elif method == "rfecv":
+        rfecv_cfg = mcfg.get("rfecv", {})
+        if factory["rfecv_base"] is not None:
+            scale_pos_weight = _scale_pos_weight(y_train)
+            rfecv_base = factory["rfecv_base"](cfg, scale_pos_weight=scale_pos_weight)
+            keep, _imp = fs.rfecv_iterated(
+                X_train, y_train, rfecv_base,
+                n_iterations=int(rfecv_cfg.get("n_iterations", 5)),
+                step=float(rfecv_cfg.get("step", 0.05)),
+                min_features_to_select=int(rfecv_cfg.get("min_features_to_select", 200)),
+                scoring=rfecv_cfg.get("scoring", "roc_auc"),
+                n_jobs=1,
+            )
+            X_train, X_test = X_train[keep], X_test[keep]
+        else:
+            log.info("[%s/%s] rfecv selected but model has no rfecv_base; skipping.",
+                     participant_id, model_name)
+    elif method == "none":
+        log.info("[%s/%s] feature_selection.method=none; skipping selection.",
                  participant_id, model_name)
+    else:
+        raise ValueError(
+            f"feature_selection.method must be 'stability', 'rfecv', or 'none'; got {method!r}"
+        )
 
     scale_pos_weight = _scale_pos_weight(y_train)
     search = _fit_search(
@@ -779,6 +820,10 @@ def _feature_channel(column: str) -> str | None:
     if m:
         return m.group("ch")
     m = re.match(r"^cnv_benchmark_(?P<ch>.+?)_bin_-?\d+$", column)
+    if m:
+        return m.group("ch")
+    # Shape-decomposition / fPCA coefficients: poly_{ch}_{k}, bspl_{ch}_{k}, fpca_{ch}_{k}
+    m = re.match(r"^(?:poly|bspl|fpca)_(?P<ch>.+?)_\d+$", column)
     if m:
         return m.group("ch")
     if column.startswith("slope_"):

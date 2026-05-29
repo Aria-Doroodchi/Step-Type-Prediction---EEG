@@ -1,5 +1,49 @@
 # Changelog
 
+## 2026-05-29 — Shape-decomposition features + stability selection
+
+Two changes targeting (a) information lost when amplitude time courses are
+collapsed to per-bin means, and (b) the data-starved 5× 2-fold RFECV at the
+small per-participant trial counts.
+
+### Added
+
+- **`features/basis.py`** — shape-decomposition (basis-expansion) features that
+  describe each channel's time course by a few coefficients instead of per-bin
+  means:
+  - `polynomial_basis_features` — orthogonal Legendre/Chebyshev coefficients
+    (per-epoch, leakage-free). c0 = level, c1 = CNV-ramp slope, c2 = curvature.
+  - `bspline_basis_features` — clamped least-squares B-spline coefficients
+    (per-epoch, leakage-free) for localized deflections.
+  - `FunctionalPCABasis` — data-driven functional PCA over per-channel amplitude
+    bins, implemented as a scikit-learn transformer so it is fit on the training
+    fold only (leakage-safe), wired into `models.train` via
+    `modeling.feature_selection.fpca`.
+  - Opt-in via `features.blocks: [..., basis]`; configured under `features.basis`.
+- **`feature_selection.stability_select`** — complementary-pairs stability
+  selection (Shah & Samworth 2013) with an elastic-net logistic base. Robust at
+  small trial counts, model-agnostic (logistic/svm/xgb), and carries a
+  false-discovery bound. Now the **default** in-fold selector
+  (`modeling.feature_selection.method: stability`).
+- **`tests/test_basis_features.py`, `tests/test_stability_select.py`** — unit
+  tests for the basis math and the selector (synthetic data, no MNE needed).
+
+### Changed
+
+- `models/train.py` step 3 now dispatches on `modeling.feature_selection.method`
+  (`stability` | `rfecv` | `none`) and applies the optional in-fold fPCA before
+  selection. Stability selection replaces iterated RFECV as the default; RFECV
+  is retained for comparison runs. ROI channel parsing recognises the new
+  `poly_/bspl_/fpca_` columns.
+- `configs/default.yaml`, `configs/smoke.yaml` — added `features.basis` and
+  `modeling.feature_selection` stanzas; RFECV marked legacy.
+
+### Notes
+
+- Shape decomposition and stability selection compose: orthogonal/fPCA features
+  are uncorrelated, which is exactly what makes the elastic-net selector's
+  selection frequencies stable.
+
 ## 2026-05-01 — Pipeline reorganization
 
 Moved from a folder of stand-alone scripts to a config-driven, installable

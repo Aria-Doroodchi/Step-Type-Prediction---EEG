@@ -8,6 +8,11 @@ The original CNV_XGB_4.3.py applied these inline and in this order:
     4. gain_prune        — drop features with zero (or low) XGB gain
     5. shap_prune        — drop bottom-quantile features by mean |SHAP|
 
+``stability_select`` is the current default in-fold selector (see
+``models.train``), replacing the iterated RFECV at step 3: it is more robust at
+small per-participant trial counts, model-agnostic, and comes with a
+false-discovery bound. ``rfecv_iterated`` is retained for comparison runs.
+
 Each function takes a DataFrame and returns the *list of surviving columns*,
 keeping the per-stage logic decoupled from the model code.
 """
@@ -19,7 +24,9 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 from sklearn.feature_selection import SelectKBest, f_classif, RFECV
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import StandardScaler
 
 from ..logging_utils import get_logger
 
@@ -128,6 +135,105 @@ def rfecv_iterated(
     log.info("[rfecv] kept top 80%% = %d features; %d dropped in all iters",
              len(kept), always_dropped)
     return kept, mean_imp
+
+
+def stability_select(
+    X: pd.DataFrame,
+    y: pd.Series,
+    *,
+    n_subsamples: int = 50,
+    sample_fraction: float = 0.5,
+    l1_ratio: float = 0.5,
+    n_lambda: int = 15,
+    threshold: float = 0.6,
+    max_features: int | None = 150,
+    min_features: int = 10,
+    random_state: int = 1,
+    max_iter: int = 2000,
+) -> tuple[list[str], pd.Series]:
+    """Complementary-pairs stability selection with an elastic-net base.
+
+    For each of ``n_subsamples`` complementary half-samples we fit an
+    elastic-net logistic regression across a regularisation path and record
+    which coefficients are non-zero. A feature's *selection probability* is the
+    maximum, over the path, of its selection frequency across subsamples
+    (Meinshausen & Bühlmann 2010; complementary pairs per Shah & Samworth
+    2013). Features whose probability meets ``threshold`` are kept.
+
+    Why this over the old iterated RFECV: it is robust at the small
+    per-participant trial counts where a 2-fold RFECV curve is too noisy to pick
+    a stable feature count, it is model-agnostic (one selector for logistic /
+    svm / xgb), and the selection probabilities carry a false-discovery bound.
+
+    Returns ``(kept_columns, selection_probabilities)`` — the probabilities are
+    a Series indexed by the surviving-after-constant-drop feature names, useful
+    for logging and for cross-participant stability summaries.
+    """
+    X, constants = _drop_constant_columns(X)
+    if constants:
+        log.info("[stability] dropped %d zero-variance column(s) before selection",
+                 len(constants))
+
+    cols = list(X.columns)
+    p = len(cols)
+    if p == 0:
+        return [], pd.Series(dtype=float)
+
+    Xz = StandardScaler().fit_transform(X.to_numpy(dtype=float))
+    yv = np.asarray(y).astype(int)
+    n = Xz.shape[0]
+
+    # Regularisation path. Smaller C = stronger penalty = sparser; spanning a
+    # geometric grid lets the "max over path" pick up each feature near its
+    # entry point.
+    C_grid = np.geomspace(0.01, 10.0, num=max(2, int(n_lambda)))
+
+    n_pairs = max(1, int(n_subsamples) // 2)
+    sub_n = max(2, int(round(sample_fraction * n)))
+    rng = np.random.default_rng(random_state)
+
+    counts = np.zeros((len(C_grid), p), dtype=float)
+    n_fits = 0
+
+    def _fit_mark(idx: np.ndarray) -> None:
+        nonlocal n_fits
+        if np.unique(yv[idx]).size < 2:
+            return
+        for li, C in enumerate(C_grid):
+            clf = LogisticRegression(
+                penalty="elasticnet", solver="saga", l1_ratio=l1_ratio,
+                C=float(C), max_iter=max_iter, random_state=random_state,
+                tol=1e-3,
+            )
+            clf.fit(Xz[idx], yv[idx])
+            counts[li] += (np.abs(clf.coef_.ravel()) > 1e-8)
+        n_fits += 1
+
+    for _ in range(n_pairs):
+        perm = rng.permutation(n)
+        half = perm[:sub_n]
+        comp = perm[sub_n:sub_n * 2] if sub_n * 2 <= n else perm[sub_n:]
+        _fit_mark(half)
+        _fit_mark(comp)
+
+    if n_fits == 0:
+        log.warning("[stability] no valid subsamples (class imbalance); keeping all features")
+        return cols, pd.Series(1.0, index=cols)
+
+    freq = counts / n_fits                       # per-lambda selection frequency
+    prob = pd.Series(freq.max(axis=0), index=cols).sort_values(ascending=False)
+
+    kept = prob[prob >= threshold].index.tolist()
+    if len(kept) < min_features:
+        kept = prob.head(min_features).index.tolist()
+    if max_features is not None and len(kept) > max_features:
+        kept = prob.head(max_features).index.tolist()
+
+    log.info("[stability] %d fit(s) over %d-point path; kept %d / %d "
+             "(threshold=%.2f, top prob=%.2f)",
+             n_fits, len(C_grid), len(kept), p, threshold,
+             float(prob.iloc[0]) if len(prob) else float("nan"))
+    return kept, prob
 
 
 def gain_prune(

@@ -196,11 +196,24 @@ features:
     Alpha: [8.0, 13.0]
     Beta:  [13.0, 30.0]
     Gamma: [30.0, 40.0]
-  blocks: [amplitude, slopes, psd, src]   # add cnv_benchmark for shrinkage-LDA baseline
+  blocks: [amplitude, slopes, psd, src]   # add cnv_benchmark for shrinkage-LDA baseline; add basis for shape-decomposition features
   cnv_benchmark:
     enabled: false
     bin_n: 0.25
     channels: [Cz, FCz, CPz, C1, C2, FC1, FC2, CP1, CP2]
+  # Shape-decomposition (basis-expansion) features. Opt-in: add 'basis' to
+  # features.blocks above to emit them. Polynomial and B-spline coefficients are
+  # fit per-epoch (leakage-free) and replace the temporal information that
+  # mean-binning averages away with a few interpretable shape coefficients
+  # (poly c0 = level, c1 = CNV-ramp slope, c2 = curvature). Functional PCA is
+  # data-driven and is therefore NOT an extraction block; it is fit inside each
+  # CV fold via modeling.feature_selection.fpca to avoid leakage.
+  basis:
+    methods: [polynomial, bspline]   # any of: polynomial, bspline
+    poly_degree: 4                   # coeffs per channel = poly_degree + 1
+    poly_kind: legendre              # legendre | chebyshev (orthogonal => stable, uncorrelated)
+    bspline_n_knots: 3               # interior knots; coeffs/channel = bspline_degree + 1 + n_knots
+    bspline_degree: 3
 
 # Prediction-window analyses. The primary model uses late CNV (1.0-2.0 s).
 # Secondary analyses can compare the full 0-2 s window with cropped-training
@@ -250,6 +263,31 @@ modeling:
       aggressive_elimination: false
   correlation_threshold: 0.9
   k_best: 500
+  # Feature selection inside each outer fold (fit on train only, applied to
+  # test) — this is what keeps the inner-vs-outer AUC gap honest.
+  feature_selection:
+    method: stability               # "stability" | "rfecv" | "none"
+    # Complementary-pairs stability selection (Shah & Samworth 2013) with an
+    # elastic-net logistic base. Robust for the small per-participant trial
+    # counts where the old 5x 2-fold RFECV was data-starved, model-agnostic
+    # (applies to logistic/svm/xgb alike), and comes with a false-discovery
+    # bound. Replaces rfecv as the default selector.
+    stability:
+      n_subsamples: 50              # complementary half-samples drawn (even number)
+      sample_fraction: 0.5          # subsample size as a fraction of n_train
+      l1_ratio: 0.5                 # elastic-net mix (1.0 = pure lasso)
+      n_lambda: 15                  # regularisation-path resolution
+      threshold: 0.6                # keep features with selection prob >= this
+      max_features: 150             # cap kept features (None = no cap)
+      min_features: 10              # floor: keep top-N by prob if threshold keeps too few
+    # Data-driven functional PCA over per-channel amplitude time courses. Fit
+    # on the training fold only (leakage-safe). Off by default; turn on to
+    # compress the amplitude bins to a few eigen-mode scores before selection.
+    fpca:
+      enabled: false
+      n_components: 4
+  # Legacy selector, kept for comparison runs. Set feature_selection.method to
+  # "rfecv" to use it (XGB only). Superseded by stability selection.
   rfecv:
     n_iterations: 5
     step: 0.05
