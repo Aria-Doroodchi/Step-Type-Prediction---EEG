@@ -10,8 +10,9 @@
     The three tabular models (xgb, svm, logistic) use:
       configs/features_rich.yaml + configs/express.yaml + configs/binning/*.yaml
 
-    Riemannian does not consume the tabular binned features, so it is run once
-    per prediction window as a comparator and reused in each report.
+    Tensor models do not consume the tabular binned features, so Riemannian,
+    CNN, and EEGNet are run once per prediction window as comparators and
+    reused in each report.
 
 .PARAMETER Resume
     Skip forced feature rebuilds. Training checkpoints are always reused.
@@ -45,6 +46,7 @@ $Participants = @(
     "P24", "P25", "P30", "P35", "P39"
 )
 $TabularModels = @("xgb", "svm", "logistic")
+$TensorModels = @("riemannian", "cnn", "eegnet")
 $Windows = @("late_cnv", "full_cnv")
 $ResourceArgs = @("--n-jobs", "-3", "--parallel-participants", "-3")
 
@@ -105,7 +107,9 @@ function Invoke-BinningReport {
     foreach ($Model in $TabularModels) {
         $RunDirs += "outputs/runs/bin_${Window}_${VariantName}_${Model}"
     }
-    $RunDirs += "outputs/runs/bin_${Window}_riemannian"
+    foreach ($Model in $TensorModels) {
+        $RunDirs += "outputs/runs/bin_${Window}_${Model}"
+    }
     $Output = "outputs/screening/binning_${Window}_${VariantName}.md"
 
     Invoke-Step "Report: $Window / $VariantName" {
@@ -129,19 +133,21 @@ Write-Host "Resource posture: --n-jobs -3 --parallel-participants -3"
 Write-Host "Resume mode: $Resume"
 Write-Host "Transcript: $Transcript"
 
-# Riemannian comparator. It uses raw epoch tensors, not tabular binning
-# variants, so one run per window is enough.
+# Tensor comparators. They use raw epoch tensors, not tabular binning variants,
+# so one run per window/model is enough.
 foreach ($Window in $Windows) {
-    $RunId = "bin_${Window}_riemannian"
-    Invoke-Step "Riemannian comparator / $Window" {
-        & $Python run.py `
-            --speed-tier riemannian `
-            --prediction-window $Window `
-            --participants $Participants `
-            --model riemannian `
-            --run-id $RunId `
-            @ResourceArgs `
-            --stages train
+    foreach ($Model in $TensorModels) {
+        $RunId = "bin_${Window}_${Model}"
+        Invoke-Step "$Model comparator / $Window" {
+            & $Python run.py `
+                --speed-tier $Model `
+                --prediction-window $Window `
+                --participants $Participants `
+                --model $Model `
+                --run-id $RunId `
+                @ResourceArgs `
+                --stages train
+        }
     }
 }
 

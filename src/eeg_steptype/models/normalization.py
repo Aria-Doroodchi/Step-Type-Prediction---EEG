@@ -33,6 +33,10 @@ def make_normalizer(model_name: str, cfg: dict):
         from .cnn import make_normalizer as make_cnn_normalizer
 
         return make_cnn_normalizer(cfg)
+    if model_name == "eegnet":
+        from .eegnet import make_normalizer as make_eegnet_normalizer
+
+        return make_eegnet_normalizer(cfg)
     # riemannian returns its own (features, classifier) pipeline from
     # make_riemannian() and does not want an outer (normalize, classifier)
     # wrap on top of it.

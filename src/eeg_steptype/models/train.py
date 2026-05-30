@@ -43,6 +43,8 @@ from . import svm as svm_factory
 from . import lstm as lstm_factory
 from . import logistic as logistic_factory
 from . import riemannian as riemannian_factory
+from . import cnn as cnn_factory
+from . import eegnet as eegnet_factory
 from .normalization import maybe_prefix_param_grid, maybe_wrap_estimator, unwrap_classifier
 from .evaluate import participant_metrics, cv_rollup
 
@@ -93,6 +95,22 @@ MODEL_FACTORIES: dict[str, dict] = {
     "riemannian": {
         "make":         riemannian_factory.make_riemannian,
         "param_grid":   riemannian_factory.param_grid,
+        "rfecv_base":   None,
+        "supports_gain": False,
+        "supports_shap": False,
+        "data_representation": "tensor",
+    },
+    "cnn": {
+        "make":         cnn_factory.make_cnn,
+        "param_grid":   cnn_factory.param_grid,
+        "rfecv_base":   None,
+        "supports_gain": False,
+        "supports_shap": False,
+        "data_representation": "tensor",
+    },
+    "eegnet": {
+        "make":         eegnet_factory.make_eegnet,
+        "param_grid":   eegnet_factory.param_grid,
         "rfecv_base":   None,
         "supports_gain": False,
         "supports_shap": False,
@@ -502,7 +520,7 @@ def _fit_search(
     estimator, param_grid = _make_search_estimator(
         factory, cfg, model_name,
         scale_pos_weight=scale_pos_weight,
-        n_features=X_train.shape[1],
+        n_features=X_train.shape[1:] if getattr(X_train, "ndim", 2) == 3 else X_train.shape[1],
     )
     inner_cv = StratifiedKFold(
         n_splits=_bounded_splits(
@@ -729,7 +747,7 @@ def _effective_channel_mode(
     model_name: str,
     channel_mode: str | None = None,
 ) -> str:
-    if model_name in {"riemannian", "cnn"}:
+    if model_name in {"riemannian", "cnn", "eegnet"}:
         return "full"
     return channel_mode or cfg.get("channel_selection", {}).get("mode", "full")
 
@@ -803,6 +821,8 @@ def _scale_pos_weight(y: pd.Series) -> float:
 def _make_model(factory, cfg, model_name, *, scale_pos_weight, n_features):
     if model_name == "lstm":
         return factory["make"](cfg, n_features=n_features)
+    if model_name in {"cnn", "eegnet"}:
+        return factory["make"](cfg, input_shape=n_features)
     try:
         return factory["make"](cfg, scale_pos_weight=scale_pos_weight)
     except TypeError:
@@ -810,10 +830,13 @@ def _make_model(factory, cfg, model_name, *, scale_pos_weight, n_features):
 
 
 def _make_search_estimator(factory, cfg, model_name, *, scale_pos_weight, n_features):
+    model_shape = n_features
+    if model_name not in {"cnn", "eegnet"} and not isinstance(n_features, int):
+        model_shape = int(n_features[0]) if n_features else 0
     base = _make_model(
         factory, cfg, model_name,
         scale_pos_weight=scale_pos_weight,
-        n_features=n_features,
+        n_features=model_shape,
     )
     estimator = maybe_wrap_estimator(base, model_name, cfg)
     param_grid = maybe_prefix_param_grid(factory["param_grid"](cfg), estimator)

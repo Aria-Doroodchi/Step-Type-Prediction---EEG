@@ -1,0 +1,67 @@
+# =====================================================================
+# EEGNet tier — compact EEGNet-style CNN on epoch tensors.
+#
+# Tensor input: data/features/tensor/<pid>_<cond>_epochs_t0p0-2p0.npz.
+# This overlay is intentionally shallow for a first run; widen CV and the
+# parameter grid only after the first participant finishes cleanly.
+#
+# Activate with:
+#     python run.py --speed-tier eegnet --participants P25 --stages train
+#     python scripts/04_train.py --config configs/eegnet.yaml configs/single.yaml
+# =====================================================================
+
+features:
+  min_time: 0.0
+  max_time: 2.0
+
+_prediction_window: full_cnv
+
+modeling:
+  test_size: 0.30
+  random_state: 1
+  default_model: eegnet
+
+  cv:
+    mode: repeated_stratified
+    n_splits: 2
+    n_repeats: 1
+    inner_splits: 2
+    chronological_check: false
+
+  search:
+    method: grid
+    n_jobs: 1
+
+  rfecv:
+    enabled: false
+  gain_prune:
+    enabled: false
+  shap_prune:
+    enabled: false
+
+  parallel:
+    participants: 1
+
+  eegnet:
+    epochs: 50
+    batch_size: 16
+    validation_split: 0.2
+    patience: 10
+    verbose: 0
+    standardize:
+      factor_new: 0.001
+      init_block_size: 1000
+      eps: 1.0e-4
+    param_grid:
+      model__f1: [8]
+      model__depth_multiplier: [2]
+      model__f2: [16]
+      model__kernel_length: [64]
+      model__separable_kernel_length: [16]
+      model__dropout_rate: [0.5]
+      model__learning_rate: [0.001]
+      model__norm_rate: [0.25]
+
+logging:
+  level: INFO
+  stamp_runs: true

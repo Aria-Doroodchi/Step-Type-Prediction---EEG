@@ -1,0 +1,71 @@
+# =====================================================================
+# CNN starter tier — tiny EEGNet-lite comparator on epoch tensors.
+#
+# This is meant as an architecture sandbox, not a final-report run. It uses
+# the tensor cache at data/features/tensor/ and skips tabular feature-selection
+# stages that do not apply to raw epoch tensors.
+#
+# Activate with:
+#     python run.py --speed-tier cnn --participants P25 --stages train
+#     python scripts/04_train.py --config configs/cnn.yaml configs/single.yaml
+# =====================================================================
+
+features:
+  min_time: 0.0
+  max_time: 2.0
+
+_prediction_window: full_cnv
+
+modeling:
+  test_size: 0.30
+  random_state: 1
+  default_model: cnn
+
+  cv:
+    mode: repeated_stratified
+    n_splits: 2
+    n_repeats: 1
+    inner_splits: 2
+    chronological_check: false
+
+  search:
+    method: grid
+    n_jobs: 1
+
+  rfecv:
+    enabled: false
+  gain_prune:
+    enabled: false
+  shap_prune:
+    enabled: false
+
+  parallel:
+    participants: 1
+
+  cnn:
+    epochs: 30
+    batch_size: 16
+    validation_split: 0.2
+    patience: 8
+    verbose: 0
+    standardize:
+      factor_new: 0.001
+      init_block_size: 1000
+      eps: 1.0e-4
+    param_grid:
+      # Tiny first sweep: 2 temporal filter counts × 2 dropout values = 4
+      # model configs per inner-CV fold. Expand only after this path is stable.
+      model__temporal_filters: [8, 16]
+      model__depth_multiplier: [2]
+      model__separable_filters: [16]
+      model__temporal_kernel: [65]
+      model__separable_kernel: [17]
+      model__pool_1: [4]
+      model__pool_2: [8]
+      model__dropout: [0.25, 0.5]
+      model__learning_rate: [0.001]
+      model__l2: [0.0001]
+
+logging:
+  level: INFO
+  stamp_runs: true

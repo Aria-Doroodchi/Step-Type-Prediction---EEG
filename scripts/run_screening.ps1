@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Warms the upstream cache for the 8 selected participants (preprocess +
-    source localization + features), trains the 4 candidate models at their
+    source localization + features), trains the candidate models at their
     primary tiers, runs a Lightning pass on the 3 classical models for the
     tier-response slope diagnostic, and finally aggregates everything into
     outputs/screening/SCREENING_RESULTS.md.
@@ -20,7 +20,7 @@
     Expected wall time:
       - Cache warmup (cold):        2-6 hours (one-time, depends on participants)
       - Cache warmup (warm):        < 1 minute
-      - Training all model x tiers: ~60-90 minutes with parallel workers
+      - Training all model x tiers: neural runs may add substantial time
       - Analysis:                   seconds
 #>
 
@@ -74,7 +74,7 @@ $ScreenStart = Get-Date
 # cost once even though we'll be training 4 models. Participants that are
 # already cached are short-circuited inside run.py.
 # ----------------------------------------------------------------------------
-Invoke-Step "Step 1/9: Cache warmup (preprocess + src + features)" {
+Invoke-Step "Step 1/11: Cache warmup (preprocess + src + features)" {
     & $Python run.py `
         --speed-tier express `
         --participants $Participants `
@@ -83,11 +83,11 @@ Invoke-Step "Step 1/9: Cache warmup (preprocess + src + features)" {
 }
 
 # ----------------------------------------------------------------------------
-# Step 2-5: Train each model at its primary tier.
+# Step 2-7: Train each model at its primary tier.
 # The participants list is the same for every step, so we exploit the cohort
 # parallelism inside run.py (parallel.participants defaults to -8).
 # ----------------------------------------------------------------------------
-Invoke-Step "Step 2/9: Train XGB @ Express" {
+Invoke-Step "Step 2/11: Train XGB @ Express" {
     & $Python run.py `
         --speed-tier express `
         --participants $Participants `
@@ -96,7 +96,7 @@ Invoke-Step "Step 2/9: Train XGB @ Express" {
         --stages train
 }
 
-Invoke-Step "Step 3/9: Train SVM @ Express" {
+Invoke-Step "Step 3/11: Train SVM @ Express" {
     & $Python run.py `
         --speed-tier express `
         --participants $Participants `
@@ -105,7 +105,7 @@ Invoke-Step "Step 3/9: Train SVM @ Express" {
         --stages train
 }
 
-Invoke-Step "Step 4/9: Train Logistic Regression @ Express" {
+Invoke-Step "Step 4/11: Train Logistic Regression @ Express" {
     & $Python run.py `
         --speed-tier express `
         --participants $Participants `
@@ -114,11 +114,27 @@ Invoke-Step "Step 4/9: Train Logistic Regression @ Express" {
         --stages train
 }
 
-Invoke-Step "Step 5/9: Train Riemannian (builds tensor cache lazily)" {
+Invoke-Step "Step 5/11: Train Riemannian (builds tensor cache lazily)" {
     & $Python run.py `
         --speed-tier riemannian `
         --participants $Participants `
         --run-id screen_riemannian `
+        --stages train
+}
+
+Invoke-Step "Step 6/11: Train CNN starter (builds tensor cache lazily)" {
+    & $Python run.py `
+        --speed-tier cnn `
+        --participants $Participants `
+        --run-id screen_cnn `
+        --stages train
+}
+
+Invoke-Step "Step 7/11: Train EEGNet (builds tensor cache lazily)" {
+    & $Python run.py `
+        --speed-tier eegnet `
+        --participants $Participants `
+        --run-id screen_eegnet `
         --stages train
 }
 
@@ -127,7 +143,7 @@ Invoke-Step "Step 5/9: Train Riemannian (builds tensor cache lazily)" {
 # tier-response slope (Diagnostic 2). Riemannian has only one tier, so no
 # Lightning pass for it.
 # ----------------------------------------------------------------------------
-Invoke-Step "Step 6/9: Train XGB @ Lightning (slope)" {
+Invoke-Step "Step 8/11: Train XGB @ Lightning (slope)" {
     & $Python run.py `
         --speed-tier lightning `
         --participants $Participants `
@@ -136,7 +152,7 @@ Invoke-Step "Step 6/9: Train XGB @ Lightning (slope)" {
         --stages train
 }
 
-Invoke-Step "Step 7/9: Train SVM @ Lightning (slope)" {
+Invoke-Step "Step 9/11: Train SVM @ Lightning (slope)" {
     & $Python run.py `
         --speed-tier lightning `
         --participants $Participants `
@@ -145,7 +161,7 @@ Invoke-Step "Step 7/9: Train SVM @ Lightning (slope)" {
         --stages train
 }
 
-Invoke-Step "Step 8/9: Train Logistic @ Lightning (slope)" {
+Invoke-Step "Step 10/11: Train Logistic @ Lightning (slope)" {
     & $Python run.py `
         --speed-tier lightning `
         --participants $Participants `
@@ -164,12 +180,14 @@ $RunDirs = @(
     "outputs/runs/screen_svm_express",
     "outputs/runs/screen_logistic_express",
     "outputs/runs/screen_riemannian",
+    "outputs/runs/screen_cnn",
+    "outputs/runs/screen_eegnet",
     "outputs/runs/screen_xgb_lightning",
     "outputs/runs/screen_svm_lightning",
     "outputs/runs/screen_logistic_lightning"
 )
 
-Invoke-Step "Step 9/9: Aggregate diagnostics into SCREENING_RESULTS.md" {
+Invoke-Step "Step 11/11: Aggregate diagnostics into SCREENING_RESULTS.md" {
     & $Python scripts/06_compare_runs.py `
         --runs $RunDirs `
         --output outputs/screening/SCREENING_RESULTS.md

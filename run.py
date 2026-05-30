@@ -31,6 +31,8 @@ SPEED_TIERS = {
     "express":    "configs/express.yaml",
     "quick":      "configs/quick.yaml",
     "riemannian": "configs/riemannian.yaml",
+    "cnn":        "configs/cnn.yaml",
+    "eegnet":     "configs/eegnet.yaml",
 }
 
 
