@@ -37,6 +37,7 @@ PACKAGE_MODULES = [
     "eeg_steptype.source_localization.forward",
     "eeg_steptype.source_localization.inverse",
     "eeg_steptype.source_localization.labels",
+    "eeg_steptype.source_localization.diagnostics",
     "eeg_steptype.source_localization.pipeline",
     # features
     "eeg_steptype.features",
@@ -155,6 +156,28 @@ def test_source_asset_preflight_reports_missing_files(tmp_path):
     msg = str(exc.value)
     assert "source_localization.src_file" in msg
     assert "configs/local.yaml" in msg
+
+
+def test_source_file_error_diagnostic_is_persistent(tmp_path):
+    from eeg_steptype.source_localization.diagnostics import file_errors_path, log_file_error
+
+    cfg = {"paths": {"outputs_dir": str(tmp_path / "outputs")}}
+    missing = tmp_path / "fsaverage" / "bem" / "missing-src.fif"
+
+    log_file_error(
+        cfg,
+        participant_id="P00",
+        condition="One",
+        stage="validate_source_assets",
+        path=missing,
+        message="missing fsaverage source space",
+    )
+
+    path = file_errors_path(cfg)
+    assert path.exists()
+    text = path.read_text(encoding="utf-8")
+    assert "P00" in text
+    assert "missing fsaverage source space" in text
 
 
 def test_source_asset_preflight_rejects_one_layer_bem(monkeypatch, tmp_path):
@@ -675,8 +698,8 @@ def test_future_model_param_grid_is_prefixed():
     from sklearn.dummy import DummyClassifier
     from eeg_steptype.models.normalization import maybe_prefix_param_grid, maybe_wrap_estimator
 
-    cfg = {"modeling": {"riemannian": {"covariance_estimator": "oas"}}}
-    estimator = maybe_wrap_estimator(DummyClassifier(), "riemannian", cfg)
+    cfg = {"modeling": {"cnn": {"standardize": {}}}}
+    estimator = maybe_wrap_estimator(DummyClassifier(), "cnn", cfg)
     grid = maybe_prefix_param_grid({"strategy": ["most_frequent"]}, estimator)
 
     assert list(grid) == ["classifier__strategy"]

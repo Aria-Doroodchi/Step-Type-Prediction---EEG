@@ -178,7 +178,13 @@ def test_two_participant_full_workflow_smoke(isolated_cfg, monkeypatch):
     monkeypatch.setattr(src_loc, "build_forward", fake_build_forward)
     monkeypatch.setattr(src_loc, "compute_noise_cov", lambda epochs: object())
     monkeypatch.setattr(src_loc, "build_inverse", lambda info, fwd, noise_cov: object())
-    monkeypatch.setattr(src_loc, "apply_to_evoked", lambda evoked, inv_op, cfg: evoked)
+    monkeypatch.setattr(
+        src_loc,
+        "apply_to_evoked",
+        lambda evoked, inv_op, cfg, return_residual=False: (
+            (evoked, evoked.copy()) if return_residual else evoked
+        ),
+    )
     monkeypatch.setattr(
         src_loc,
         "extract_label_courses",
@@ -196,6 +202,13 @@ def test_two_participant_full_workflow_smoke(isolated_cfg, monkeypatch):
         src_loc.run(pid, cfg, force=True)
         for cond in cfg["conditions"]:
             assert src_csv_path(cfg, pid, cond).exists()
+
+    from eeg_steptype.source_localization.diagnostics import variance_explained_path
+
+    variance_diag = pd.read_csv(variance_explained_path(cfg))
+    assert {"epoch", "participant_average"}.issubset(set(variance_diag["row_type"]))
+    assert set(variance_diag["participant_id"]) == {"S01", "S02"}
+    assert "mean_variance_explained" in variance_diag.columns
 
     for pid in cfg["participants"]:
         assemble.run(pid, cfg, force=True)

@@ -1,0 +1,2 @@
+participant,model,n_epochs,n_channels,n_times,sfreq,tmin,tmax,baseline_auc,baseline_accuracy,top_channel,top_channel_delta_auc,top_time_window,top_time_delta_auc
+P25,eegnet,80,64,2049,1024.0,0.0,2.0,0.761875,0.7125,C1,0.026249999999999996,0.000-0.250s,0.10749999999999993
