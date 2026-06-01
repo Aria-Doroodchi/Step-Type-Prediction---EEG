@@ -8,6 +8,9 @@ Submodules:
     svm                 SVM factory + param grid
     lstm                bidirectional-LSTM factory wrapped via scikeras
     logistic            tiny logistic-regression factory used by smoke tests
+    cnn                 small EEGNet-inspired tensor CNN
+    eegnet              compact EEGNet-style tensor CNN
+    riemannian          xDAWN/covariance tensor comparator
     evaluate            confusion-matrix metrics + cohort rollup
     train               generic per-participant fit/eval driver
 

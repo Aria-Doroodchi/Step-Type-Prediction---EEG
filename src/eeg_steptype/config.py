@@ -131,6 +131,22 @@ def apply_prediction_window(cfg: dict, window_name: str | None) -> dict:
     return out
 
 
+def apply_feature_bin_width(cfg: dict, bin_width_s: float | None) -> dict:
+    """Return config with feature/source bin widths set from a CLI override."""
+    if bin_width_s is None:
+        return cfg
+    width = float(bin_width_s)
+    if width <= 0:
+        raise ValueError("Feature bin width must be positive.")
+    out = copy.deepcopy(cfg)
+    features = out.setdefault("features", {})
+    features["bin_n"] = width
+    out.setdefault("source_localization", {})["bin_n"] = width
+    features.setdefault("cnv_benchmark", {})["bin_n"] = width
+    out["_feature_bin_s"] = width
+    return out
+
+
 def _config_paths(config_path: str | Path | Sequence[str | Path] | None) -> list[Path]:
     if config_path is None:
         return []

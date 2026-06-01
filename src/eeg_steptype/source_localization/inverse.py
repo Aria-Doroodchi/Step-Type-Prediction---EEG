@@ -61,8 +61,16 @@ def apply_to_evoked(
     evoked: mne.Evoked,
     inv_op: mne.minimum_norm.InverseOperator,
     cfg: dict,
-) -> mne.SourceEstimate:
+    *,
+    return_residual: bool = False,
+) -> mne.SourceEstimate | tuple[mne.SourceEstimate, mne.Evoked]:
     sl = cfg["source_localization"]
     snr = float(sl.get("snr", 2.0))
     lambda2 = 1.0 / snr ** 2
-    return apply_inverse(evoked, inv_op, lambda2, method=sl.get("method", "eLORETA"))
+    return apply_inverse(
+        evoked,
+        inv_op,
+        lambda2,
+        method=sl.get("method", "eLORETA"),
+        return_residual=return_residual,
+    )

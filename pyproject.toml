@@ -34,6 +34,8 @@ dependencies = [
 
 [project.optional-dependencies]
 lstm = ["tensorflow>=2.13", "scikeras>=0.12"]
+cnn = ["tensorflow>=2.13", "scikeras>=0.12"]
+eegnet = ["tensorflow>=2.13", "scikeras>=0.12"]
 riemannian = ["pyriemann>=0.7"]
 dev  = ["pytest>=7", "ruff>=0.1"]
 

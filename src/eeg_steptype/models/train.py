@@ -43,6 +43,8 @@ from . import svm as svm_factory
 from . import lstm as lstm_factory
 from . import logistic as logistic_factory
 from . import riemannian as riemannian_factory
+from . import cnn as cnn_factory
+from . import eegnet as eegnet_factory
 from .normalization import maybe_prefix_param_grid, maybe_wrap_estimator, unwrap_classifier
 from .evaluate import participant_metrics, cv_rollup
 
@@ -98,7 +100,25 @@ MODEL_FACTORIES: dict[str, dict] = {
         "supports_shap": False,
         "data_representation": "tensor",
     },
+    "cnn": {
+        "make":         cnn_factory.make_cnn,
+        "param_grid":   cnn_factory.param_grid,
+        "rfecv_base":   None,
+        "supports_gain": False,
+        "supports_shap": False,
+        "data_representation": "tensor",
+    },
+    "eegnet": {
+        "make":         eegnet_factory.make_eegnet,
+        "param_grid":   eegnet_factory.param_grid,
+        "rfecv_base":   None,
+        "supports_gain": False,
+        "supports_shap": False,
+        "data_representation": "tensor",
+    },
 }
+
+NEURAL_HYBRID_MODELS = {"cnn", "eegnet"}
 
 
 def _participant_metrics_path(rdir, participant_id: str):
@@ -188,24 +208,51 @@ def _train_one_participant_tensor(
     channel_mode: str | None,
     cv_mode: str | None,
 ) -> list[dict]:
-    """Tensor-input training path (Riemannian and future CNN).
+    """Tensor/hybrid-input training path (Riemannian, CNN, EEGNet).
 
     Skips correlation drop / k-best / RFECV / gain / SHAP -- none of those
-    are well-defined on ``(n_epochs, n_channels, n_times)`` data. The
-    per-fold work is simpler: split tensor, fit search, score.
+    are applied to the tensor branch. CNN/EEGNet may append XGB-style tabular
+    features, but the branch is passed directly to the neural model rather
+    than through the classical feature-selection schedule.
     """
     log.info("[%s/%s] loading epoch tensor...", participant_id, model_name)
     bundle = build_tensor_for_participant(participant_id, cfg)
-    X = np.asarray(bundle["data"])
+    tensor = np.asarray(bundle["data"])
+    if _neural_uses_tabular_features(cfg, model_name):
+        X, tabular_info = _build_neural_hybrid_input(
+            participant_id,
+            cfg,
+            model_name,
+            bundle,
+            tensor,
+            channel_mode=channel_mode,
+        )
+        cfg["_neural_hybrid_input"] = {
+            "n_channels": int(tensor.shape[1]),
+            "n_times": int(tensor.shape[2]),
+            "n_tabular_features": int(tabular_info["n_tabular_features"]),
+        }
+    else:
+        X = tensor
+        tabular_info = {"n_tabular_features": 0, "n_source_features": 0}
     y = pd.Series(bundle["labels"]).map({"One": 0, "Two": 1}).astype(int).reset_index(drop=True)
     block_ids = bundle.get("block_ids")
     groups = pd.Series(block_ids).reset_index(drop=True) if block_ids is not None else None
     log.info(
         "[%s/%s] tensor ready: %d epochs × %d channels × %d samples (class balance %d/%d)",
         participant_id, model_name,
-        X.shape[0], X.shape[1], X.shape[2],
+        tensor.shape[0], tensor.shape[1], tensor.shape[2],
         int((y == 0).sum()), int((y == 1).sum()),
     )
+    if int(tabular_info["n_tabular_features"]) > 0:
+        log.info(
+            "[%s/%s] hybrid neural features: %d flattened EEG samples + %d tabular "
+            "features (%d source-space)",
+            participant_id, model_name,
+            int(tensor.shape[1] * tensor.shape[2]),
+            int(tabular_info["n_tabular_features"]),
+            int(tabular_info["n_source_features"]),
+        )
 
     splits = _outer_splits_tensor(X, y, groups, cfg, cv_mode=cv_mode)
     grid = factory["param_grid"](cfg)
@@ -282,13 +329,106 @@ def _fit_score_split_tensor(
     metrics = participant_metrics(np.asarray(y_test), pred, np.asarray(proba))
     metrics["participant_id"] = participant_id
     metrics["model"] = model_name
-    # Report the *input* dimensionality: channels × times. The actual feature
-    # count after xDAWN + tangent space is determined by the pipeline.
-    metrics["n_features_final"] = int(X_train.shape[1] * X_train.shape[2])
+    # Report the input dimensionality. Riemannian uses channels × times; hybrid
+    # CNN/EEGNet packs flattened EEG plus tabular XGB-style features.
+    metrics["n_features_final"] = int(
+        X_train.shape[1] * X_train.shape[2]
+        if getattr(X_train, "ndim", 2) == 3
+        else X_train.shape[1]
+    )
     metrics["best_params"] = str(search.best_params_)
     metrics["inner_best_score"] = float(search.best_score_)
     metrics["search_method"] = _search_method(cfg, model_name)
     return metrics
+
+
+def _neural_uses_tabular_features(cfg: dict, model_name: str) -> bool:
+    if model_name not in NEURAL_HYBRID_MODELS:
+        return False
+    ncfg = cfg.get("modeling", {}).get(model_name, {}).get("tabular_features", {})
+    return bool(ncfg.get("enabled", True))
+
+
+def _build_neural_hybrid_input(
+    participant_id: str,
+    cfg: dict,
+    model_name: str,
+    bundle: dict,
+    tensor: np.ndarray,
+    *,
+    channel_mode: str | None,
+) -> tuple[np.ndarray, dict]:
+    """Append XGB-style tabular features to flattened EEG tensors."""
+    feature_df = build_for_participant(participant_id, cfg)
+    feature_df = _apply_channel_selection(
+        feature_df,
+        cfg,
+        model_name,
+        channel_mode=channel_mode,
+    )
+    feature_df = feature_df.dropna(axis=1, how="any")
+
+    keys = pd.DataFrame({
+        "condition": np.asarray(bundle["labels"], dtype=object),
+        "epoch": np.asarray(bundle["selection"], dtype=int),
+        "_tensor_row": np.arange(tensor.shape[0]),
+    })
+    merged = keys.merge(
+        feature_df,
+        on=["condition", "epoch"],
+        how="left",
+        validate="one_to_one",
+    ).sort_values("_tensor_row")
+    missing_rows = (
+        merged["participant_id"].isna()
+        if "participant_id" in merged
+        else pd.Series(False, index=merged.index)
+    )
+    if missing_rows.any():
+        missing = int(missing_rows.sum())
+        raise RuntimeError(
+            f"[{participant_id}/{model_name}] {missing} tensor epochs did not match "
+            "the XGB-style feature table. Rebuild tensor and feature caches with "
+            "the same config/window/bin width."
+        )
+
+    tabular = merged.drop(
+        columns=["_tensor_row", "condition", "participant_id", "block_id"],
+        errors="ignore",
+    )
+    tabular = tabular.apply(pd.to_numeric, errors="coerce").dropna(axis=1, how="any")
+    source_cols = [c for c in tabular.columns if _is_source_feature_column(c)]
+    stat_cols = [c for c in tabular.columns if _is_channel_stat_feature_column(c)]
+
+    ncfg = cfg.get("modeling", {}).get(model_name, {}).get("tabular_features", {})
+    if bool(ncfg.get("require_source", False)) and not source_cols:
+        raise RuntimeError(
+            f"[{participant_id}/{model_name}] no source-localization columns were found "
+            "in the tabular feature matrix. Run the source and feature stages with the "
+            "same config first, for example: python run.py --speed-tier "
+            f"{model_name} --participants {participant_id} --stages src features --force"
+        )
+
+    flat_tensor = tensor.reshape(tensor.shape[0], -1)
+    X = np.concatenate([flat_tensor, tabular.to_numpy(dtype=float)], axis=1)
+    return X, {
+        "n_tabular_features": int(tabular.shape[1]),
+        "n_source_features": int(len(source_cols)),
+        "n_channel_stat_features": int(len(stat_cols)),
+    }
+
+
+def _is_source_feature_column(column: str) -> bool:
+    return bool(re.search(r"-(?:lh|rh)_bin_-?\d+$", column))
+
+
+def _is_channel_stat_feature_column(column: str) -> bool:
+    return bool(
+        re.match(
+            r"^amp_w[^_]+_.+?_(?:std|min|max|median)_bin_-?\d+$",
+            column,
+        )
+    )
 
 
 def _outer_splits_tensor(
@@ -543,7 +683,7 @@ def _fit_search(
     estimator, param_grid = _make_search_estimator(
         factory, cfg, model_name,
         scale_pos_weight=scale_pos_weight,
-        n_features=X_train.shape[1],
+        n_features=X_train.shape[1:] if getattr(X_train, "ndim", 2) == 3 else X_train.shape[1],
     )
     inner_cv = StratifiedKFold(
         n_splits=_bounded_splits(
@@ -770,7 +910,7 @@ def _effective_channel_mode(
     model_name: str,
     channel_mode: str | None = None,
 ) -> str:
-    if model_name in {"riemannian", "cnn"}:
+    if model_name in {"riemannian", "cnn", "eegnet"}:
         return "full"
     return channel_mode or cfg.get("channel_selection", {}).get("mode", "full")
 
@@ -848,6 +988,8 @@ def _scale_pos_weight(y: pd.Series) -> float:
 def _make_model(factory, cfg, model_name, *, scale_pos_weight, n_features):
     if model_name == "lstm":
         return factory["make"](cfg, n_features=n_features)
+    if model_name in {"cnn", "eegnet"}:
+        return factory["make"](cfg, input_shape=n_features)
     try:
         return factory["make"](cfg, scale_pos_weight=scale_pos_weight)
     except TypeError:
@@ -855,12 +997,15 @@ def _make_model(factory, cfg, model_name, *, scale_pos_weight, n_features):
 
 
 def _make_search_estimator(factory, cfg, model_name, *, scale_pos_weight, n_features):
+    model_shape = n_features
+    if model_name not in {"cnn", "eegnet"} and not isinstance(n_features, int):
+        model_shape = int(n_features[0]) if n_features else 0
     base = _make_model(
         factory, cfg, model_name,
         scale_pos_weight=scale_pos_weight,
-        n_features=n_features,
+        n_features=model_shape,
     )
-    estimator = maybe_wrap_estimator(base, model_name, cfg)
+    estimator = maybe_wrap_estimator(base, model_name, cfg, n_features=model_shape)
     param_grid = maybe_prefix_param_grid(factory["param_grid"](cfg), estimator)
     return estimator, param_grid
 

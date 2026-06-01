@@ -6,6 +6,7 @@ Usage:
     python scripts/04_train.py --model logistic --config configs/smoke.yaml
     python scripts/04_train.py --model xgb --speed-tier express
     python scripts/04_train.py --model xgb --speed-tier quick --parallel-participants 4
+    python scripts/04_train.py --speed-tier eegnet --feature-bin-s 0.125
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from eeg_steptype.config import apply_prediction_window, load_config
+from eeg_steptype.config import apply_feature_bin_width, apply_prediction_window, load_config
 from eeg_steptype.logging_utils import setup_logging, get_logger
 from eeg_steptype.models.train import run as run_train, MODEL_FACTORIES
 
@@ -26,7 +27,10 @@ SPEED_TIERS = {
     "express":    "configs/express.yaml",
     "quick":      "configs/quick.yaml",
     "riemannian": "configs/riemannian.yaml",
+    "cnn":        "configs/cnn.yaml",
+    "eegnet":     "configs/eegnet.yaml",
 }
+FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet"}
 
 
 def _resolve_config_path(
@@ -101,6 +105,15 @@ def main() -> None:
         help="Named prediction window from config, e.g. late_cnv or full_cnv.",
     )
     p.add_argument(
+        "--feature-bin-s",
+        type=float,
+        default=None,
+        help=(
+            "Override feature/source bin width in seconds. Default is 0.0625; "
+            "use 0.125 for the legacy eighth-second bins."
+        ),
+    )
+    p.add_argument(
         "--channel-mode",
         choices=["full", "roi"],
         default=None,
@@ -124,6 +137,7 @@ def main() -> None:
     cfg_path = _resolve_config_path(args.config, args.speed_tier, project_root)
     cfg = load_config(cfg_path)
     cfg = apply_prediction_window(cfg, args.prediction_window)
+    cfg = apply_feature_bin_width(cfg, args.feature_bin_s)
     # Stamp the speed tier into the config so the run-id snapshot
     # unambiguously identifies which tier was active (used by
     # scripts/06_compare_runs.py).
@@ -155,6 +169,8 @@ def main() -> None:
         or cfg.get("modeling", {}).get("default_model")
         or "xgb"
     )
+    if args.prediction_window is None and effective_model in FULL_CNV_DEFAULT_MODELS:
+        cfg = apply_prediction_window(cfg, "full_cnv")
 
     log.info(
         "Training model=%s channel_mode=%s on %d participants (parallel=%s)",

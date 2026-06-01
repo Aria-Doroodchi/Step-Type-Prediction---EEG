@@ -165,12 +165,32 @@ python run.py --speed-tier riemannian              # tier sets default_model: ri
 python run.py --speed-tier riemannian --model riemannian   # explicit form
 ```
 
-### CNN — future comparator
+### CNN / EEGNet — hybrid neural comparators
 
-Stub in `cnn.py`. The config carries placeholder hyperparameters under
-`modeling.cnn` but the factory isn't yet wired into `MODEL_FACTORIES`. When
-it is, it'll share the tensor-input data path with the Riemannian model
-(same `data/features/tensor/<pid>_<cond>_*.npz` cache).
+`cnn.py` and `eegnet.py` run compact convolutional neural networks on the raw
+epoch tensor, then fuse that representation with the same tabular feature
+matrix used by the XGB path. The tabular branch is built by
+`features.assemble`, so it can include binned amplitude statistics, slopes,
+PSD band powers, and source-space activations from `data/src/*.csv`.
+
+- **Tensor branch**: cleaned scalp EEG as `(n_epochs, n_channels, n_times)`.
+- **Tabular branch**: XGB-style per-epoch features, including source columns
+  when the `src` block is present and the source-localization stage has run.
+- **Channel summary features**: the CNN/EEGNet config enables binned
+  `mean`, `std`, `min`, and `max` amplitude features at 0.0625 s resolution.
+- **Fusion**: the flattened convolutional branch is concatenated with a small
+  dense tabular branch before the final sigmoid classifier.
+- **Source requirement**: the CNN/EEGNet overlays set
+  `modeling.<model>.tabular_features.require_source: true`, so runs fail
+  loudly if source-space columns are missing instead of silently training on
+  channels only.
+
+With `run.py`, neural `train` requests automatically include `src` and
+`features` first, so a cold run can be launched with:
+
+```bash
+python run.py --speed-tier eegnet --participants P25 --stages train
+```
 
 ---
 

@@ -21,7 +21,7 @@ class IdentityNormalizer(BaseEstimator, TransformerMixin):
         return X
 
 
-def make_normalizer(model_name: str, cfg: dict):
+def make_normalizer(model_name: str, cfg: dict, n_features=None):
     """Return the normalization transformer for ``model_name``.
 
     ``None`` means the estimator should not be wrapped at all. This keeps the
@@ -32,15 +32,19 @@ def make_normalizer(model_name: str, cfg: dict):
     if model_name == "cnn":
         from .cnn import make_normalizer as make_cnn_normalizer
 
-        return make_cnn_normalizer(cfg)
+        return make_cnn_normalizer(cfg, n_features=n_features)
+    if model_name == "eegnet":
+        from .eegnet import make_normalizer as make_eegnet_normalizer
+
+        return make_eegnet_normalizer(cfg, n_features=n_features)
     # riemannian returns its own (features, classifier) pipeline from
     # make_riemannian() and does not want an outer (normalize, classifier)
     # wrap on top of it.
     return None
 
 
-def maybe_wrap_estimator(estimator, model_name: str, cfg: dict):
-    normalizer = make_normalizer(model_name, cfg)
+def maybe_wrap_estimator(estimator, model_name: str, cfg: dict, n_features=None):
+    normalizer = make_normalizer(model_name, cfg, n_features=n_features)
     if normalizer is None:
         return estimator
     return Pipeline([

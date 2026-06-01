@@ -1,4 +1,4 @@
-"""Aggregate model screening runs into a SCREENING_RESULTS.md report.
+"""Aggregate model screening runs into a timestamped SCREENING_RESULTS report.
 
 Reads each ``outputs/runs/<run_id>/`` directory supplied on the CLI,
 computes the five diagnostic cells described in SCRIPT_GUIDES.md, and
@@ -20,7 +20,7 @@ Usage::
 
 If ``--runs`` contains glob patterns they are expanded. Missing or
 malformed runs are skipped with a warning so a partial sweep still
-produces a report.
+produces a report. The output filename is automatically timestamped.
 """
 
 from __future__ import annotations
@@ -46,7 +46,10 @@ def main() -> None:
     )
     p.add_argument(
         "--output", default="outputs/screening/SCREENING_RESULTS.md",
-        help="Output markdown path (default: outputs/screening/SCREENING_RESULTS.md).",
+        help=(
+            "Output markdown base path. A timestamp is inserted before the suffix "
+            "(default base: outputs/screening/SCREENING_RESULTS.md)."
+        ),
     )
     p.add_argument(
         "--no-root-copy", action="store_true",
@@ -54,7 +57,7 @@ def main() -> None:
     )
     p.add_argument(
         "--default-tier", default=None,
-        choices=["lightning", "express", "quick", "riemannian"],
+        choices=["lightning", "express", "quick", "riemannian", "cnn", "eegnet"],
         help=(
             "Tier to assign when neither the run directory name nor the "
             "config snapshot reveals one. Useful when run-ids were named "
@@ -79,16 +82,25 @@ def main() -> None:
         print("No runs could be loaded; nothing to aggregate.", file=sys.stderr)
         sys.exit(1)
 
+    stamp = _timestamp_token()
     md = build_report(runs)
-    out = Path(args.output)
+    out = _stamped_path(Path(args.output), stamp)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(md, encoding="utf-8")
     print(f"Wrote {out}")
 
     if not args.no_root_copy:
-        root = Path(__file__).resolve().parents[1] / "SCREENING_RESULTS.md"
+        root = _stamped_path(Path(__file__).resolve().parents[1] / "SCREENING_RESULTS.md", stamp)
         root.write_text(md, encoding="utf-8")
         print(f"Wrote {root}")
+
+
+def _timestamp_token() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+
+def _stamped_path(path: Path, stamp: str) -> Path:
+    return path.with_name(f"{path.stem}_{stamp}{path.suffix}")
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +163,7 @@ def _infer_model(df: pd.DataFrame, cfg: dict, run_dir: Path) -> str:
     if default:
         return str(default)
     name = run_dir.name.lower()
-    for m in ("riemannian", "logistic", "xgb", "svm", "lstm"):
+    for m in ("riemannian", "eegnet", "cnn", "logistic", "xgb", "svm", "lstm"):
         if m in name:
             return m
     return "unknown"
@@ -178,7 +190,7 @@ def _infer_tier(cfg: dict, run_dir: Path, *, default_tier: str | None = None) ->
 
     # 2. Run-directory name token.
     name = run_dir.name.lower()
-    for t in ("riemannian", "lightning", "express", "quick"):
+    for t in ("riemannian", "eegnet", "cnn", "lightning", "express", "quick"):
         if t in name:
             return t
 
@@ -223,9 +235,9 @@ def _tier_from_modeling_signature(cfg: dict) -> str | None:
     search_method = str(search.get("method", "auto"))
     default_model = m.get("default_model")
 
-    # Riemannian -- the only tier that pins default_model.
-    if default_model == "riemannian":
-        return "riemannian"
+    # Tensor-model tiers pin default_model.
+    if default_model in {"riemannian", "cnn", "eegnet"}:
+        return str(default_model)
 
     # Lightning: aggressive trim. 3x1 CV, no RFECV, no SHAP, grid search.
     if (n_splits == 3 and n_repeats == 1
@@ -298,7 +310,8 @@ def diagnostic_2_slope(runs: list[dict]) -> pd.DataFrame:
                 "express_auc": float(express.mean()) if express is not None and len(express) else float("nan"),
                 "lightning_auc": float(lightning.mean()) if lightning is not None and len(lightning) else float("nan"),
                 "slope (Express − Lightning)": float("nan"),
-                "interpretation": "n/a (single-tier model)" if model == "riemannian" else "missing tier run",
+                "interpretation": "n/a (single-tier model)"
+                if model in {"riemannian", "cnn", "eegnet"} else "missing tier run",
             })
             continue
         ex_mean = float(express.mean())
@@ -325,8 +338,9 @@ def diagnostic_2_slope(runs: list[dict]) -> pd.DataFrame:
 def diagnostic_3_variance(runs: list[dict]) -> pd.DataFrame:
     rows = []
     for r in runs:
-        # Only consider primary-tier results (express, or riemannian's single tier).
-        if r["tier"] not in ("express", "riemannian"):
+        # Only consider primary-tier results: express for tabular models, or
+        # each tensor model's single tier.
+        if r["tier"] not in ("express", "riemannian", "cnn", "eegnet"):
             continue
         df = r["metrics"]
         if "auc" not in df.columns or "participant_id" not in df.columns:
@@ -350,7 +364,7 @@ def diagnostic_3_variance(runs: list[dict]) -> pd.DataFrame:
 def diagnostic_4_inner_outer_gap(runs: list[dict]) -> pd.DataFrame:
     rows = []
     for r in runs:
-        if r["tier"] not in ("express", "riemannian"):
+        if r["tier"] not in ("express", "riemannian", "cnn", "eegnet"):
             continue
         df = r["metrics"]
         if "inner_best_score" not in df.columns or "overall_accuracy" not in df.columns:
@@ -381,7 +395,7 @@ def diagnostic_4_inner_outer_gap(runs: list[dict]) -> pd.DataFrame:
 def diagnostic_5_ranking(runs: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
     by_part: dict[str, dict[str, float]] = defaultdict(dict)
     for r in runs:
-        if r["tier"] not in ("express", "riemannian"):
+        if r["tier"] not in ("express", "riemannian", "cnn", "eegnet"):
             continue
         df = r["metrics"]
         if "auc" not in df.columns or "participant_id" not in df.columns:
@@ -447,7 +461,7 @@ def build_report(runs: list[dict]) -> str:
     lines.append(f"- **Total runs aggregated:** {len(runs)}")
     lines.append("")
     lines.append("All five diagnostics are computed on the **Express** tier "
-                 "(primary tier; for Riemannian: the `riemannian` tier — its single config). "
+                 "(primary tier; for tensor models: their single model-specific tier). "
                  "Diagnostic 2 (tier-response slope) additionally consumes the **Lightning** tier "
                  "runs for the three classical models.")
     lines.append("")
@@ -477,8 +491,8 @@ def build_report(runs: list[dict]) -> str:
         "Positive slope means the model rewards heavier optimization budget "
         "(more CV repeats, RFECV pass, gain-prune refit). A near-zero slope "
         "suggests the model is already near its ceiling; switching model "
-        "family will pay off more than further tuning. Riemannian has only "
-        "one tier and is therefore not slope-comparable here."
+        "family will pay off more than further tuning. Single-tier tensor "
+        "models are not slope-comparable here."
     )
     lines.append("")
     d2 = diagnostic_2_slope(runs)

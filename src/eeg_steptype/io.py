@@ -7,6 +7,7 @@ file that has to change.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -40,13 +41,19 @@ def source_epochs_path(cfg: dict, participant_id: str, condition: str) -> Path:
 
 def src_csv_path(cfg: dict, participant_id: str, condition: str) -> Path:
     """Source-localized per-epoch label time-courses produced by 02_source_localize."""
-    return data_root(cfg) / "src" / f"{participant_id}_{condition}_src.csv"
+    slcfg = cfg.get("source_localization", {})
+    suffix = _bin_width_suffix(slcfg.get("bin_n"))
+    return data_root(cfg) / "src" / f"{participant_id}_{condition}_src{suffix}.csv"
 
 
 def features_path(cfg: dict, participant_id: str, condition: str) -> Path:
     """Wide feature matrix per (participant, condition) produced by 03_extract_features."""
     fcfg = cfg.get("features", {})
-    suffix = _feature_window_suffix(fcfg) + _feature_cache_tag_suffix(fcfg)
+    suffix = (
+        _feature_window_suffix(fcfg)
+        + _bin_width_suffix(fcfg.get("bin_n"))
+        + _feature_cache_tag_suffix(fcfg)
+    )
     return data_root(cfg) / "features" / f"{participant_id}_{condition}_features{suffix}.parquet"
 
 
@@ -75,6 +82,23 @@ def run_dir(cfg: dict, run_id: str) -> Path:
     return outputs_root(cfg) / "runs" / run_id
 
 
+def timestamp_token() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+
+def stamped_path(path: Path, stamp: str | None = None) -> Path:
+    """Return ``path`` with ``_<YYYYmmdd_HHMMSS>`` before its suffix."""
+    path = Path(path)
+    stamp = stamp or timestamp_token()
+    return path.with_name(f"{path.stem}_{stamp}{path.suffix}")
+
+
+def stamped_dir(parent: Path, name: str, stamp: str | None = None) -> Path:
+    """Return ``parent/name_<YYYYmmdd_HHMMSS>``."""
+    stamp = stamp or timestamp_token()
+    return Path(parent) / f"{name}_{stamp}"
+
+
 def _feature_window_suffix(fcfg: dict) -> str:
     if "min_time" not in fcfg or "max_time" not in fcfg:
         return ""
@@ -86,6 +110,16 @@ def _feature_cache_tag_suffix(fcfg: dict) -> str:
     if not tag:
         return ""
     return f"_{_safe_token(str(tag))}"
+
+
+def _bin_width_suffix(value) -> str:
+    if value is None:
+        return ""
+    width = float(value)
+    # Preserve the historical 0.125s cache names for backward compatibility.
+    if abs(width - 0.125) < 1e-12:
+        return ""
+    return f"_b{_time_token(width)}"
 
 
 def _time_token(value) -> str:
