@@ -1,0 +1,29 @@
+# Temporary overlay: quick XGB screen on 5 non-screened participants.
+# Layered on top of default.yaml + local.yaml + lightning.yaml.
+participants: [P16, P18, P21, P27, P28]
+
+features:
+  cache_tag: quick5_xgb        # isolates these parquets from canonical caches
+  blocks: [amplitude, slopes, psd]   # no src (no src CSVs for these participants)
+  freqs:
+    fmin: 4.0
+    fmax: 30.0
+    fstep: 2.0
+  freq_bands:
+    Theta: [4.0,  8.0]
+    Alpha: [8.0, 13.0]
+    Beta:  [13.0, 30.0]
+
+modeling:
+  feature_selection:
+    method: stability
+    stability:
+      n_subsamples: 8
+      n_lambda: 5
+      threshold: 0.5
+      max_features: 80
+      min_features: 10
+    fpca:
+      enabled: false
+  parallel:
+    participants: 1            # sequential (2-core sandbox)
