@@ -11,8 +11,13 @@
 # =====================================================================
 
 features:
+  bin_n: 0.0625
   min_time: 0.0
   max_time: 2.0
+  blocks: [amplitude, slopes, psd, src]
+  amplitude:
+    bin_widths: [0.0625]
+    stats: [mean, std, min, max]
 
 _prediction_window: full_cnv
 
@@ -43,6 +48,9 @@ modeling:
     participants: 1
 
   eegnet:
+    tabular_features:
+      enabled: true
+      require_source: true
     epochs: 50
     batch_size: 16
     validation_split: 0.2
@@ -59,6 +67,8 @@ modeling:
       model__kernel_length: [64]
       model__separable_kernel_length: [16]
       model__dropout_rate: [0.5]
+      model__tabular_units: [32]
+      model__fusion_units: [32]
       model__learning_rate: [0.001]
       model__norm_rate: [0.25]
 

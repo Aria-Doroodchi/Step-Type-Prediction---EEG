@@ -24,7 +24,7 @@ resources:
 
 # Tiny TFR / band setup so PSD computes in a few seconds.
 features:
-  bin_n: 0.5                 # 2 late-CNV time-bins instead of 8 full-window bins
+  bin_n: 0.5                 # 2 late-CNV time-bins instead of 16 default bins
   min_time: 1.0
   max_time: 2.0
   freqs:

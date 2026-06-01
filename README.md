@@ -184,8 +184,9 @@ Training can compare two channel configurations without rebuilding features:
 `--channel-mode full` keeps the full feature parquet, while
 `--channel-mode roi` restricts electrode amplitude, slope, and PSD features to
 the medial foot-motor cluster declared in `configs/default.yaml`. Source-space
-features and metadata are left intact. Future Riemannian/CNN model paths keep
-all channels by design.
+features and metadata are left intact. Tensor and hybrid neural model paths
+keep all channels by design; CNN/EEGNet also fuse the raw tensor with the
+XGB-style feature parquet when their tabular branch is enabled.
 
 The primary prediction window is late CNV, `1.0-2.0 s`, where foot-motor
 preparation is expected to be most discriminative. Feature cache filenames are

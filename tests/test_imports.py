@@ -272,7 +272,7 @@ def test_feature_path_is_window_aware():
     cfg = load_config()
     path = features_path(cfg, "P01", "One")
 
-    assert path.name == "P01_One_features_t1p0-2p0.parquet"
+    assert path.name == "P01_One_features_t1p0-2p0_b0p0625.parquet"
 
 
 def test_feature_path_includes_optional_cache_tag():
@@ -283,7 +283,38 @@ def test_feature_path_includes_optional_cache_tag():
     cfg["features"]["cache_tag"] = "bin_stats_0125"
     path = features_path(cfg, "P01", "One")
 
-    assert path.name == "P01_One_features_t1p0-2p0_bin_stats_0125.parquet"
+    assert path.name == "P01_One_features_t1p0-2p0_b0p0625_bin_stats_0125.parquet"
+
+
+def test_legacy_feature_bin_path_keeps_old_cache_name():
+    from eeg_steptype.config import apply_feature_bin_width, load_config
+    from eeg_steptype.io import features_path, src_csv_path
+
+    cfg = apply_feature_bin_width(load_config(), 0.125)
+
+    assert features_path(cfg, "P01", "One").name == "P01_One_features_t1p0-2p0.parquet"
+    assert src_csv_path(cfg, "P01", "One").name == "P01_One_src.csv"
+
+
+def test_stamped_path_inserts_timestamp_before_suffix(tmp_path):
+    from eeg_steptype.io import stamped_path
+
+    path = stamped_path(tmp_path / "REPORT.md", stamp="20260530_193000_123456")
+
+    assert path.name == "REPORT_20260530_193000_123456.md"
+
+
+def test_source_diagnostics_dir_is_stamped(tmp_path):
+    from eeg_steptype.source_localization.diagnostics import source_diagnostics_dir
+
+    cfg = {"paths": {"outputs_dir": str(tmp_path / "outputs")}}
+
+    first = source_diagnostics_dir(cfg)
+    second = source_diagnostics_dir(cfg)
+
+    assert first == second
+    assert first.name.startswith("source_localization_")
+    assert first.name != "source_localization"
 
 
 def test_config_loader_accepts_multiple_overlays(tmp_path):
@@ -297,6 +328,23 @@ def test_config_loader_accepts_multiple_overlays(tmp_path):
     cfg = load_config([first, second])
 
     assert cfg["features"]["cache_tag"] == "second"
+
+
+def test_neural_train_stage_expands_feature_prerequisites():
+    from run import _expand_stages_for_model
+
+    assert _expand_stages_for_model(["train"], "eegnet") == [
+        "src",
+        "features",
+        "train",
+    ]
+    assert _expand_stages_for_model(["preprocess", "train"], "cnn") == [
+        "preprocess",
+        "src",
+        "features",
+        "train",
+    ]
+    assert _expand_stages_for_model(["train"], "xgb") == ["train"]
 
 
 def test_full_override_mode_keeps_fine_tuning_available():
@@ -703,6 +751,111 @@ def test_future_model_param_grid_is_prefixed():
     grid = maybe_prefix_param_grid({"strategy": ["most_frequent"]}, estimator)
 
     assert list(grid) == ["classifier__strategy"]
+
+
+def test_hybrid_neural_standardizer_keeps_flattened_shape():
+    import numpy as np
+    from eeg_steptype.models.cnn import HybridTensorFeatureStandardizer
+
+    tensor = np.arange(2 * 2 * 4, dtype=float).reshape(2, -1)
+    tabular = np.array([[1.0, 10.0], [3.0, 14.0]])
+    X = np.concatenate([tensor, tabular], axis=1)
+
+    norm = HybridTensorFeatureStandardizer(
+        n_channels=2,
+        n_times=4,
+        n_tabular_features=2,
+        init_block_size=2,
+    )
+    out = norm.fit(X).transform(X)
+
+    assert out.shape == X.shape
+    assert np.allclose(out[:, -2:].mean(axis=0), [0.0, 0.0])
+
+
+def test_neural_hybrid_requires_source_columns(monkeypatch):
+    import numpy as np
+    import pandas as pd
+    import pytest
+    from eeg_steptype.models import train
+
+    monkeypatch.setattr(
+        train,
+        "build_for_participant",
+        lambda participant_id, cfg: pd.DataFrame({
+            "epoch": [10, 20],
+            "condition": ["One", "Two"],
+            "participant_id": ["P01", "P01"],
+            "block_id": ["b1", "b2"],
+            "amp_w0p0625_Cz_std_bin_0": [1.0, 2.0],
+        }),
+    )
+    cfg = {
+        "modeling": {
+            "cnn": {
+                "tabular_features": {"enabled": True, "require_source": True}
+            }
+        }
+    }
+    bundle = {
+        "labels": np.array(["One", "Two"], dtype=object),
+        "selection": np.array([10, 20]),
+    }
+    tensor = np.zeros((2, 1, 3))
+
+    with pytest.raises(RuntimeError, match="no source-localization columns"):
+        train._build_neural_hybrid_input(
+            "P01",
+            cfg,
+            "cnn",
+            bundle,
+            tensor,
+            channel_mode=None,
+        )
+
+
+def test_neural_hybrid_appends_xgb_style_features(monkeypatch):
+    import numpy as np
+    import pandas as pd
+    from eeg_steptype.models import train
+
+    monkeypatch.setattr(
+        train,
+        "build_for_participant",
+        lambda participant_id, cfg: pd.DataFrame({
+            "epoch": [10, 20],
+            "condition": ["One", "Two"],
+            "participant_id": ["P01", "P01"],
+            "block_id": ["b1", "b2"],
+            "amp_w0p0625_Cz_min_bin_0": [1.0, 2.0],
+            "G_front-lh_bin_0": [0.1, 0.2],
+        }),
+    )
+    cfg = {
+        "modeling": {
+            "cnn": {
+                "tabular_features": {"enabled": True, "require_source": True}
+            }
+        }
+    }
+    bundle = {
+        "labels": np.array(["One", "Two"], dtype=object),
+        "selection": np.array([10, 20]),
+    }
+    tensor = np.zeros((2, 1, 3))
+
+    X, info = train._build_neural_hybrid_input(
+        "P01",
+        cfg,
+        "cnn",
+        bundle,
+        tensor,
+        channel_mode=None,
+    )
+
+    assert X.shape == (2, 6)
+    assert info["n_tabular_features"] == 3
+    assert info["n_source_features"] == 1
 
 
 def test_riemannian_normalizer_uses_covariance_estimator_key():

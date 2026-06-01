@@ -7,11 +7,21 @@ separable temporal convolution, then a dense classifier.
 
 from __future__ import annotations
 
-from .cnn import ExponentialMovingStandardizer
+from .cnn import ExponentialMovingStandardizer, HybridTensorFeatureStandardizer
 
 
-def make_normalizer(cfg: dict):
+def make_normalizer(cfg: dict, n_features=None):
     ecfg = cfg.get("modeling", {}).get("eegnet", {}).get("standardize", {})
+    hybrid = cfg.get("_neural_hybrid_input")
+    if hybrid:
+        return HybridTensorFeatureStandardizer(
+            n_channels=int(hybrid["n_channels"]),
+            n_times=int(hybrid["n_times"]),
+            n_tabular_features=int(hybrid["n_tabular_features"]),
+            factor_new=float(ecfg.get("factor_new", 0.001)),
+            init_block_size=int(ecfg.get("init_block_size", 1000)),
+            eps=float(ecfg.get("eps", 1e-4)),
+        )
     return ExponentialMovingStandardizer(
         factor_new=float(ecfg.get("factor_new", 0.001)),
         init_block_size=int(ecfg.get("init_block_size", 1000)),
@@ -19,17 +29,29 @@ def make_normalizer(cfg: dict):
     )
 
 
-def make_eegnet(cfg: dict, *, input_shape: tuple[int, int], **_kwargs):
+def make_eegnet(cfg: dict, *, input_shape: tuple[int, int] | int, **_kwargs):
     """Return a SciKeras-wrapped binary EEGNet classifier.
 
-    ``input_shape`` is ``(n_channels, n_times)``.
+    ``input_shape`` is ``(n_channels, n_times)`` for tensor-only runs, or the
+    flattened hybrid feature count when ``cfg["_neural_hybrid_input"]`` is set.
     """
     from scikeras.wrappers import KerasClassifier
     import tensorflow as tf
-    from tensorflow.keras import constraints, layers
+    from tensorflow.keras import constraints, layers, regularizers
 
     ecfg = cfg.get("modeling", {}).get("eegnet", {})
-    n_channels, n_times = int(input_shape[0]), int(input_shape[1])
+    hybrid = cfg.get("_neural_hybrid_input")
+    if hybrid:
+        n_channels = int(hybrid["n_channels"])
+        n_times = int(hybrid["n_times"])
+        n_tabular = int(hybrid["n_tabular_features"])
+        n_tensor_features = n_channels * n_times
+        n_inputs = int(input_shape)
+    else:
+        n_channels, n_times = int(input_shape[0]), int(input_shape[1])
+        n_tabular = 0
+        n_tensor_features = n_channels * n_times
+        n_inputs = n_tensor_features
 
     def _valid_kernel(value: int) -> int:
         return max(1, min(int(value), n_times))
@@ -41,14 +63,32 @@ def make_eegnet(cfg: dict, *, input_shape: tuple[int, int], **_kwargs):
         kernel_length: int = 64,
         separable_kernel_length: int = 16,
         dropout_rate: float = 0.5,
+        tabular_units: int = 32,
+        fusion_units: int = 32,
         learning_rate: float = 1e-3,
         norm_rate: float = 0.25,
     ):
         kernel_length = _valid_kernel(kernel_length)
         separable_kernel_length = _valid_kernel(separable_kernel_length)
 
-        inputs = tf.keras.Input(shape=(n_channels, n_times), name="epochs")
-        x = layers.Reshape((n_channels, n_times, 1), name="add_image_axis")(inputs)
+        inputs = tf.keras.Input(
+            shape=(n_inputs,) if hybrid else (n_channels, n_times),
+            name="hybrid_features" if hybrid else "epochs",
+        )
+        if hybrid:
+            tensor_input = layers.Lambda(
+                lambda z: z[:, :n_tensor_features],
+                output_shape=(n_tensor_features,),
+                name="tensor_slice",
+            )(inputs)
+            tensor_input = layers.Reshape(
+                (n_channels, n_times),
+                name="tensor_unflatten",
+            )(tensor_input)
+        else:
+            tensor_input = inputs
+
+        x = layers.Reshape((n_channels, n_times, 1), name="add_image_axis")(tensor_input)
 
         x = layers.Conv2D(
             int(f1),
@@ -84,6 +124,26 @@ def make_eegnet(cfg: dict, *, input_shape: tuple[int, int], **_kwargs):
         x = layers.Dropout(float(dropout_rate), name="dropout_2")(x)
 
         x = layers.Flatten(name="flatten")(x)
+        if hybrid and n_tabular > 0:
+            tab = layers.Lambda(
+                lambda z: z[:, n_tensor_features:],
+                output_shape=(n_tabular,),
+                name="tabular_slice",
+            )(inputs)
+            tab = layers.Dense(
+                int(tabular_units),
+                activation="elu",
+                kernel_regularizer=regularizers.l2(float(1e-4)),
+                name="tabular_dense",
+            )(tab)
+            tab = layers.Dropout(float(dropout_rate), name="tabular_dropout")(tab)
+            x = layers.Concatenate(name="tensor_tabular_concat")([x, tab])
+            x = layers.Dense(
+                int(fusion_units),
+                activation="elu",
+                kernel_constraint=constraints.max_norm(float(norm_rate)),
+                name="fusion_dense",
+            )(x)
         outputs = layers.Dense(
             1,
             activation="sigmoid",
@@ -127,6 +187,8 @@ def param_grid(cfg: dict) -> dict:
         "model__kernel_length": [64],
         "model__separable_kernel_length": [16],
         "model__dropout_rate": [0.5],
+        "model__tabular_units": [32],
+        "model__fusion_units": [32],
         "model__learning_rate": [1e-3],
         "model__norm_rate": [0.25],
     }

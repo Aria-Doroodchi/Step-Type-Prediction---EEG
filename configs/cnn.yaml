@@ -11,8 +11,13 @@
 # =====================================================================
 
 features:
+  bin_n: 0.0625
   min_time: 0.0
   max_time: 2.0
+  blocks: [amplitude, slopes, psd, src]
+  amplitude:
+    bin_widths: [0.0625]
+    stats: [mean, std, min, max]
 
 _prediction_window: full_cnv
 
@@ -43,6 +48,9 @@ modeling:
     participants: 1
 
   cnn:
+    tabular_features:
+      enabled: true
+      require_source: true
     epochs: 30
     batch_size: 16
     validation_split: 0.2
@@ -63,6 +71,8 @@ modeling:
       model__pool_1: [4]
       model__pool_2: [8]
       model__dropout: [0.25, 0.5]
+      model__tabular_units: [32]
+      model__fusion_units: [32]
       model__learning_rate: [0.001]
       model__l2: [0.0001]
 

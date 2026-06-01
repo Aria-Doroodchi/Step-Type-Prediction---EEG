@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.preprocessing import StandardScaler
 
 
 class ExponentialMovingStandardizer(BaseEstimator, TransformerMixin):
@@ -58,8 +59,83 @@ class ExponentialMovingStandardizer(BaseEstimator, TransformerMixin):
         return out
 
 
-def make_normalizer(cfg: dict):
+class HybridTensorFeatureStandardizer(BaseEstimator, TransformerMixin):
+    """Standardize flattened EEG tensors plus appended tabular features."""
+
+    def __init__(
+        self,
+        n_channels: int,
+        n_times: int,
+        n_tabular_features: int,
+        factor_new: float = 0.001,
+        init_block_size: int = 1000,
+        eps: float = 1e-4,
+    ):
+        self.n_channels = n_channels
+        self.n_times = n_times
+        self.n_tabular_features = n_tabular_features
+        self.factor_new = factor_new
+        self.init_block_size = init_block_size
+        self.eps = eps
+
+    @property
+    def n_tensor_features_(self) -> int:
+        return int(self.n_channels) * int(self.n_times)
+
+    def fit(self, X, y=None):
+        arr = np.asarray(X, dtype=float)
+        if arr.ndim != 2:
+            raise ValueError(
+                "Hybrid neural standardization expects shape "
+                "(n_epochs, flattened_tensor + tabular_features)"
+            )
+        expected = self.n_tensor_features_ + int(self.n_tabular_features)
+        if arr.shape[1] != expected:
+            raise ValueError(
+                f"Hybrid neural input has {arr.shape[1]} columns; expected {expected}."
+            )
+        self.tabular_scaler_ = StandardScaler()
+        if int(self.n_tabular_features) > 0:
+            self.tabular_scaler_.fit(arr[:, self.n_tensor_features_:])
+        return self
+
+    def transform(self, X):
+        arr = np.asarray(X, dtype=float)
+        expected = self.n_tensor_features_ + int(self.n_tabular_features)
+        if arr.ndim != 2 or arr.shape[1] != expected:
+            raise ValueError(
+                f"Hybrid neural input must be 2D with {expected} columns."
+            )
+
+        tensor = arr[:, : self.n_tensor_features_].reshape(
+            arr.shape[0],
+            int(self.n_channels),
+            int(self.n_times),
+        )
+        tensor = ExponentialMovingStandardizer(
+            factor_new=float(self.factor_new),
+            init_block_size=int(self.init_block_size),
+            eps=float(self.eps),
+        ).transform(tensor).reshape(arr.shape[0], self.n_tensor_features_)
+
+        if int(self.n_tabular_features) <= 0:
+            return tensor
+        tabular = self.tabular_scaler_.transform(arr[:, self.n_tensor_features_:])
+        return np.concatenate([tensor, tabular], axis=1)
+
+
+def make_normalizer(cfg: dict, n_features=None):
     ccfg = cfg.get("modeling", {}).get("cnn", {}).get("standardize", {})
+    hybrid = cfg.get("_neural_hybrid_input")
+    if hybrid:
+        return HybridTensorFeatureStandardizer(
+            n_channels=int(hybrid["n_channels"]),
+            n_times=int(hybrid["n_times"]),
+            n_tabular_features=int(hybrid["n_tabular_features"]),
+            factor_new=float(ccfg.get("factor_new", 0.001)),
+            init_block_size=int(ccfg.get("init_block_size", 1000)),
+            eps=float(ccfg.get("eps", 1e-4)),
+        )
     return ExponentialMovingStandardizer(
         factor_new=float(ccfg.get("factor_new", 0.001)),
         init_block_size=int(ccfg.get("init_block_size", 1000)),
@@ -98,18 +174,31 @@ def _standardize_epoch(
     return out
 
 
-def make_cnn(cfg: dict, *, input_shape: tuple[int, int], **_kwargs):
+def make_cnn(cfg: dict, *, input_shape: tuple[int, int] | int, **_kwargs):
     """Return a SciKeras-wrapped EEGNet-lite binary classifier.
 
-    ``input_shape`` is ``(n_channels, n_times)``. Imports stay inside this
-    function so the package continues to import without TensorFlow installed.
+    ``input_shape`` is ``(n_channels, n_times)`` for tensor-only runs, or the
+    flattened hybrid feature count when ``cfg["_neural_hybrid_input"]`` is set.
+    Imports stay inside this function so the package continues to import
+    without TensorFlow installed.
     """
     from scikeras.wrappers import KerasClassifier
     import tensorflow as tf
     from tensorflow.keras import layers, regularizers
 
     ccfg = cfg.get("modeling", {}).get("cnn", {})
-    n_channels, n_times = int(input_shape[0]), int(input_shape[1])
+    hybrid = cfg.get("_neural_hybrid_input")
+    if hybrid:
+        n_channels = int(hybrid["n_channels"])
+        n_times = int(hybrid["n_times"])
+        n_tabular = int(hybrid["n_tabular_features"])
+        n_tensor_features = n_channels * n_times
+        n_inputs = int(input_shape)
+    else:
+        n_channels, n_times = int(input_shape[0]), int(input_shape[1])
+        n_tabular = 0
+        n_tensor_features = n_channels * n_times
+        n_inputs = n_tensor_features
 
     def _odd_kernel(value: int) -> int:
         value = max(3, min(int(value), n_times))
@@ -124,6 +213,8 @@ def make_cnn(cfg: dict, *, input_shape: tuple[int, int], **_kwargs):
         pool_1: int = 4,
         pool_2: int = 8,
         dropout: float = 0.5,
+        tabular_units: int = 32,
+        fusion_units: int = 32,
         learning_rate: float = 1e-3,
         l2: float = 1e-4,
     ):
@@ -132,8 +223,24 @@ def make_cnn(cfg: dict, *, input_shape: tuple[int, int], **_kwargs):
         pool_1 = max(1, min(int(pool_1), n_times))
         pool_2 = max(1, int(pool_2))
 
-        inputs = tf.keras.Input(shape=(n_channels, n_times), name="epochs")
-        x = layers.Reshape((n_channels, n_times, 1), name="add_image_axis")(inputs)
+        inputs = tf.keras.Input(
+            shape=(n_inputs,) if hybrid else (n_channels, n_times),
+            name="hybrid_features" if hybrid else "epochs",
+        )
+        if hybrid:
+            tensor_input = layers.Lambda(
+                lambda z: z[:, :n_tensor_features],
+                output_shape=(n_tensor_features,),
+                name="tensor_slice",
+            )(inputs)
+            tensor_input = layers.Reshape(
+                (n_channels, n_times),
+                name="tensor_unflatten",
+            )(tensor_input)
+        else:
+            tensor_input = inputs
+
+        x = layers.Reshape((n_channels, n_times, 1), name="add_image_axis")(tensor_input)
 
         x = layers.Conv2D(
             int(temporal_filters),
@@ -172,6 +279,26 @@ def make_cnn(cfg: dict, *, input_shape: tuple[int, int], **_kwargs):
         x = layers.Dropout(float(dropout), name="dropout_2")(x)
 
         x = layers.Flatten(name="flatten")(x)
+        if hybrid and n_tabular > 0:
+            tab = layers.Lambda(
+                lambda z: z[:, n_tensor_features:],
+                output_shape=(n_tabular,),
+                name="tabular_slice",
+            )(inputs)
+            tab = layers.Dense(
+                int(tabular_units),
+                activation="elu",
+                kernel_regularizer=regularizers.l2(float(l2)),
+                name="tabular_dense",
+            )(tab)
+            tab = layers.Dropout(float(dropout), name="tabular_dropout")(tab)
+            x = layers.Concatenate(name="tensor_tabular_concat")([x, tab])
+            x = layers.Dense(
+                int(fusion_units),
+                activation="elu",
+                kernel_regularizer=regularizers.l2(float(l2)),
+                name="fusion_dense",
+            )(x)
         outputs = layers.Dense(1, activation="sigmoid", name="class_probability")(x)
 
         model = tf.keras.Model(inputs=inputs, outputs=outputs, name="eegnet_lite")
@@ -206,7 +333,9 @@ def param_grid(cfg: dict) -> dict:
     return {
         "model__temporal_filters": [8],
         "model__depth_multiplier": [2],
-        "model__separable_filters": [16],
-        "model__dropout": [0.5],
-        "model__learning_rate": [1e-3],
+      "model__separable_filters": [16],
+      "model__dropout": [0.5],
+      "model__tabular_units": [32],
+      "model__fusion_units": [32],
+      "model__learning_rate": [1e-3],
     }

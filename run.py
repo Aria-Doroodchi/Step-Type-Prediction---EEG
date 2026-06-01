@@ -6,6 +6,8 @@ Usage:
     python run.py --config configs/smoke.yaml --model logistic
     python run.py --speed-tier express --stages train --model xgb
     python run.py --speed-tier quick --parallel-participants 4
+    python run.py --speed-tier eegnet --participants P25 --stages train
+    python run.py --speed-tier eegnet --feature-bin-s 0.125
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from eeg_steptype.config import apply_prediction_window, load_config
+from eeg_steptype.config import apply_feature_bin_width, apply_prediction_window, load_config
 from eeg_steptype.logging_utils import setup_logging, get_logger
 from eeg_steptype.preprocessing import pipeline as preprocess
 from eeg_steptype.source_localization import pipeline as src_loc
@@ -25,6 +27,8 @@ from eeg_steptype.models.train import run as run_train
 
 
 STAGES = ["preprocess", "src", "features", "train"]
+FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet"}
+NEURAL_FEATURE_STAGES = ["src", "features"]
 
 SPEED_TIERS = {
     "lightning":  "configs/lightning.yaml",
@@ -47,6 +51,22 @@ def _resolve_config_path(
     if speed_tier:
         return str(project_root / SPEED_TIERS[speed_tier])
     return None
+
+
+def _expand_stages_for_model(stages: list[str], model: str) -> list[str]:
+    """Ensure hybrid neural training has its source/tabular feature inputs."""
+    if model not in FULL_CNV_DEFAULT_MODELS or "train" not in stages:
+        return stages
+
+    expanded: list[str] = []
+    for stage in STAGES:
+        if (
+            stage in stages
+            or stage in NEURAL_FEATURE_STAGES
+            or stage == "train"
+        ) and stage not in expanded:
+            expanded.append(stage)
+    return expanded
 
 
 def main() -> None:
@@ -106,6 +126,15 @@ def main() -> None:
     p.add_argument("--channel-mode", choices=["full", "roi"], default=None)
     p.add_argument("--cv-mode", choices=["repeated_stratified", "grouped", "chronological"], default=None)
     p.add_argument("--prediction-window", default=None)
+    p.add_argument(
+        "--feature-bin-s",
+        type=float,
+        default=None,
+        help=(
+            "Override feature/source bin width in seconds. Default is 0.0625; "
+            "use 0.125 for the legacy eighth-second bins."
+        ),
+    )
     p.add_argument("--force", action="store_true")
     p.add_argument(
         "--participant-override-mode",
@@ -119,6 +148,7 @@ def main() -> None:
     cfg_path = _resolve_config_path(args.config, args.speed_tier, project_root)
     cfg = load_config(cfg_path)
     cfg = apply_prediction_window(cfg, args.prediction_window)
+    cfg = apply_feature_bin_width(cfg, args.feature_bin_s)
     # Stamp the speed tier into the config so the run-id snapshot
     # unambiguously identifies which tier was active, regardless of the
     # run-id name. Used by scripts/06_compare_runs.py for tier inference.
@@ -156,8 +186,18 @@ def main() -> None:
         or cfg.get("modeling", {}).get("default_model")
         or "xgb"
     )
+    if args.prediction_window is None and effective_model in FULL_CNV_DEFAULT_MODELS:
+        cfg = apply_prediction_window(cfg, "full_cnv")
+    stages = _expand_stages_for_model(list(args.stages), effective_model)
+    if stages != list(args.stages):
+        log.info(
+            "Expanded stages for %s hybrid inputs: %s -> %s",
+            effective_model,
+            " ".join(args.stages),
+            " ".join(stages),
+        )
 
-    for stage in args.stages:
+    for stage in stages:
         log.info("\n" + "=" * 70 + f"\nStage: {stage}\n" + "=" * 70)
         if stage == "preprocess":
             for pid in pids:

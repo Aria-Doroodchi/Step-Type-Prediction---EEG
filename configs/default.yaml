@@ -175,7 +175,7 @@ source_localization:
   parcellation: "aparc.a2009s"
   method: "eLORETA"
   snr: 2.0
-  bin_n: 0.125              # 1/8 second bins
+  bin_n: 0.0625             # 1/16 second bins
   min_time: 0.0
   cache_forward: true       # cache forward solution per participant
 
@@ -183,7 +183,7 @@ source_localization:
 # Feature extraction
 # ---------------------------------------------------------------------
 features:
-  bin_n: 0.125              # bin width in seconds
+  bin_n: 0.0625             # bin width in seconds
   min_time: 1.0             # primary prediction window: late CNV motor preparation
   max_time: 2.0
   freqs:                    # for Morlet TFR
@@ -222,7 +222,7 @@ prediction_windows:
     sliding_auc:
       enabled: true
       window_size: 0.25
-      stride: 0.125
+      stride: 0.0625
       min_time: 0.0
       max_time: 2.0
 

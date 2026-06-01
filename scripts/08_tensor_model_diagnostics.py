@@ -12,7 +12,8 @@ one channel or one time window at a time.
 Example:
     python scripts/08_tensor_model_diagnostics.py ^
         --run outputs/runs/eegnet_p25_starter ^
-        --participants P25
+        --participants P25 ^
+        --time-bin-s 0.0625
 """
 
 from __future__ import annotations
@@ -38,11 +39,13 @@ from sklearn.metrics import accuracy_score, roc_auc_score  # noqa: E402
 
 from eeg_steptype.config import apply_prediction_window, load_config  # noqa: E402
 from eeg_steptype.features.tensor import build_tensor_for_participant  # noqa: E402
-from eeg_steptype.io import ensure_dir, outputs_root  # noqa: E402
+from eeg_steptype.io import ensure_dir, outputs_root, timestamp_token  # noqa: E402
 from eeg_steptype.logging_utils import get_logger, setup_logging  # noqa: E402
 from eeg_steptype.models.train import (  # noqa: E402
     MODEL_FACTORIES,
+    _build_neural_hybrid_input,
     _make_search_estimator,
+    _neural_uses_tabular_features,
     _scale_pos_weight,
 )
 
@@ -53,6 +56,7 @@ SPEED_TIERS = {
 }
 
 TENSOR_MODELS = {"cnn", "eegnet"}
+FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet"}
 
 log = get_logger(__name__)
 
@@ -63,16 +67,19 @@ def main() -> None:
     run_dir = Path(args.run) if args.run else None
 
     cfg = _load_diagnostic_config(args, project_root, run_dir)
-    cfg = apply_prediction_window(cfg, args.prediction_window)
     if args.participant_override_mode:
         cfg.setdefault("participant_overrides", {})["mode"] = args.participant_override_mode
+    model_name = _infer_model(args, cfg, run_dir)
+    cfg = apply_prediction_window(
+        cfg,
+        args.prediction_window
+        or ("full_cnv" if model_name in FULL_CNV_DEFAULT_MODELS else None),
+    )
     if args.epochs is not None:
-        cfg.setdefault("modeling", {}).setdefault(_infer_model(args, cfg, run_dir), {})[
-            "epochs"
-        ] = int(args.epochs)
+        cfg.setdefault("modeling", {}).setdefault(model_name, {})["epochs"] = int(args.epochs)
+    time_bin_s = _resolve_time_bin_s(args, cfg)
 
     setup_logging(cfg.get("logging", {}).get("level", "INFO"))
-    model_name = _infer_model(args, cfg, run_dir)
     if model_name not in TENSOR_MODELS:
         raise SystemExit(
             f"Tensor diagnostics currently support {sorted(TENSOR_MODELS)}, got {model_name!r}."
@@ -80,11 +87,16 @@ def main() -> None:
 
     participants = _participants(args, cfg, run_dir)
     run_label = run_dir.name if run_dir else f"{model_name}_manual"
-    out_dir = ensure_dir(
+    stamp = timestamp_token()
+    output_base = (
         Path(args.output_dir)
         if args.output_dir
-        else outputs_root(cfg) / "diagnostics" / f"{model_name}_tensor_diagnostics" / run_label
+        else outputs_root(cfg)
+        / "diagnostics"
+        / f"{model_name}_tensor_diagnostics"
+        / run_label
     )
+    out_dir = ensure_dir(output_base.with_name(f"{output_base.name}_{stamp}"))
     figures_dir = ensure_dir(out_dir / "figures")
 
     run_metrics = _read_run_metrics(run_dir)
@@ -98,7 +110,7 @@ def main() -> None:
             cfg=cfg,
             model_name=model_name,
             run_metrics=run_metrics,
-            time_bin_s=float(args.time_bin_s),
+            time_bin_s=time_bin_s,
         )
         channel_rows.extend(participant["channel_rows"])
         time_rows.extend(participant["time_rows"])
@@ -129,7 +141,7 @@ def main() -> None:
             summary_df=summary_df,
             figure_paths=figure_paths,
             report_path=report_path,
-            time_bin_s=float(args.time_bin_s),
+            time_bin_s=time_bin_s,
         ),
         encoding="utf-8",
     )
@@ -152,10 +164,32 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--participants", nargs="+", default=None)
     p.add_argument("--prediction-window", default=None)
     p.add_argument("--participant-override-mode", choices=["raw_assembly_only", "full", "none"], default=None)
-    p.add_argument("--time-bin-s", type=float, default=0.25)
+    p.add_argument(
+        "--time-bin-s",
+        type=float,
+        default=None,
+        help=(
+            "Time-occlusion bin width in seconds. Defaults to features.bin_n "
+            "from the config, which is 0.0625 for the current CNN/EEGNet tiers."
+        ),
+    )
     p.add_argument("--epochs", type=int, default=None, help="Override diagnostic refit epochs.")
-    p.add_argument("--output-dir", default=None)
+    p.add_argument(
+        "--output-dir",
+        default=None,
+        help="Base output directory; a timestamp is appended automatically.",
+    )
     return p.parse_args()
+
+
+def _resolve_time_bin_s(args: argparse.Namespace, cfg: dict) -> float:
+    value = args.time_bin_s
+    if value is None:
+        value = cfg.get("features", {}).get("bin_n", 0.0625)
+    value = float(value)
+    if value <= 0:
+        raise SystemExit("--time-bin-s must be positive.")
+    return value
 
 
 def _load_diagnostic_config(args: argparse.Namespace, project_root: Path, run_dir: Path | None) -> dict:
@@ -217,7 +251,23 @@ def _diagnose_participant(
     time_bin_s: float,
 ) -> dict:
     bundle = build_tensor_for_participant(participant_id, cfg, force=False)
-    X = np.asarray(bundle["data"], dtype=np.float32)
+    tensor = np.asarray(bundle["data"], dtype=np.float32)
+    if _neural_uses_tabular_features(cfg, model_name):
+        X, tabular_info = _build_neural_hybrid_input(
+            participant_id,
+            cfg,
+            model_name,
+            bundle,
+            tensor,
+            channel_mode=None,
+        )
+        cfg["_neural_hybrid_input"] = {
+            "n_channels": int(tensor.shape[1]),
+            "n_times": int(tensor.shape[2]),
+            "n_tabular_features": int(tabular_info["n_tabular_features"]),
+        }
+    else:
+        X = tensor
     y = pd.Series(bundle["labels"]).map({"One": 0, "Two": 1}).astype(int)
     ch_names = [str(ch) for ch in bundle["ch_names"]]
     sfreq = float(bundle["sfreq"])
@@ -237,8 +287,9 @@ def _diagnose_participant(
 
     channel_rows = []
     for channel_idx, channel in enumerate(ch_names):
-        X_masked = X.copy()
-        X_masked[:, channel_idx, :] = 0.0
+        tensor_masked = tensor.copy()
+        tensor_masked[:, channel_idx, :] = 0.0
+        X_masked = _masked_input(X, tensor_masked, cfg)
         proba = _positive_proba(estimator, X_masked)
         auc = _auc(y, proba)
         acc = float(accuracy_score(y, proba >= 0.5))
@@ -257,10 +308,11 @@ def _diagnose_participant(
 
     samples_per_bin = max(1, int(round(time_bin_s * sfreq)))
     time_rows = []
-    for start in range(0, X.shape[2], samples_per_bin):
-        stop = min(start + samples_per_bin, X.shape[2])
-        X_masked = X.copy()
-        X_masked[:, :, start:stop] = 0.0
+    for start in range(0, tensor.shape[2], samples_per_bin):
+        stop = min(start + samples_per_bin, tensor.shape[2])
+        tensor_masked = tensor.copy()
+        tensor_masked[:, :, start:stop] = 0.0
+        X_masked = _masked_input(X, tensor_masked, cfg)
         proba = _positive_proba(estimator, X_masked)
         auc = _auc(y, proba)
         acc = float(accuracy_score(y, proba >= 0.5))
@@ -282,9 +334,9 @@ def _diagnose_participant(
     summary = {
         "participant": participant_id,
         "model": model_name,
-        "n_epochs": int(X.shape[0]),
-        "n_channels": int(X.shape[1]),
-        "n_times": int(X.shape[2]),
+        "n_epochs": int(tensor.shape[0]),
+        "n_channels": int(tensor.shape[1]),
+        "n_times": int(tensor.shape[2]),
         "sfreq": sfreq,
         "tmin": tmin,
         "tmax": float(bundle["tmax"]),
@@ -296,6 +348,16 @@ def _diagnose_participant(
         "top_time_delta_auc": _top_delta(time_rows),
     }
     return {"channel_rows": channel_rows, "time_rows": time_rows, "summary": summary}
+
+
+def _masked_input(X: np.ndarray, tensor_masked: np.ndarray, cfg: dict) -> np.ndarray:
+    hybrid = cfg.get("_neural_hybrid_input")
+    if not hybrid:
+        return tensor_masked
+    n_tensor = int(hybrid["n_channels"]) * int(hybrid["n_times"])
+    out = X.copy()
+    out[:, :n_tensor] = tensor_masked.reshape(tensor_masked.shape[0], n_tensor)
+    return out
 
 
 def _make_estimator(
@@ -312,7 +374,7 @@ def _make_estimator(
         cfg,
         model_name,
         scale_pos_weight=_scale_pos_weight(y),
-        n_features=X.shape[1:],
+        n_features=X.shape[1] if getattr(X, "ndim", 2) == 2 else X.shape[1:],
     )
     if params:
         supported = set(estimator.get_params(deep=True))

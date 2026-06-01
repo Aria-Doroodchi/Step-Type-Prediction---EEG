@@ -34,9 +34,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 from sklearn.metrics import roc_auc_score  # noqa: E402
 from xgboost import XGBClassifier  # noqa: E402
 
-from eeg_steptype.config import apply_prediction_window, load_config  # noqa: E402
+from eeg_steptype.config import apply_feature_bin_width, apply_prediction_window, load_config  # noqa: E402
 from eeg_steptype.features.assemble import build_for_participant  # noqa: E402
-from eeg_steptype.io import ensure_dir, features_path, outputs_root  # noqa: E402
+from eeg_steptype.io import ensure_dir, features_path, outputs_root, stamped_dir  # noqa: E402
 from eeg_steptype.logging_utils import get_logger, setup_logging  # noqa: E402
 from eeg_steptype.models.train import _apply_channel_selection  # noqa: E402
 
@@ -60,6 +60,7 @@ def main() -> None:
     cfg_path = _resolve_config_path(args.config, args.speed_tier, project_root)
     cfg = load_config(cfg_path)
     cfg = apply_prediction_window(cfg, args.prediction_window)
+    cfg = apply_feature_bin_width(cfg, args.feature_bin_s)
     if args.participant_override_mode:
         cfg.setdefault("participant_overrides", {})["mode"] = args.participant_override_mode
     if args.n_jobs is not None:
@@ -67,11 +68,12 @@ def main() -> None:
 
     setup_logging(cfg.get("logging", {}).get("level", "INFO"))
 
-    out_dir = ensure_dir(
+    output_base = (
         Path(args.output_dir)
         if args.output_dir
         else outputs_root(cfg) / "diagnostics" / "xgb_feature_informativeness"
     )
+    out_dir = ensure_dir(stamped_dir(output_base.parent, output_base.name))
     figures_dir = ensure_dir(out_dir / "figures")
 
     rank_matrix = _read_screening_auc_matrix(Path(args.screening_md)) if args.screening_md else pd.DataFrame()
@@ -153,6 +155,15 @@ def _parse_args() -> argparse.Namespace:
         help="Named prediction window from config, e.g. late_cnv or full_cnv.",
     )
     p.add_argument(
+        "--feature-bin-s",
+        type=float,
+        default=None,
+        help=(
+            "Override feature/source bin width in seconds. Default is 0.0625; "
+            "use 0.125 for the legacy eighth-second bins."
+        ),
+    )
+    p.add_argument(
         "--screening-md",
         default="outputs/screening/SCREENING_RESULTS_RICHFEATS.md",
         help="Screening report with a per-participant AUC matrix.",
@@ -172,7 +183,11 @@ def _parse_args() -> argparse.Namespace:
         default=None,
     )
     p.add_argument("--n-jobs", type=int, default=None)
-    p.add_argument("--output-dir", default=None)
+    p.add_argument(
+        "--output-dir",
+        default=None,
+        help="Base output directory; a timestamp is appended automatically.",
+    )
     p.add_argument("--top-n", type=int, default=20, help="Top features per participant in CSV/report.")
     p.add_argument("--plot-top-n", type=int, default=10, help="Top features per participant in plots.")
     p.add_argument(

@@ -3,6 +3,7 @@
 Usage:
     python scripts/03_extract_features.py
     python scripts/03_extract_features.py --participants P25 --force
+    python scripts/03_extract_features.py --feature-bin-s 0.125
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from eeg_steptype.config import apply_prediction_window, load_config
+from eeg_steptype.config import apply_feature_bin_width, apply_prediction_window, load_config
 from eeg_steptype.logging_utils import setup_logging, get_logger
 from eeg_steptype.features import assemble
 
@@ -29,6 +30,15 @@ def main() -> None:
         help="Named prediction window from config, e.g. late_cnv or full_cnv.",
     )
     p.add_argument(
+        "--feature-bin-s",
+        type=float,
+        default=None,
+        help=(
+            "Override feature/source bin width in seconds. Default is 0.0625; "
+            "use 0.125 for the legacy eighth-second bins."
+        ),
+    )
+    p.add_argument(
         "--participant-override-mode",
         choices=["raw_assembly_only", "full", "none"],
         default=None,
@@ -38,6 +48,7 @@ def main() -> None:
 
     cfg = load_config(args.config)
     cfg = apply_prediction_window(cfg, args.prediction_window)
+    cfg = apply_feature_bin_width(cfg, args.feature_bin_s)
     if args.participant_override_mode:
         cfg.setdefault("participant_overrides", {})["mode"] = args.participant_override_mode
     setup_logging(cfg.get("logging", {}).get("level", "INFO"))

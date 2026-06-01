@@ -33,7 +33,7 @@
 # =====================================================================
 
 features:
-  bin_n: 0.125                       # unchanged from default
+  bin_n: 0.0625                      # default 1/16-second feature bins
 
   # Extended Morlet TFR: down to 0.1 Hz so we capture the slow CNV;
   # finer frequency resolution to give per-band PSD features more
@@ -60,5 +60,5 @@ features:
   blocks: [amplitude, slopes, psd, src, cnv_benchmark]
   cnv_benchmark:
     enabled: true
-    bin_n: 0.125
+    bin_n: 0.0625
     channels: [Cz, FCz, CPz, C1, C2, FC1, FC2, CP1, CP2]

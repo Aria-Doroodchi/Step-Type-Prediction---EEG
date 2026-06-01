@@ -155,8 +155,8 @@ subset relevant to their stage.
 | Flag | Values | Default | Effect |
 |---|---|---|---|
 | `--stages STAGE ...` | subset of `preprocess`, `src`, `features`, `train` | all four | Which pipeline stages to execute, in the listed order. Skipped stages assume their inputs already exist on disk. (`run.py` only.) |
-| `--model NAME` | `xgb`, `svm`, `lstm`, `logistic`, `riemannian` | `cfg["modeling"]["default_model"]` if set (e.g. `riemannian` under `--speed-tier riemannian`), otherwise `xgb` | Which model factory to use during the `train` stage. See `src/eeg_steptype/models/README.md` for architectures. `riemannian` uses the epoch-tensor cache at `data/features/tensor/`, not the flat feature parquet. |
-| `--channel-mode MODE` | `full`, `roi` | `cfg["channel_selection"]["mode"]` (default `full`) | Train on every electrode (`full`) or only the medial foot-motor ROI defined under `channel_selection.roi.channels` (`roi`). Always `full` for tensor-input models (`lstm`, future `cnn`). |
+| `--model NAME` | `xgb`, `svm`, `lstm`, `logistic`, `riemannian`, `cnn`, `eegnet` | `cfg["modeling"]["default_model"]` if set (e.g. `riemannian` under `--speed-tier riemannian`), otherwise `xgb` | Which model factory to use during the `train` stage. See `src/eeg_steptype/models/README.md` for architectures. `riemannian` uses only the epoch-tensor cache; `cnn` and `eegnet` fuse that tensor with the XGB-style feature parquet. |
+| `--channel-mode MODE` | `full`, `roi` | `cfg["channel_selection"]["mode"]` (default `full`) | Train on every electrode (`full`) or only the medial foot-motor ROI defined under `channel_selection.roi.channels` (`roi`). Always `full` for tensor-input models. |
 | `--cv-mode MODE` | `repeated_stratified`, `grouped`, `chronological` | `cfg["modeling"]["cv"]["mode"]` (default `repeated_stratified`) | Outer cross-validation strategy. `grouped` uses `block_id` so trials from the same recording block stay together. `chronological` is a no-shuffle temporal sanity check. |
 | `--run-id NAME` | any string | auto-generated `<model>_<channel_mode>_<window>_<timestamp>` | Name of the output directory under `outputs/runs/`. Useful for resuming a run from per-participant CSV checkpoints. |
 
@@ -592,14 +592,14 @@ modeling knobs.
 
 ### 6.2 Two flavors of feature cache, side by side
 
-The features stage has two output flavors because tensor-input models
-(Riemannian and future CNN) need raw `(n_epochs × n_channels × n_times)`
-data, while classical models work on the flat per-bin aggregates:
+The features stage has two output flavors because tensor/hybrid models need
+raw `(n_epochs × n_channels × n_times)` data, while classical models work on
+the flat per-bin aggregates:
 
 | Cache file                                                              | Built by stage 3 for…              | Consumed by                           |
 |-------------------------------------------------------------------------|------------------------------------|---------------------------------------|
-| `data/features/<pid>_<cond>_features_t<min>-<max>.parquet`              | `assemble.build_for_participant`   | `xgb`, `svm`, `logistic`, `lstm`      |
-| `data/features/tensor/<pid>_<cond>_epochs_t<min>-<max>.npz`             | `tensor.build_tensor_for_participant` | `riemannian` (and future `cnn`)   |
+| `data/features/<pid>_<cond>_features_t<min>-<max>[_b<bin>].parquet`     | `assemble.build_for_participant`   | `xgb`, `svm`, `logistic`, `lstm`, plus the tabular branch of `cnn`/`eegnet` |
+| `data/features/tensor/<pid>_<cond>_epochs_t<min>-<max>.npz`             | `tensor.build_tensor_for_participant` | `riemannian`, plus the tensor branch of `cnn`/`eegnet` |
 
 Both are keyed by the prediction window (`_t<min>-<max>`), so the same
 participant can have, for example, `features_t1p0-2p0.parquet` for the

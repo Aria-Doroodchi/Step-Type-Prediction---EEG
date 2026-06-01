@@ -1,4 +1,4 @@
-"""Aggregate model screening runs into a SCREENING_RESULTS.md report.
+"""Aggregate model screening runs into a timestamped SCREENING_RESULTS report.
 
 Reads each ``outputs/runs/<run_id>/`` directory supplied on the CLI,
 computes the five diagnostic cells described in SCRIPT_GUIDES.md, and
@@ -20,7 +20,7 @@ Usage::
 
 If ``--runs`` contains glob patterns they are expanded. Missing or
 malformed runs are skipped with a warning so a partial sweep still
-produces a report.
+produces a report. The output filename is automatically timestamped.
 """
 
 from __future__ import annotations
@@ -46,7 +46,10 @@ def main() -> None:
     )
     p.add_argument(
         "--output", default="outputs/screening/SCREENING_RESULTS.md",
-        help="Output markdown path (default: outputs/screening/SCREENING_RESULTS.md).",
+        help=(
+            "Output markdown base path. A timestamp is inserted before the suffix "
+            "(default base: outputs/screening/SCREENING_RESULTS.md)."
+        ),
     )
     p.add_argument(
         "--no-root-copy", action="store_true",
@@ -79,16 +82,25 @@ def main() -> None:
         print("No runs could be loaded; nothing to aggregate.", file=sys.stderr)
         sys.exit(1)
 
+    stamp = _timestamp_token()
     md = build_report(runs)
-    out = Path(args.output)
+    out = _stamped_path(Path(args.output), stamp)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(md, encoding="utf-8")
     print(f"Wrote {out}")
 
     if not args.no_root_copy:
-        root = Path(__file__).resolve().parents[1] / "SCREENING_RESULTS.md"
+        root = _stamped_path(Path(__file__).resolve().parents[1] / "SCREENING_RESULTS.md", stamp)
         root.write_text(md, encoding="utf-8")
         print(f"Wrote {root}")
+
+
+def _timestamp_token() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+
+def _stamped_path(path: Path, stamp: str) -> Path:
+    return path.with_name(f"{path.stem}_{stamp}{path.suffix}")
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ from typing import Iterable
 
 import pandas as pd
 
-from ..io import ensure_dir, outputs_root
+from ..io import ensure_dir, outputs_root, timestamp_token
 
 
 FILE_ERROR_COLUMNS = [
@@ -40,7 +40,8 @@ VARIANCE_COLUMNS = [
 
 
 def source_diagnostics_dir(cfg: dict) -> Path:
-    return ensure_dir(outputs_root(cfg) / "diagnostics" / "source_localization")
+    stamp = cfg.setdefault("_source_diagnostics_stamp", timestamp_token())
+    return ensure_dir(outputs_root(cfg) / "diagnostics" / f"source_localization_{stamp}")
 
 
 def file_errors_path(cfg: dict) -> Path:

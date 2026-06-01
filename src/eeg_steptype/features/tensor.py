@@ -1,4 +1,4 @@
-"""Epoch-tensor cache for tensor-input models (Riemannian, future CNN).
+"""Epoch-tensor cache for tensor-input and hybrid neural models.
 
 The classical features stage (``assemble.py``) emits a wide parquet of binned
 mean amplitudes, slopes, PSD band powers, and source activations -- one row per
@@ -6,7 +6,8 @@ epoch. That representation is fine for tree- and kernel-based classifiers but
 throws away the temporal structure that Riemannian and convolutional models
 need. This module caches the alternative: ``(n_epochs, n_channels, n_times)``
 plus per-epoch metadata, written as a single compressed ``.npz`` next to the
-flat feature parquet.
+flat feature parquet. CNN/EEGNet can consume this tensor together with the
+flat XGB-style feature matrix.
 
 The cache mirrors the parquet path layout, so building both is cheap and the
 two representations can coexist on disk without colliding.
