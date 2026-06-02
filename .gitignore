@@ -35,6 +35,9 @@ outputs/figs/
 # Per-machine config (committed copy lives at configs/local.yaml.example)
 configs/local.yaml
 
+# Temporary / experimental overlay configs (underscore-prefixed, e.g. _run5_quick.yaml)
+configs/_*.yaml
+
 # Anything else placed in data/ outside the README
 data/*
 !data/README.md
