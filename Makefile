@@ -7,6 +7,7 @@
 #   make smoke-test-two pytest two-participant full workflow smoke only
 #   make test           run pytest (imports + smoke pipeline)
 #   make preflight      check external real-data assets before full runs
+#   make sync-setup     link large ignored artifacts into OneDrive
 #   make preprocess     stage 1: raw .bdf → cleaned epochs
 #   make src            stage 2: epochs → source-localized CSVs
 #   make features       stage 3: epochs+src → feature parquets
@@ -48,6 +49,9 @@ test:
 preflight:
 	$(PYTHON) scripts/00_preflight.py --config $(CONFIG)
 
+sync-setup:
+	powershell -ExecutionPolicy Bypass -File scripts/setup_onedrive_artifacts.ps1
+
 # ---- Stages --------------------------------------------------------
 preprocess:
 	$(PYTHON) scripts/01_preprocess.py --config $(CONFIG) $(OVERRIDE_ARGS)
@@ -70,4 +74,4 @@ full-xgb: preflight
 clean:
 	rm -rf data/interim data/features data/src outputs/runs
 
-.PHONY: install smoke smoke-test smoke-test-two test preflight preprocess src features train all full-xgb clean
+.PHONY: install smoke smoke-test smoke-test-two test preflight sync-setup preprocess src features train all full-xgb clean
