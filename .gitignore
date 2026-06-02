@@ -7,6 +7,7 @@
 legacy/
 sandbox/
 _repo_export/
+.artifact-sync-backups/
 
 # Legacy CSV from old SRC_writer.py (top-level src/ — different from new src/eeg_steptype/)
 /src/*.csv

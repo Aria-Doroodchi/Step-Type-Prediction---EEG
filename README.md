@@ -15,14 +15,17 @@ Features come from electrode-level amplitudes, power spectral density
 # 1. Install (editable)
 pip install -e .
 
-# 2. Point the pipeline at your raw data folder
+# 2. Link large generated artifacts to OneDrive
+make sync-setup
+
+# 3. Point the pipeline at your raw data folder
 cp configs/local.yaml.example configs/local.yaml
 # …edit `paths.raw_root` in configs/local.yaml…
 
-# 3. Smoke test (~30 s — checks the pipeline end-to-end on synthetic data)
+# 4. Smoke test (~30 s — checks the pipeline end-to-end on synthetic data)
 make test
 
-# 4. Full run (preprocessing → src → features → XGBoost training)
+# 5. Full run (preprocessing → src → features → XGBoost training)
 make all                        # all stages, default model = xgb
 make train MODEL=lstm           # just the training stage with a different model
 make all OVERRIDE_MODE=full     # opt into participant-specific fine-tuning
@@ -33,6 +36,14 @@ make train PREDICTION_WINDOW=full_cnv  # secondary full-window analysis
 See [`SCRIPT_GUIDES.md`](SCRIPT_GUIDES.md) for copy-paste commands covering
 the standard smoke tests, the two-participant end-to-end smoke test, and a
 full XGBoost pipeline run.
+
+Large generated artifacts are kept out of Git and synced through OneDrive.
+`make sync-setup` links these ignored folders into the OneDrive artifact store:
+`data/interim`, `data/features`, `data/src`, `outputs/runs`, and `outputs/qc`.
+On a new machine, clone the repo, let OneDrive finish syncing, then run
+`make sync-setup` once before running the pipeline. To override the OneDrive
+location, set `ML_V2_ONEDRIVE_ROOT` or run
+`powershell -ExecutionPolicy Bypass -File scripts/setup_onedrive_artifacts.ps1 -OneDriveRoot "C:\path\to\ML_V2"`.
 
 Stage-by-stage runs:
 
