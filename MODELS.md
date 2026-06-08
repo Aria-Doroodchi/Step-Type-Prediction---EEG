@@ -447,9 +447,19 @@ Beyond per-model knobs, three cross-cutting controls shape every run.
 for the hyperparameter search. A no-shuffle chronological check runs alongside
 to catch temporal leakage.
 
-**Search method** (`modeling.search`): `auto` → `HalvingRandomSearchCV` for XGB
-(successive halving on `n_estimators`, `n_iter=100` candidates), `GridSearchCV`
-for everyone else.
+**Search method** (`modeling.search.method`): one knob controls the search for
+every model.
+
+| `method` | XGBoost | All other models |
+|---|---|---|
+| `auto` (default) | `HalvingRandomSearchCV` (halving on `n_estimators`) | `GridSearchCV` |
+| `grid` | `GridSearchCV` | `GridSearchCV` |
+| `random` | `RandomizedSearchCV` | `RandomizedSearchCV` |
+| `halving_random` | `HalvingRandomSearchCV` | grid (auto-fallback — no `n_estimators` resource) |
+
+`random` samples `n_iter` (default 100) configurations from each grid for **every**
+model, capped at the grid size. Note it drops XGB's successive-halving speedup,
+so each XGB candidate trains the full `n_estimators` trees.
 
 **Speed tiers** trade wall-time for thoroughness by trimming the grid, CV
 repeats, and prune passes. Rough ladder (see `configs/README.md`):
@@ -635,9 +645,11 @@ cnn / eegnet:                         # defaults; param_grid overridable per con
   learning_rate: 1e-3
 ```
 
-Search controls: `cv = RepeatedStratifiedKFold(5×20)`, inner `StratifiedKFold(3)`;
-`HalvingRandomSearchCV` for XGB (`n_iter=100`, resource `n_estimators` 100→1000,
-factor 3), `GridSearchCV` otherwise.
+Search controls: `cv = RepeatedStratifiedKFold(5×20)`, inner `StratifiedKFold(3)`.
+`modeling.search.method` selects the searcher for all models — `auto`
+(`HalvingRandomSearchCV` for XGB with resource `n_estimators` 100→1000 factor 3,
+`GridSearchCV` otherwise), `grid`, `random` (`RandomizedSearchCV` everywhere,
+`n_iter=100`), or `halving_random`.
 
 ## Appendix B — figure provenance & licenses
 

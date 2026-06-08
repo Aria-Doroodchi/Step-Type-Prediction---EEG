@@ -252,9 +252,16 @@ modeling:
     inner_splits: 3
     chronological_check: true       # run a no-shuffle temporal sanity check alongside primary CV
   search:
-    method: auto                    # "auto" = HalvingRandomSearchCV for XGB, GridSearchCV otherwise
+    # "auto"           = HalvingRandomSearchCV for XGB, GridSearchCV otherwise
+    # "grid"           = exhaustive GridSearchCV for every model
+    # "random"         = RandomizedSearchCV for every model (XGB included; this
+    #                    drops XGB's successive-halving speedup, so each of the
+    #                    n_iter candidates trains the full n_estimators trees)
+    # "halving_random" = HalvingRandomSearchCV where the estimator exposes the
+    #                    resource param; falls back to grid otherwise
+    method: auto
     n_jobs: null                    # null avoids nested XGB oversubscription; set explicitly to override
-    n_iter: 100                     # candidate configs sampled before successive halving
+    n_iter: 100                     # candidates: sampled (random) or pre-halving budget (halving_random)
     halving:
       resource: n_estimators
       min_resources: 100

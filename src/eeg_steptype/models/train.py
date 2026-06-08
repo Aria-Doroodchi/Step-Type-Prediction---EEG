@@ -25,6 +25,7 @@ from sklearn.model_selection import (
     HalvingRandomSearchCV,
     KFold,
     ParameterGrid,
+    RandomizedSearchCV,
     RepeatedStratifiedKFold,
     StratifiedGroupKFold,
     StratifiedKFold,
@@ -678,7 +679,7 @@ def _fit_search(
     y_train: pd.Series,
     *,
     scale_pos_weight: float,
-) -> GridSearchCV | HalvingRandomSearchCV:
+) -> GridSearchCV | RandomizedSearchCV | HalvingRandomSearchCV:
     mcfg = cfg["modeling"]
     estimator, param_grid = _make_search_estimator(
         factory, cfg, model_name,
@@ -711,7 +712,7 @@ def _make_search_cv(
     cfg: dict,
     model_name: str,
     cv: StratifiedKFold,
-) -> GridSearchCV | HalvingRandomSearchCV:
+) -> GridSearchCV | RandomizedSearchCV | HalvingRandomSearchCV:
     mcfg = cfg["modeling"]
     method = _search_method(cfg, model_name)
     common = {
@@ -728,6 +729,18 @@ def _make_search_cv(
     }
     if method == "grid":
         return GridSearchCV(param_grid=param_grid, **common)
+    if method == "random":
+        scfg = mcfg.get("search", {})
+        # Discrete grids are sampled WITHOUT replacement, so n_iter must not
+        # exceed the grid size or RandomizedSearchCV raises. Cap it like the
+        # halving branch does. Applies uniformly to every model family.
+        n_iter = min(int(scfg.get("n_iter", 100)), _param_grid_size(param_grid))
+        return RandomizedSearchCV(
+            param_distributions=param_grid,
+            n_iter=max(1, n_iter),
+            random_state=int(mcfg.get("random_state", 1)),
+            **common,
+        )
     if method == "halving_random":
         scfg = mcfg.get("search", {})
         hcfg = scfg.get("halving", {})
@@ -762,7 +775,9 @@ def _make_search_cv(
             random_state=int(mcfg.get("random_state", 1)),
             **common,
         )
-    raise ValueError("modeling.search.method must be one of: auto, grid, halving_random")
+    raise ValueError(
+        "modeling.search.method must be one of: auto, grid, random, halving_random"
+    )
 
 
 def _estimator_supports_resource(estimator, resource: str) -> bool:
