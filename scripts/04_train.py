@@ -29,8 +29,9 @@ SPEED_TIERS = {
     "riemannian": "configs/riemannian.yaml",
     "cnn":        "configs/cnn.yaml",
     "eegnet":     "configs/eegnet.yaml",
+    "eegnext":    "configs/eegnext.yaml",
 }
-FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet"}
+FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet", "eegnext"}
 
 
 def _resolve_config_path(

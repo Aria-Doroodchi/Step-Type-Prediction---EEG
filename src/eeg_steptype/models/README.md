@@ -192,6 +192,30 @@ With `run.py`, neural `train` requests automatically include `src` and
 python run.py --speed-tier eegnet --participants P25 --stages train
 ```
 
+### EEGNeXt (`eegnext.py`) — sophisticated hybrid CNN
+
+`eegnext.py` is a more sophisticated CNN built on the same EEGNet-lite block, for
+when the compact `cnn`/`eegnet` comparators leave signal on the table. It keeps
+the hybrid tensor + tabular fusion but upgrades the convolutional core in three
+ways:
+
+- **Multi-scale temporal stem**: several temporal convolutions with *different*
+  kernel lengths run in parallel and are concatenated, capturing
+  delta/theta/alpha/beta timescales in one layer instead of betting on a single
+  kernel (`model__temporal_kernels`, default `[16, 32, 64]`).
+- **Squeeze-and-Excitation channel attention**: a small gating branch reweights
+  the feature maps by their global informativeness (`model__se_ratio`).
+- **Residual separable blocks**: depth is added through separable convolutions
+  wrapped in skip connections (`model__n_residual_blocks`), so the network can be
+  deeper without the usual optimisation cost on small per-participant data.
+
+It is registered like the other neural models (`data_representation: tensor`,
+hybrid fusion, `require_source: true`) and runs on the full-CNV window:
+
+```bash
+python run.py --speed-tier eegnext --participants P25 --stages train
+```
+
 ---
 
 ## Running

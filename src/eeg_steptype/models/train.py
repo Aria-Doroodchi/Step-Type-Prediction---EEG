@@ -46,6 +46,7 @@ from . import logistic as logistic_factory
 from . import riemannian as riemannian_factory
 from . import cnn as cnn_factory
 from . import eegnet as eegnet_factory
+from . import eegnext as eegnext_factory
 from .normalization import maybe_prefix_param_grid, maybe_wrap_estimator, unwrap_classifier
 from .evaluate import participant_metrics, cv_rollup
 
@@ -117,9 +118,20 @@ MODEL_FACTORIES: dict[str, dict] = {
         "supports_shap": False,
         "data_representation": "tensor",
     },
+    "eegnext": {
+        "make":         eegnext_factory.make_eegnext,
+        "param_grid":   eegnext_factory.param_grid,
+        "rfecv_base":   None,
+        "supports_gain": False,
+        "supports_shap": False,
+        "data_representation": "tensor",
+    },
 }
 
-NEURAL_HYBRID_MODELS = {"cnn", "eegnet"}
+# Hybrid neural models fuse the raw epoch tensor with the XGB-style tabular
+# branch and are constructed with an ``input_shape`` kwarg (unlike lstm, which
+# takes ``n_features``, or riemannian, which builds its own pipeline).
+NEURAL_HYBRID_MODELS = {"cnn", "eegnet", "eegnext"}
 
 
 def _participant_metrics_path(rdir, participant_id: str):
@@ -925,7 +937,9 @@ def _effective_channel_mode(
     model_name: str,
     channel_mode: str | None = None,
 ) -> str:
-    if model_name in {"riemannian", "cnn", "eegnet"}:
+    # Tensor-input models (riemannian + the hybrid neural CNNs) always train on
+    # every channel; ROI selection only applies to the tabular feature path.
+    if MODEL_FACTORIES.get(model_name, {}).get("data_representation") == "tensor":
         return "full"
     return channel_mode or cfg.get("channel_selection", {}).get("mode", "full")
 
@@ -1003,7 +1017,7 @@ def _scale_pos_weight(y: pd.Series) -> float:
 def _make_model(factory, cfg, model_name, *, scale_pos_weight, n_features):
     if model_name == "lstm":
         return factory["make"](cfg, n_features=n_features)
-    if model_name in {"cnn", "eegnet"}:
+    if model_name in NEURAL_HYBRID_MODELS:
         return factory["make"](cfg, input_shape=n_features)
     try:
         return factory["make"](cfg, scale_pos_weight=scale_pos_weight)
@@ -1013,7 +1027,7 @@ def _make_model(factory, cfg, model_name, *, scale_pos_weight, n_features):
 
 def _make_search_estimator(factory, cfg, model_name, *, scale_pos_weight, n_features):
     model_shape = n_features
-    if model_name not in {"cnn", "eegnet"} and not isinstance(n_features, int):
+    if model_name not in NEURAL_HYBRID_MODELS and not isinstance(n_features, int):
         model_shape = int(n_features[0]) if n_features else 0
     base = _make_model(
         factory, cfg, model_name,

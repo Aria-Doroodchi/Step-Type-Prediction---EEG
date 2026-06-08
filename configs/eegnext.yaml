@@ -1,0 +1,87 @@
+# =====================================================================
+# EEGNeXt tier — sophisticated hybrid CNN on epoch tensors.
+#
+# Builds on the EEGNet-lite block with a multi-scale temporal stem,
+# squeeze-and-excitation channel attention, and residual separable blocks,
+# fused with the XGB-style tabular + eLORETA source features.
+#
+# Tensor input: data/features/tensor/<pid>_<cond>_epochs_t0p0-2p0.npz.
+# This overlay is intentionally shallow for a first run; widen CV and the
+# parameter grid only after the first participant finishes cleanly.
+#
+# Activate with:
+#     python run.py --speed-tier eegnext --participants P25 --stages train
+#     python scripts/04_train.py --config configs/eegnext.yaml configs/single.yaml
+# =====================================================================
+
+features:
+  bin_n: 0.0625
+  min_time: 0.0
+  max_time: 2.0
+  blocks: [amplitude, slopes, psd, src]
+  amplitude:
+    bin_widths: [0.0625]
+    stats: [mean, std, min, max]
+
+_prediction_window: full_cnv
+
+modeling:
+  test_size: 0.30
+  random_state: 1
+  default_model: eegnext
+
+  cv:
+    mode: repeated_stratified
+    n_splits: 2
+    n_repeats: 1
+    inner_splits: 2
+    chronological_check: false
+
+  search:
+    method: grid
+    n_jobs: 1
+
+  rfecv:
+    enabled: false
+  gain_prune:
+    enabled: false
+  shap_prune:
+    enabled: false
+
+  parallel:
+    participants: 1
+
+  eegnext:
+    tabular_features:
+      enabled: true
+      require_source: true
+    epochs: 60
+    batch_size: 16
+    validation_split: 0.2
+    patience: 12
+    verbose: 0
+    standardize:
+      factor_new: 0.001
+      init_block_size: 1000
+      eps: 1.0e-4
+    param_grid:
+      # First sweep: one architecture, two dropout values = 2 model configs per
+      # inner-CV fold. Widen (more temporal-kernel sets, residual depths, SE
+      # ratios) only after this path is stable end-to-end.
+      model__f1: [8]
+      model__temporal_kernels: [[16, 32, 64]]
+      model__depth_multiplier: [2]
+      model__f2: [32]
+      model__separable_kernel: [16]
+      model__n_residual_blocks: [2]
+      model__se_ratio: [4]
+      model__dropout: [0.25, 0.5]
+      model__tabular_units: [32]
+      model__fusion_units: [32]
+      model__learning_rate: [0.001]
+      model__l2: [0.0001]
+      model__norm_rate: [0.25]
+
+logging:
+  level: INFO
+  stamp_runs: true

@@ -196,8 +196,11 @@ Training can compare two channel configurations without rebuilding features:
 `--channel-mode roi` restricts electrode amplitude, slope, and PSD features to
 the medial foot-motor cluster declared in `configs/default.yaml`. Source-space
 features and metadata are left intact. Tensor and hybrid neural model paths
-keep all channels by design; CNN/EEGNet also fuse the raw tensor with the
-XGB-style feature parquet when their tabular branch is enabled.
+keep all channels by design; CNN/EEGNet/EEGNeXt also fuse the raw tensor with the
+XGB-style feature parquet when their tabular branch is enabled. `eegnext` is a
+more sophisticated hybrid CNN (multi-scale temporal stem + squeeze-and-excitation
+channel attention + residual separable blocks); run it with
+`python run.py --speed-tier eegnext --participants P25 --stages train`.
 
 The primary prediction window is late CNV, `1.0-2.0 s`, where foot-motor
 preparation is expected to be most discriminative. Feature cache filenames are

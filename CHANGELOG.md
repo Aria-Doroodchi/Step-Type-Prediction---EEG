@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-06-08 — EEGNeXt sophisticated hybrid CNN
+
+### Added
+
+- **`models/eegnext.py`** — a more sophisticated CNN built on the EEGNet-lite
+  block, registered as the `eegnext` model / `--speed-tier eegnext`
+  (`configs/eegnext.yaml`). Three upgrades over `cnn`/`eegnet`: a **multi-scale
+  temporal stem** (parallel temporal convs at several kernel lengths), **squeeze-
+  and-excitation channel attention**, and **residual separable blocks**. Keeps
+  the hybrid tensor + tabular fusion (`require_source: true`) and the full-CNV
+  window. TensorFlow imports stay deferred so the package still imports without
+  TF.
+
+### Changed
+
+- **`models/train.py`** — `eegnext` added to `MODEL_FACTORIES` and
+  `NEURAL_HYBRID_MODELS`; the two neural-model branch checks now key off
+  `NEURAL_HYBRID_MODELS` instead of a hardcoded `{"cnn", "eegnet"}` set so future
+  hybrid models slot in automatically.
+- **`models/normalization.py`** — routes `eegnext` to its fold-local
+  exponential-moving standardizer.
+- **`run.py`, `scripts/04_train.py`, `scripts/07_feature_informativeness.py`,
+  `scripts/08_tensor_model_diagnostics.py`** — `eegnext` added to the
+  `SPEED_TIERS` maps and the tensor / full-CNV model sets.
+
 ## 2026-05-29 — Shape-decomposition features + stability selection
 
 Two changes targeting (a) information lost when amplitude time courses are

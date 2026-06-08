@@ -140,7 +140,7 @@ subset relevant to their stage.
 | Flag | Values | Default | Effect |
 |---|---|---|---|
 | `--config PATH` | path to a YAML file | `configs/default.yaml` (implicit) | Layered overlay on top of `default.yaml` and `local.yaml`. Right-most overlay wins on key conflicts. |
-| `--speed-tier NAME` | `lightning`, `express`, `quick`, `riemannian` | (none) | Shortcut for `--config configs/<tier>.yaml`. Ignored if `--config` is also passed. `lightning` / `express` / `quick` are XGB-family speed trims; `riemannian` is a separate model + data path (epoch tensors instead of the flat parquet). See [§3.5](#35-speed-tiered-runs). |
+| `--speed-tier NAME` | `lightning`, `express`, `quick`, `riemannian`, `cnn`, `eegnet`, `eegnext` | (none) | Shortcut for `--config configs/<tier>.yaml`. Ignored if `--config` is also passed. `lightning` / `express` / `quick` are XGB-family speed trims; `riemannian` / `cnn` / `eegnet` / `eegnext` are separate model + data paths (epoch tensors instead of the flat parquet). See [§3.5](#35-speed-tiered-runs). |
 | `--prediction-window NAME` | named window from `prediction_windows` in config, e.g. `late_cnv`, `full_cnv` | `late_cnv` | Overrides `features.min_time` / `features.max_time` for this run only. Affects feature extraction and training. |
 | `--participant-override-mode MODE` | `raw_assembly_only`, `full`, `none` | `raw_assembly_only` | How aggressively to apply per-participant YAMLs from `configs/overrides/Pxx.yaml`. `raw_assembly_only` keeps preprocessing uniform across the cohort. `full` opts into every per-participant tweak. `none` ignores the override files entirely. |
 
@@ -155,7 +155,7 @@ subset relevant to their stage.
 | Flag | Values | Default | Effect |
 |---|---|---|---|
 | `--stages STAGE ...` | subset of `preprocess`, `src`, `features`, `train` | all four | Which pipeline stages to execute, in the listed order. Skipped stages assume their inputs already exist on disk. (`run.py` only.) |
-| `--model NAME` | `xgb`, `svm`, `lstm`, `logistic`, `riemannian`, `cnn`, `eegnet` | `cfg["modeling"]["default_model"]` if set (e.g. `riemannian` under `--speed-tier riemannian`), otherwise `xgb` | Which model factory to use during the `train` stage. See `src/eeg_steptype/models/README.md` for architectures. `riemannian` uses only the epoch-tensor cache; `cnn` and `eegnet` fuse that tensor with the XGB-style feature parquet. |
+| `--model NAME` | `xgb`, `svm`, `lstm`, `logistic`, `riemannian`, `cnn`, `eegnet`, `eegnext` | `cfg["modeling"]["default_model"]` if set (e.g. `riemannian` under `--speed-tier riemannian`), otherwise `xgb` | Which model factory to use during the `train` stage. See `src/eeg_steptype/models/README.md` for architectures. `riemannian` uses only the epoch-tensor cache; `cnn`, `eegnet`, and `eegnext` fuse that tensor with the XGB-style feature parquet (`eegnext` is the more sophisticated multi-scale + SE-attention + residual CNN). |
 | `--channel-mode MODE` | `full`, `roi` | `cfg["channel_selection"]["mode"]` (default `full`) | Train on every electrode (`full`) or only the medial foot-motor ROI defined under `channel_selection.roi.channels` (`roi`). Always `full` for tensor-input models. |
 | `--cv-mode MODE` | `repeated_stratified`, `grouped`, `chronological` | `cfg["modeling"]["cv"]["mode"]` (default `repeated_stratified`) | Outer cross-validation strategy. `grouped` uses `block_id` so trials from the same recording block stay together. `chronological` is a no-shuffle temporal sanity check. |
 | `--run-id NAME` | any string | auto-generated `<model>_<channel_mode>_<window>_<timestamp>` | Name of the output directory under `outputs/runs/`. Useful for resuming a run from per-participant CSV checkpoints. |
@@ -307,6 +307,15 @@ python run.py --speed-tier quick --participants P25 --model xgb
 # default window (full_cnv 0-2 s). Tier sets default_model: riemannian so the
 # --model flag is optional.
 python run.py --speed-tier riemannian --participants P25
+
+# Hybrid neural CNNs (epoch tensor fused with the tabular feature parquet).
+# Neural train requests auto-include the src + features stages first, so a cold
+# run needs only --stages train. Each tier sets its default_model.
+python run.py --speed-tier cnn     --participants P25 --stages train
+python run.py --speed-tier eegnet  --participants P25 --stages train
+# eegnext -- sophisticated CNN: multi-scale temporal stem + SE channel attention
+# + residual separable blocks (still hybrid, full_cnv window).
+python run.py --speed-tier eegnext --participants P25 --stages train
 ```
 
 ### 3.6 Stage-by-stage runs

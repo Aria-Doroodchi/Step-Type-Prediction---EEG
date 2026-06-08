@@ -27,7 +27,7 @@ from eeg_steptype.models.train import run as run_train
 
 
 STAGES = ["preprocess", "src", "features", "train"]
-FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet"}
+FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet", "eegnext"}
 NEURAL_FEATURE_STAGES = ["src", "features"]
 
 SPEED_TIERS = {
@@ -37,6 +37,7 @@ SPEED_TIERS = {
     "riemannian": "configs/riemannian.yaml",
     "cnn":        "configs/cnn.yaml",
     "eegnet":     "configs/eegnet.yaml",
+    "eegnext":    "configs/eegnext.yaml",
 }
 
 

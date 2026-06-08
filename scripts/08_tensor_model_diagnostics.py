@@ -53,10 +53,11 @@ from eeg_steptype.models.train import (  # noqa: E402
 SPEED_TIERS = {
     "cnn": "configs/cnn.yaml",
     "eegnet": "configs/eegnet.yaml",
+    "eegnext": "configs/eegnext.yaml",
 }
 
-TENSOR_MODELS = {"cnn", "eegnet"}
-FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet"}
+TENSOR_MODELS = {"cnn", "eegnet", "eegnext"}
+FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet", "eegnext"}
 
 log = get_logger(__name__)
 

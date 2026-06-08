@@ -28,7 +28,8 @@ results we have so far, and (d) decide what to do next. Figures are a mix of
   - [4.5 Riemannian — covariance comparator](#45-riemannian--covariance-comparator)
   - [4.6 CNN (EEGNet-lite hybrid)](#46-cnn-eegnet-lite-hybrid)
   - [4.7 EEGNet (hybrid)](#47-eegnet-hybrid)
-  - [4.8 Shrinkage-LDA CNV benchmark](#48-shrinkage-lda-cnv-benchmark)
+  - [4.8 EEGNeXt — sophisticated hybrid CNN](#48-eegnext--sophisticated-hybrid-cnn)
+  - [4.9 Shrinkage-LDA CNV benchmark](#49-shrinkage-lda-cnv-benchmark)
 - [5. Tuning machinery shared across models](#5-tuning-machinery-shared-across-models)
 - [6. Real results so far](#6-real-results-so-far)
 - [7. Decision support — recommended next steps](#7-decision-support--recommended-next-steps)
@@ -63,6 +64,7 @@ results we have so far, and (d) decide what to do next. Figures are a mix of
 | Riemannian | Covariance + LDA | Raw epoch tensor | Comparator | 0.53 | Calibrated but flat |
 | CNN | Conv NN (hybrid) | Tensor + tabular | Comparator | 0.63 baseline (late) | Promising; window-limited |
 | EEGNet | Conv NN (hybrid) | Tensor + tabular | Comparator | **0.94** baseline (full, P13) | Strongest single-subject signal |
+| EEGNeXt | Multi-scale conv + SE + residual (hybrid) | Tensor + tabular | Comparator | not yet run | Sophisticated upgrade of EEGNet |
 | Shrinkage-LDA | Linear discriminant | 9-ch ERP bins | ERP benchmark | not yet run | Cheap sanity baseline |
 
 > ⚠️ AUCs above come from different cohort sizes, tiers, and windows — see
@@ -118,8 +120,8 @@ inner-vs-outer AUC gap honest. Counts below are nominal/illustrative.
 | Gain prune + refit | on | XGB only |
 | SHAP prune + refit (`quantile 0.20`) | derived | XGB only |
 
-Tensor models (Riemannian / CNN / EEGNet) **skip the funnel** — feature
-selection is undefined on `(n_epochs, n_channels, n_times)` input.
+Tensor models (Riemannian / CNN / EEGNet / EEGNeXt) **skip the funnel** —
+feature selection is undefined on `(n_epochs, n_channels, n_times)` input.
 
 ---
 
@@ -134,7 +136,8 @@ selection is undefined on `(n_epochs, n_channels, n_times)` input.
 | 5 | Riemannian | `models/riemannian.py` | `pyriemann` + sklearn LDA | GridSearchCV | nfilter, covariance estimator, shrinkage, bands |
 | 6 | CNN | `models/cnn.py` | Keras + scikeras | GridSearchCV | filters, kernels, pooling, dropout, l2, lr, fusion |
 | 7 | EEGNet | `models/eegnet.py` | Keras + scikeras | GridSearchCV | F1, depth_mult, F2, kernels, dropout, norm_rate, lr |
-| 8 | Shrinkage-LDA | `features/cnv_benchmark.py` + LDA | sklearn | none (closed-form) | bin width, channel set, shrinkage |
+| 8 | EEGNeXt | `models/eegnext.py` | Keras + scikeras | GridSearchCV | multi-scale kernels, F1/F2, depth_mult, SE ratio, residual depth, dropout, norm_rate, lr, fusion |
+| 9 | Shrinkage-LDA | `features/cnv_benchmark.py` + LDA | sklearn | none (closed-form) | bin width, channel set, shrinkage |
 
 ---
 
@@ -418,7 +421,71 @@ above, but with EEGNet's signature **max-norm weight constraints** (depthwise
 
 ---
 
-### 4.8 Shrinkage-LDA CNV benchmark
+### 4.8 EEGNeXt — sophisticated hybrid CNN
+
+A more sophisticated CNN built on the EEGNet-lite block, for when the compact
+`cnn`/`eegnet` comparators leave signal on the table. It keeps the hybrid
+tensor + tabular fusion and the full-CNV window, but upgrades the convolutional
+core in three ways — each chosen for the CNV's slow, multi-rhythm character.
+
+```mermaid
+flowchart TB
+    T["epoch tensor"] --> R["reshape + standardize"]
+    R --> M1["Conv2D k=16"]
+    R --> M2["Conv2D k=32"]
+    R --> M3["Conv2D k=64"]
+    M1 --> CC["concat (multi-scale stem)"]
+    M2 --> CC
+    M3 --> CC
+    CC --> DW["DepthwiseConv2D spatial · BN · ELU · pool · drop"]
+    DW --> SE["Squeeze-Excitation channel attention"]
+    SE --> RB["Residual separable block × N"]
+    RB --> P2["AvgPool · Dropout · Flatten"]
+    TB["tabular features"] --> TD["Dense (tabular_units) · Dropout"]
+    P2 --> FC["concatenate"]
+    TD --> FC
+    FC --> FD["Dense fusion (fusion_units)"]
+    FD --> O["Dense 1 · sigmoid"]
+```
+
+1. **Multi-scale temporal stem** — parallel temporal convolutions at several
+   kernel lengths, concatenated, so δ/θ/α/β timescales are captured at once.
+2. **Squeeze-and-Excitation channel attention** — a gating branch reweights
+   feature maps by global informativeness, suppressing uninformative filters.
+3. **Residual separable blocks** — depth via separable convs in skip
+   connections, so the network deepens without the usual optimisation cost on
+   small per-participant data.
+
+| Hyperparameter | Default | What tuning it does |
+|---|---|---|
+| `temporal_kernels` | `[16, 32, 64]` | Kernel lengths of the parallel temporal branches. More/longer kernels = wider range of rhythms captured per layer (the core "multi-scale" knob). |
+| `f1` | `8` | Filters **per** temporal branch. Spectral capacity of the stem. |
+| `depth_multiplier` (D) | `2` | Spatial filters learned per temporal filter (EEGNet's depthwise depth). |
+| `f2` | `32` | Filters in each separable/residual block — higher-level temporal capacity. |
+| `separable_kernel` | `16` | Temporal kernel inside the residual separable blocks. |
+| `n_residual_blocks` | `2` | How many residual separable blocks to stack = network depth. More = higher capacity, more overfit risk. |
+| `se_ratio` | `4` | Squeeze-Excitation reduction ratio. Smaller = a larger attention bottleneck (more expressive gating, more params). |
+| `dropout` | `0.5` | Regularization across conv and fusion blocks (see dropout curve in §4.4). |
+| `norm_rate` | `0.25` | Max-norm constraint on the dense/classifier weights — EEGNet-style regularizer. |
+| `l2` | `1e-4` | Weight decay on the conv/dense kernels. |
+| `learning_rate` | `1e-3` | Adam step size. |
+| `tabular_units` / `fusion_units` | `32` / `32` | Width of the tabular branch and the post-fusion layer. |
+| `epochs` / `batch_size` | `60` / `16` | Training budget; early stopping `patience 12`, `val_split 0.2`. |
+
+The **multi-scale + attention + depth** combination is the most expressive model
+in the roster. The trade-off is data hunger: with few trials per participant,
+lean on `dropout`, `norm_rate`, and a shallow `n_residual_blocks` first, then add
+capacity (more `temporal_kernels`, deeper residual stack) only if the held-out
+AUC keeps up.
+
+> **Status:** new (2026-06-08). Registered as `--model eegnext` /
+> `--speed-tier eegnext` (`configs/eegnext.yaml`); statically verified (imports,
+> registry, config, test suite) but **not yet run** — the neural fit needs the
+> `lstm`/TensorFlow extra, which isn't installed in the current environment.
+
+---
+
+### 4.9 Shrinkage-LDA CNV benchmark
 
 An opt-in, deliberately minimal ERP baseline: the `cnv_benchmark` feature block
 computes **250 ms mean-amplitude bins** over the **9 medial motor channels**
@@ -566,6 +633,10 @@ Ordered by expected payoff (synthesized from the diagnostics above and
    **EEGNet starter to the full cohort** given its strong single-subject AUCs.
 7. **Run the shrinkage-LDA CNV benchmark** as a cheap floor — if a 9-channel ERP
    reading matches a tuned XGB, that reframes the whole modelling effort.
+8. **Benchmark the new EEGNeXt model** against the EEGNet starter once
+   TensorFlow is installed — its multi-scale + attention + residual design
+   targets exactly the EEGNet headroom; confirm it actually converts that
+   capacity into held-out AUC rather than overfitting the small trial counts.
 
 ### Which model deserves investment?
 
@@ -591,6 +662,7 @@ Ordered by expected payoff (synthesized from the diagnostics above and
 | Models | Riemannian (xDAWN + TS + FBCSP → LDA) | ✅ scaffolded · 🟡 screened |
 | Models | CNN hybrid (tensor + tabular) | 🟡 starter diagnostics only |
 | Models | EEGNet hybrid | 🟡 starter diagnostics only |
+| Models | EEGNeXt (multi-scale + SE + residual hybrid) | ✅ implemented + wired · ⚪ not yet run (needs TF) |
 | Models | BiLSTM with **true per-timestep windowing** | ⬜ blocked on windowing |
 | Models | Shrinkage-LDA CNV benchmark | ⚪ enabled flag off |
 | Screening | 4-model express screen (n=8, n=11) | ✅ |
@@ -642,6 +714,18 @@ cnn / eegnet:                         # defaults; param_grid overridable per con
   depth_multiplier: 2
   separable_filters/f2: 16
   dropout(_rate): 0.5
+  learning_rate: 1e-3
+
+eegnext:                              # configs/eegnext.yaml; sophisticated CNN
+  temporal_kernels: [[16, 32, 64]]    # multi-scale temporal stem
+  f1: 8                               # filters per temporal branch
+  depth_multiplier: 2
+  f2: 32                              # separable / residual-block filters
+  separable_kernel: 16
+  n_residual_blocks: 2                # residual separable depth
+  se_ratio: 4                         # squeeze-excitation reduction
+  dropout: [0.25, 0.5]
+  norm_rate: 0.25
   learning_rate: 1e-3
 ```
 
