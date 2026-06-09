@@ -6,7 +6,7 @@ CNV signals recorded during a stepping task. MSc thesis project._
 **Scope:** this document is a focused status report on the **XGBoost model only**
 (the project's designated primary model). For the full model roster and the
 comparators (SVM, logistic, BiLSTM, Riemannian, CNN, EEGNet, shrinkage-LDA) see
-[`MODELS.md`](../MODELS.md).
+[`MODELS.md`](MODELS.md).
 
 **Status:** living document · **Compiled:** 2026-06-08 · **Owner:** Ali
 
