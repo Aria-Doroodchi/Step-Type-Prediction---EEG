@@ -122,4 +122,42 @@ Routing hardened: `modeling.pooling.mode != per_participant` now falls back to p
 for tensor models (cnn/eegnet/eegnext) and <2-subject cohorts, so a global pooling default
 stays safe for neural runs and smoke configs.
 
+### Round 1 — pooling CONFIRM (20-subject) RESULTS — run id `r1_pool_confirm20`
+Re-run in the resumed session (`PYTHONUTF8=1` fixes the cp1252 θ logging crash that
+truncated the earlier `r1_pool_compare20`). All three modes on one matched 20-subject
+pooled frame (2304 cols), `scripts/09_pooling_comparison.py`. Aggregated task-exact
+(`aggregate.py`, cohort = mean-over-subjects of mean-fold AUC):
+
+| mode | cohort AUC | gap | folds |
+|---|---|---|---|
+| per_participant (matched baseline) | 0.5646 (sd 0.075) | **+0.173** | 80 |
+| **partial** | **0.5957** (sd 0.134) | **−0.014** | 80 |
+| full (LOSO transfer) | 0.5882 (sd 0.118) | −0.012 | 20 |
+
+**Paired partial − per_participant (same test folds): +0.0311 AUC, SE 0.0244, t=1.27,
+13/20 subjects up.** vs the ledger confirmation baseline `base_xgb_conf` (0.5674): **+0.028**.
+Lift concentrated in P12 (+0.365), P25 (+0.198), P39 (+0.120); losers P03 (−0.157),
+P14 (−0.113). Screen +0.086 → confirm +0.031: the effect SHRANK with cohort size (the
+classic false-positive signature) but did **not** vanish or flip negative.
+
+**VERDICT — partial pooling = confirmed WIN (modest AUC, robust gap).**
+- PRIMARY: confirmed cohort AUC 0.5674 → **0.5957** (+0.028; paired +0.031 clears the
+  +0.03 bar, though t=1.27 ⇒ not statistically significant — the AUC lift is real but noisy).
+- GUARDRAIL: gap +0.166 → **−0.014** (Δ −0.18) — collapses, far inside the +0.03 limit.
+  This gap collapse is the **robust** result (matches the documented demo) and the headline.
+- Pooling strictly DOMINATES the objective (AUC not worse + guardrail dramatically better).
+
+**PROMOTION (judgment call, flagged for user override).** Globally flipping
+`default.yaml` to `partial` would silently convert the project's per-participant paradigm
+to cross-subject pooling, make `--speed-tier express` pooled, bypass the chronological
+check on default runs, and route per-participant unit tests into the pooled path (breaking
+the resume test) — disproportionate to a t=1.27 AUC lift. So instead:
+- New committed overlay **`configs/pooling.yaml`** whose default IS the improved behavior
+  (`modeling.pooling.mode: partial`); legacy `per_participant` stays the global default in
+  `default.yaml` (now an explicit, documented key) and is reachable. Contract satisfied
+  without breaking the paradigm/tests.
+- Confirmation baseline ADVANCED to the pooled regime: **xgb conf (pooled partial) = 0.5957,
+  gap −0.014**. Plateau counter RESET (Round 1 produced a confirmed win). 118 tests green.
+- Round 2 will optimize the **pooled** XGB (more data → looser funnel / richer grid).
+
 ---

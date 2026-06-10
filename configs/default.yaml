@@ -258,6 +258,17 @@ modeling:
     n_repeats: 20
     inner_splits: 3
     chronological_check: true       # run a no-shuffle temporal sanity check alongside primary CV
+  # Cross-subject pooling workflow (tabular models only; tensor models and
+  # <2-subject cohorts auto-fall back to per_participant in train.run):
+  #   per_participant = one model per subject on ~80 epochs (per-subject paradigm; DEFAULT)
+  #   partial         = subject's own train split + all other subjects' epochs, same test
+  #                     folds (paired). CONFIRMED on the 20-subject fast set to collapse the
+  #                     inner-vs-outer gap (+0.17 -> -0.01) with a modest AUC lift (+0.03).
+  #                     Enable via the committed overlay `configs/pooling.yaml`.
+  #   full            = leave-one-subject-out transfer (train on the other subjects only).
+  # See docs/OVERFITTING_GAP_SOLUTIONS.md §6 and src/eeg_steptype/models/pooling.py.
+  pooling:
+    mode: per_participant           # per_participant (legacy/default) | partial | full
   search:
     # "auto"           = HalvingRandomSearchCV for XGB, GridSearchCV otherwise
     # "grid"           = exhaustive GridSearchCV for every model

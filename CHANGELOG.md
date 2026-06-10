@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-06-10 — Cross-subject partial pooling wired into the train entrypoint (perf loop, v2.4.0)
+
+Agentic perf-improvement loop, Round 1. Cross-subject **partial pooling** confirmed
+on the full 20-subject cohort as the strongest lever on the inner-vs-outer overfit gap.
+
+### Added
+
+- **`models/train.py` — `run()` now routes on `modeling.pooling.mode`.** `partial`/`full`
+  dispatch the pooled workflow (`models.pooling`) from the normal `04_train.py` path
+  (previously reachable only via `scripts/09_pooling_comparison.py`). Tabular models only;
+  **tensor models (cnn/eegnet/eegnext) and <2-subject cohorts auto-fall back to
+  per_participant**, so the toggle is safe for neural runs and smoke configs.
+- **`configs/pooling.yaml`** — committed overlay whose default *is* the improved behavior
+  (`modeling.pooling.mode: partial`). Layer on any tier:
+  `python scripts/04_train.py --model xgb --config configs/pooling.yaml`.
+- **`outputs/perf_loop/`** — the loop's ledger (`LEDGER.md`, source of truth) and
+  screen→confirm harness (`aggregate.py`, `screen.sh`, …). `*.log` are gitignored (90 MB+).
+
+### Changed / new config key
+
+- **`modeling.pooling.mode`** — now an explicit, documented key in `configs/default.yaml`.
+  - **Default (legacy):** `per_participant` — one model per subject on ~80 epochs (the
+    per-subject paradigm; global default unchanged, preserves chronological check + tests).
+  - **Improved (confirmed):** `partial` — each subject's train split + all other subjects'
+    epochs, same test folds (paired), subject-grouped inner CV. Enable via `configs/pooling.yaml`
+    or set the key directly. `full` = leave-one-subject-out transfer.
+
+### Results (20-subject cohort, 2.3k fast feature set, express CV; `r1_pool_confirm20`)
+
+| mode | cohort AUC | overfit gap |
+|---|---|---|
+| per_participant (baseline) | 0.5646 | +0.173 |
+| **partial** | **0.5957** | **−0.014** |
+| full | 0.5882 | −0.012 |
+
+Partial vs per_participant (paired, same folds): **+0.031 AUC** (t=1.27, not significant —
+the AUC lift is modest/noisy) and a **robust gap collapse (+0.173 → −0.014)**. Pooling
+strictly dominates the objective (AUC not worse, guardrail far better). Default kept at
+`per_participant` as a deliberate judgment call (a paradigm flip is disproportionate to a
+t=1.27 lift); `partial` is the one-line, confirmed-better cross-subject option. 118 tests pass.
+
 ## 2026-06-08 — EEGNeXt sophisticated hybrid CNN
 
 ### Added
