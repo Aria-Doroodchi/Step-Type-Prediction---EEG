@@ -1129,6 +1129,46 @@ def _train_one_with_checkpoint(
         return pid, None, exc
 
 
+def _run_pooled(
+    cfg: dict,
+    model: str,
+    rdir,
+    mode: str,
+    *,
+    channel_mode: str | None = None,
+) -> pd.DataFrame:
+    """Cross-subject pooled training path (modeling.pooling.mode = partial|full).
+
+    Builds the shared pooled feature frame once and runs the requested pooling
+    workflow from :mod:`models.pooling` (imported lazily to avoid the
+    train<->pooling import cycle). Writes the same metrics.csv / rollup.csv
+    artifacts as the per-participant path so downstream tooling is unchanged;
+    pooled rows carry cv_mode="pooled_<mode>" and a held_out_participant column.
+    """
+    from . import pooling  # lazy: pooling imports train at module load
+
+    if MODEL_FACTORIES[model].get("data_representation") != "tabular":
+        raise ValueError(
+            f"modeling.pooling.mode={mode!r} supports tabular models only "
+            "(xgb / svm / logistic); tensor models have no shared feature frame."
+        )
+    participants = list(cfg["participants"])
+    log.info(
+        "Cross-subject pooling: mode=%s model=%s on %d subjects",
+        mode, model, len(participants),
+    )
+    pooled = pooling.build_pooled_frame(cfg, participants, model, channel_mode=channel_mode)
+    rows = pooling.train_pooled(
+        cfg, model, mode=mode, channel_mode=channel_mode, pooled_frame=pooled,
+    )
+    df = pd.DataFrame(rows)
+    write_csv(df, rdir / "metrics.csv")
+    rollup = cv_rollup(df)
+    log.info("Pooled cohort rollup: %s", rollup.to_dict(orient="records"))
+    rollup.to_csv(rdir / "rollup.csv", index=False)
+    return df
+
+
 def run(
     cfg: dict,
     *,
@@ -1147,6 +1187,30 @@ def run(
     rdir = ensure_dir(run_dir(cfg, run_id))
     if cfg.get("logging", {}).get("stamp_runs", True):
         stamp_run(rdir, cfg, model=model)
+
+    # Cross-subject pooling (modeling.pooling.mode). Default "per_participant"
+    # is the legacy within-subject path below; "partial"/"full" route through
+    # models.pooling, which shares each subject's training data with the rest of
+    # the cohort to escape the ~80-epoch p>>n budget (the single biggest lever on
+    # the inner-vs-outer gap; OVERFITTING_GAP_SOLUTIONS.md §6). Tabular models only.
+    pool_mode = str(
+        (cfg.get("modeling", {}).get("pooling", {}) or {}).get("mode", "per_participant")
+    ).lower()
+    if pool_mode != "per_participant":
+        # Pooling shares a tabular feature frame across subjects; it is undefined
+        # for tensor models and for cohorts with <2 subjects. Fall back to the
+        # per-participant path in those cases so a global pooling default stays
+        # safe for neural runs and single-subject smoke configs.
+        is_tabular = MODEL_FACTORIES[model].get("data_representation") == "tabular"
+        n_subjects = len(cfg.get("participants", []))
+        if not is_tabular:
+            log.info("[pooling] mode=%s requested but %s is a tensor model; "
+                     "using per-participant training.", pool_mode, model)
+        elif n_subjects < 2:
+            log.info("[pooling] mode=%s requested but only %d subject(s); "
+                     "using per-participant training.", pool_mode, n_subjects)
+        else:
+            return _run_pooled(cfg, model, rdir, pool_mode, channel_mode=channel_mode)
 
     n_workers = _parallel_participants(cfg)
     participants = list(cfg["participants"])
