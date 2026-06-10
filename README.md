@@ -202,12 +202,14 @@ more sophisticated hybrid CNN (multi-scale temporal stem + squeeze-and-excitatio
 channel attention + residual separable blocks); run it with
 `python run.py --speed-tier eegnext --participants P25 --stages train`.
 
-The primary prediction window is late CNV, `1.0-2.0 s`, where foot-motor
-preparation is expected to be most discriminative. Feature cache filenames are
-window-aware, so `late_cnv` and secondary `full_cnv` runs do not reuse each
-other's parquets. Secondary settings for cropped-training augmentation and a
-sliding-window AUC time-course are recorded in `configs/default.yaml` for
-follow-up analyses.
+The default prediction window for **every model** is full CNV, `0.0-2.0 s`,
+which carries the most discriminative signal across the cohort. The narrower
+late-CNV window (`1.0-2.0 s`, foot-motor preparation) is retained as a secondary
+comparison window — select it per run with `--prediction-window late_cnv`.
+Feature cache filenames are window-aware, so `full_cnv` and `late_cnv` runs do
+not reuse each other's parquets. Cropped-training augmentation and a
+sliding-window AUC time-course are recorded under the primary window in
+`configs/default.yaml` for follow-up analyses.
 
 Future Riemannian/SCP comparators are scaffolded but not used by the current
 XGBoost path. `configs/default.yaml` records an xDAWN-covariance tangent-space

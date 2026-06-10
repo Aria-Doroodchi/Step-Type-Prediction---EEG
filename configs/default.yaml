@@ -184,7 +184,7 @@ source_localization:
 # ---------------------------------------------------------------------
 features:
   bin_n: 0.0625             # bin width in seconds
-  min_time: 1.0             # primary prediction window: late CNV motor preparation
+  min_time: 0.0             # default prediction window: full CNV (0.0-2.0 s), used by ALL models
   max_time: 2.0
   freqs:                    # for Morlet TFR
     fmin: 0.5
@@ -215,29 +215,36 @@ features:
     bspline_n_knots: 3               # interior knots; coeffs/channel = bspline_degree + 1 + n_knots
     bspline_degree: 3
 
-# Prediction-window analyses. The primary model uses late CNV (1.0-2.0 s).
-# Secondary analyses can compare the full 0-2 s window with cropped-training
-# augmentation and a sliding-window AUC time-course for interpretation.
+# Prediction-window analyses. The DEFAULT window for every model is full CNV
+# (0.0-2.0 s) -- it carries the most discriminative signal across the cohort.
+# late CNV (1.0-2.0 s) is retained as a secondary window for comparison; select
+# it with `--prediction-window late_cnv`. Full CNV also configures cropped-
+# training augmentation and a sliding-window AUC time-course for interpretation.
 prediction_windows:
   primary:
-    name: late_cnv
-    min_time: 1.0
+    name: full_cnv
+    min_time: 0.0
     max_time: 2.0
-  secondary:
-    full_cnv:
-      min_time: 0.0
-      max_time: 2.0
-      cropped_training:
-        enabled: true
-        window_size: 1.0
-        stride: 0.25
-        test_aggregation: mean_proba
+    cropped_training:
+      enabled: true
+      window_size: 1.0
+      stride: 0.25
+      test_aggregation: mean_proba
     sliding_auc:
       enabled: true
       window_size: 0.25
       stride: 0.0625
       min_time: 0.0
       max_time: 2.0
+  secondary:
+    late_cnv:
+      min_time: 1.0
+      max_time: 2.0
+
+# Default run-time window label, overridden by `--prediction-window`. Kept in
+# sync with prediction_windows.primary so run folders / metrics are labeled
+# correctly even for models that read features.min_time/max_time directly.
+_prediction_window: full_cnv
 
 # ---------------------------------------------------------------------
 # Modeling

@@ -3,7 +3,7 @@
 _EEG **step-type** classification (straight `One` vs diagonal `Two`) from CNV
 signals recorded during a stepping task. MSc thesis project._
 
-**Status:** living document · **Last updated:** 2026-06-08 · **Owner:** Ali
+**Status:** living document · **Last updated:** 2026-06-10 · **Owner:** Ali
 
 This document is the single place to (a) understand every model in the
 pipeline, (b) see what each tunable actually controls, (c) read the real
@@ -19,21 +19,22 @@ results we have so far, and (d) decide what to do next. Figures are a mix of
 
 - [1. TL;DR — decision at a glance](#1-tldr--decision-at-a-glance)
 - [2. The shared setup every model plugs into](#2-the-shared-setup-every-model-plugs-into)
-- [3. Model roster](#3-model-roster)
-- [4. Per-model deep dives](#4-per-model-deep-dives)
-  - [4.1 XGBoost — primary](#41-xgboost--primary)
-  - [4.2 SVM — comparator](#42-svm--comparator)
-  - [4.3 Logistic regression — baseline](#43-logistic-regression--baseline)
-  - [4.4 Bidirectional LSTM — deep comparator](#44-bidirectional-lstm--deep-comparator)
-  - [4.5 Riemannian — covariance comparator](#45-riemannian--covariance-comparator)
-  - [4.6 CNN (EEGNet-lite hybrid)](#46-cnn-eegnet-lite-hybrid)
-  - [4.7 EEGNet (hybrid)](#47-eegnet-hybrid)
-  - [4.8 EEGNeXt — sophisticated hybrid CNN](#48-eegnext--sophisticated-hybrid-cnn)
-  - [4.9 Shrinkage-LDA CNV benchmark](#49-shrinkage-lda-cnv-benchmark)
-- [5. Tuning machinery shared across models](#5-tuning-machinery-shared-across-models)
-- [6. Real results so far](#6-real-results-so-far)
-- [7. Decision support — recommended next steps](#7-decision-support--recommended-next-steps)
-- [8. Progress tracker](#8-progress-tracker)
+- [3. Repository layout](#3-repository-layout)
+- [4. Model roster](#4-model-roster)
+- [5. Per-model deep dives](#5-per-model-deep-dives)
+  - [5.1 XGBoost — primary](#51-xgboost--primary)
+  - [5.2 SVM — comparator](#52-svm--comparator)
+  - [5.3 Logistic regression — baseline](#53-logistic-regression--baseline)
+  - [5.4 Bidirectional LSTM — deep comparator](#54-bidirectional-lstm--deep-comparator)
+  - [5.5 Riemannian — covariance comparator](#55-riemannian--covariance-comparator)
+  - [5.6 CNN (EEGNet-lite hybrid)](#56-cnn-eegnet-lite-hybrid)
+  - [5.7 EEGNet (hybrid)](#57-eegnet-hybrid)
+  - [5.8 EEGNeXt — sophisticated hybrid CNN](#58-eegnext--sophisticated-hybrid-cnn)
+  - [5.9 Shrinkage-LDA CNV benchmark](#59-shrinkage-lda-cnv-benchmark)
+- [6. Tuning machinery shared across models](#6-tuning-machinery-shared-across-models)
+- [7. Real results so far](#7-real-results-so-far)
+- [8. Decision support — recommended next steps](#8-decision-support--recommended-next-steps)
+- [9. Progress tracker](#9-progress-tracker)
 - [Appendix A — hyperparameter grid reference](#appendix-a--hyperparameter-grid-reference)
 - [Appendix B — figure provenance & licenses](#appendix-b--figure-provenance--licenses)
 
@@ -41,7 +42,7 @@ results we have so far, and (d) decide what to do next. Figures are a mix of
 
 ## 1. TL;DR — decision at a glance
 
-> **Three things drive the next decision:**
+> **Four things drive the next decision:**
 > 1. **The prediction *window* matters more than the *model*.** Switching from
 >    the primary late-CNV window (1.0–2.0 s) to the full-CNV window (0.0–2.0 s)
 >    moves XGBoost from ~0.57 to ~0.65 AUC and logistic from ~0.45 to ~0.65 —
@@ -52,12 +53,17 @@ results we have so far, and (d) decide what to do next. Figures are a mix of
 > 3. **No model is both accurate *and* well-calibrated yet.** The classical
 >    models overfit the inner CV (gap +0.20 to +0.29); the Riemannian pipeline
 >    is the only one that generalizes — but only at chance-level AUC.
+> 4. **Cross-subject pooling eliminates the overfit gap *and* lifts held-out
+>    AUC at once.** `partial` pooling (target's own training split + all other
+>    subjects) moves XGBoost from 0.567 → 0.673 held-out AUC on an 8-subject
+>    subset and collapses the inner-vs-outer gap from +0.177 to −0.036. See
+>    [§7](#7-real-results-so-far).
 
 ![REAL · window effect](docs/models_figs/real_window_effect.png)
 
 | Model | Family | Input | Role | Best real AUC seen | Verdict |
 |---|---|---|---|---|---|
-| **XGBoost** | Gradient-boosted trees | Tabular features | **Primary** | **0.65** (full CNV) | Invest here |
+| **XGBoost** | Gradient-boosted trees | Tabular features | **Primary** | **0.673** (partial pool, full CNV) | Invest here; pool for gap fix |
 | SVM | Kernel margin | Tabular features | Comparator | 0.62 (full CNV) | Keep as comparator |
 | Logistic | Linear | Tabular features | Baseline / smoke | 0.65 (full CNV) | Surprisingly strong on full CNV |
 | BiLSTM | Recurrent NN | Sequence | Deep comparator | not yet screened | Needs real windowing first |
@@ -68,7 +74,7 @@ results we have so far, and (d) decide what to do next. Figures are a mix of
 | Shrinkage-LDA | Linear discriminant | 9-ch ERP bins | ERP benchmark | not yet run | Cheap sanity baseline |
 
 > ⚠️ AUCs above come from different cohort sizes, tiers, and windows — see
-> [§6](#6-real-results-so-far) for the apples-to-apples caveats. They are
+> [§7](#7-real-results-so-far) for the apples-to-apples caveats. They are
 > directional, not a leaderboard.
 
 ---
@@ -97,8 +103,8 @@ most important architectural fact:
   slopes, PSD band-powers, eLORETA source activations. Used by **XGBoost, SVM,
   Logistic, LSTM, Shrinkage-LDA**.
 - **Raw epoch tensor** `(n_epochs, n_channels, n_times)` — cleaned scalp EEG.
-  Used by **Riemannian, CNN, EEGNet** (the neural models also *fuse* in the
-  tabular branch).
+  Used by **Riemannian, CNN, EEGNet, EEGNeXt** (the neural models also *fuse*
+  in the tabular branch).
 
 **Prediction windows.** Primary = **late CNV (1.0–2.0 s)**, where foot-motor
 preparation is expected to peak. Secondary = **full CNV (0.0–2.0 s)**. Feature
@@ -125,7 +131,148 @@ feature selection is undefined on `(n_epochs, n_channels, n_times)` input.
 
 ---
 
-## 3. Model roster
+## 3. Repository layout
+
+The repo is an installable Python package (`pip install -e .`) driven by a
+config-file stack. Below is the full directory structure of everything that
+matters for the ML pipeline. New files added since the initial pipeline
+reorganisation are marked `[NEW]`.
+
+```
+ML/
+├── run.py                            — single-process pipeline driver (--stages preprocess/src/features/train/visualize)
+├── Makefile                          — install / smoke / test / train shortcuts
+├── pyproject.toml                    — package metadata; extras: [lstm], [riemannian], [dev]
+│
+├── MODELS.md                         — this document (architectures, results, decisions)
+├── XGB_MODEL_SUMMARY.md              — XGBoost-focused status report (§3.5 has pooling results)
+├── CHANGELOG.md                      — version history
+├── README.md                         — quick-start guide
+├── SCRIPT_GUIDES.md                  — CLI reference and operator recipes
+│
+├── configs/
+│   ├── default.yaml                  — committed defaults (all models, feature blocks, CV, search)
+│   ├── smoke.yaml                    — tiny end-to-end check (logistic, 1 participant, shrunk grids)
+│   ├── single.yaml                   — single-participant convenience overlay
+│   ├── lightning.yaml                — fastest single-participant speed tier
+│   ├── quick.yaml                    — cohort screening tier (light CV)
+│   ├── express.yaml                  — cohort screening tier (moderate CV; used for D1–D5 results)
+│   ├── _run5_quick.yaml              — internal screening overlay
+│   ├── riemannian.yaml               — Riemannian model overlay (full window, tensor input path)
+│   ├── cnn.yaml                      — CNN overlay (require_source, full window)
+│   ├── eegnet.yaml                   — EEGNet overlay (require_source, full window)
+│   ├── eegnext.yaml                  — EEGNeXt overlay (multi-scale kernels, SE, residual blocks)
+│   ├── features_rich.yaml            — rich feature-set override (more bin widths + stats)
+│   ├── pooling_compare.yaml   [NEW]  — 8-subject / reduced-feature pooling comparison overlay
+│   └── overrides/
+│       └── Pxx.yaml × 34            — per-participant path/preprocessing tweaks (bad channels,
+│                                       ICA excludes, crop windows, multi-file concat)
+│
+├── scripts/
+│   ├── 00_preflight.py               — sanity-check raw files and configured paths
+│   ├── 01_preprocess.py              — raw .bdf → epoched .fif (PyPREP / ICA / ASR / autoreject)
+│   ├── 02_source_localize.py         — eLORETA source estimation (.fif → src/*.csv)
+│   ├── 03_extract_features.py        — feature parquet + tensor .npz cache builder
+│   ├── 04_train.py                   — per-participant nested-CV training (all models)
+│   ├── 05_visualize.py               — per-run result plots
+│   ├── 06_compare_runs.py            — cross-run screening diagnostics (D1–D5 AUC/tier/gap/rank)
+│   ├── 07_feature_informativeness.py — feature importance / SHAP across cohort
+│   ├── 08_tensor_model_diagnostics.py— channel/time-occlusion probes (CNN / EEGNet / EEGNeXt)
+│   ├── 09_pooling_comparison.py [NEW]— per_participant / partial / full cross-subject comparison
+│   └── _xgb_perf_snapshot.py        — XGBoost express-tier reproduction helper
+│
+├── src/eeg_steptype/
+│   ├── __init__.py
+│   ├── config.py                     — YAML loading, overlay merging, participant-override dispatch
+│   ├── io.py                         — run-dir helpers, path builders, CSV/parquet writes
+│   ├── logging_utils.py              — structured logging, run-stamp (config + git SHA), run-id gen
+│   ├── preflight.py                  — path / raw-file existence checks
+│   ├── progress.py                   — fold/cohort ETA trackers
+│   ├── resources.py                  — n_jobs / CPU detection
+│   │
+│   ├── preprocessing/                — raw → epoch pipeline
+│   │   ├── __init__.py
+│   │   ├── pipeline.py               — orchestrates the full preprocessing sequence
+│   │   ├── load.py                   — raw .bdf reading (handles multi-file concat per overrides)
+│   │   ├── filter.py                 — ZapLine line-noise + bandpass filter (default 0.1–40 Hz)
+│   │   ├── bads.py                   — PyPREP bad-channel detection + interpolation
+│   │   ├── reference.py              — CSD + mastoid/average reference
+│   │   ├── ica.py                    — MNE-ICALabel automated ICA (p > 0.9 conservative threshold)
+│   │   ├── asr.py                    — ASR artefact subspace reconstruction
+│   │   ├── reject.py                 — autoreject per-channel amplitude thresholds
+│   │   ├── epoching.py               — event extraction → MNE Epochs
+│   │   ├── events.py                 — event-code helpers
+│   │   └── montage.py                — channel layout / digitization
+│   │
+│   ├── source_localization/          — eLORETA source estimation
+│   │   ├── __init__.py
+│   │   ├── pipeline.py               — orchestrates fwd + inv + apply (hoists ops out of epoch loop)
+│   │   ├── forward.py                — cached BEM forward-model build
+│   │   ├── inverse.py                — noise-covariance + eLORETA inverse operator
+│   │   ├── labels.py                 — ROI label-to-source index mapping
+│   │   └── diagnostics.py            — source-space QC plots
+│   │
+│   ├── features/                     — feature extraction (all blocks write to one parquet)
+│   │   ├── __init__.py
+│   │   ├── assemble.py               — assembles all enabled blocks into one (n_epochs, n_features) parquet
+│   │   ├── amplitude.py              — binned amplitude statistics (mean/std/min/max/median × bin widths)
+│   │   ├── slopes.py                 — per-channel linear-trend slope features
+│   │   ├── psd.py                    — Morlet TFR band-power features (delta/theta/alpha/beta/gamma)
+│   │   ├── basis.py                  — shape-decomposition features: Legendre/Chebyshev polys,
+│   │   │                               B-splines, in-fold functional PCA (leakage-safe)
+│   │   ├── tensor.py                 — (n_epochs, n_ch, n_times) .npz cache builder for neural models
+│   │   └── cnv_benchmark.py          — 9-channel 250 ms bin features for the shrinkage-LDA benchmark
+│   │
+│   ├── models/                       — classifiers + training machinery
+│   │   ├── __init__.py
+│   │   ├── train.py                  — generic nested-CV driver; MODEL_FACTORIES + NEURAL_HYBRID_MODELS
+│   │   ├── pooling.py         [NEW]  — cross-subject workflows: per_participant / partial / full
+│   │   ├── feature_selection.py      — corr-drop, k-best, RFECV, stability selection, gain, SHAP prune
+│   │   ├── evaluate.py               — per-participant metrics + cohort rollup (+ overfit gap)
+│   │   ├── normalization.py          — StandardScaler / max-norm wrappers; routes models to correct norm
+│   │   ├── xgb.py                    — XGBoost factory (primary model)
+│   │   ├── svm.py                    — sklearn SVC factory
+│   │   ├── logistic.py               — sklearn LogisticRegression factory
+│   │   ├── lstm.py                   — Keras Sequential BiLSTM factory (needs [lstm] extra)
+│   │   ├── riemannian.py             — xDAWN + tangent-space + FBCSP → shrinkage-LDA factory
+│   │   ├── cnn.py                    — EEGNet-lite hybrid CNN factory
+│   │   ├── eegnet.py                 — EEGNet hybrid factory (max-norm weight constraints)
+│   │   └── eegnext.py                — multi-scale + SE + residual hybrid CNN factory
+│   │
+│   └── viz/
+│       ├── __init__.py
+│       └── results.py                — run-level AUC / gap / heatmap plotting helpers
+│
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py                   — shared fixtures (smoke_config_path, tmp run dirs)
+│   ├── test_imports.py               — imports smoke test + registry/normalizer/diagnostic parity guards
+│   ├── test_smoke_pipeline.py        — synthetic end-to-end pipeline check (< 60 s, no real data)
+│   ├── test_basis_features.py        — shape-decomposition (Legendre/B-spline/fPCA) unit tests
+│   ├── test_stability_select.py      — stability-selection unit tests (synthetic data, no MNE)
+│   └── test_pooling.py       [NEW]  — pooling data-sharing semantics (per/partial/full, 4-subject toy)
+│
+├── docs/
+│   ├── make_models_figs.py           — regenerates all REAL + SYNTH figures in models_figs/
+│   ├── OVERFITTING_GAP_SOLUTIONS.md  [NEW] — structured remedies for the +0.17–0.24 inner-vs-outer gap
+│   └── models_figs/
+│       ├── real_*.png                — actual project results (AUC CI, window effect, heatmap, …)
+│       ├── synth_*.png               — illustrative tuning-effect curves (made-up data)
+│       └── wiki_*.svg / *.png        — reference diagrams (attributed; see Appendix B)
+│
+└── legacy/                           — original scripts (gitignored from outputs/, kept for reference)
+    ├── 01_preprocessing/             — per-participant raw → epoch scripts
+    ├── 02_models/
+    │   ├── archive/                  — CNV_ML*.py iterations
+    │   ├── lstm/                     — CNV_LSTM_3.py
+    │   ├── svm/                      — CNV_ML_SVM_1.py
+    │   └── xgboost/                  — CNV_XGB_4.3.py (latest legacy XGB)
+    └── 03_visualization/             — R and Python visualization scripts
+```
+
+---
+
+## 4. Model roster
 
 | # | Model | File | Library | Search method | Tunable knobs (high level) |
 |---|---|---|---|---|---|
@@ -139,18 +286,24 @@ feature selection is undefined on `(n_epochs, n_channels, n_times)` input.
 | 8 | EEGNeXt | `models/eegnext.py` | Keras + scikeras | GridSearchCV | multi-scale kernels, F1/F2, depth_mult, SE ratio, residual depth, dropout, norm_rate, lr, fusion |
 | 9 | Shrinkage-LDA | `features/cnv_benchmark.py` + LDA | sklearn | none (closed-form) | bin width, channel set, shrinkage |
 
+**Training workflow modules** (not model factories — they reuse the same factories above):
+
+| Module | File | Models supported | What it adds |
+|---|---|---|---|
+| Cross-subject pooling | `models/pooling.py` | `xgb`, `svm`, `logistic` | Three data-sharing modes: `per_participant` (baseline), `partial` (global prior + local), `full` (leave-one-subject-out). Subject-grouped inner CV prevents search from peeking across the train/test subject boundary. |
+
 ---
 
-## 4. Per-model deep dives
+## 5. Per-model deep dives
 
 Each model below has: **architecture**, a **tunable-characteristics table**
 (what each knob *does*), and a figure. Illustrative (`SYNTH`) figures show the
 shape of a tuning effect on made-up data; the real numbers live in
-[§6](#6-real-results-so-far).
+[§7](#7-real-results-so-far).
 
 ---
 
-### 4.1 XGBoost — primary
+### 5.1 XGBoost — primary
 
 Gradient-boosted decision trees (`XGBClassifier`, `binary:logistic`,
 `tree_method=hist`). The primary model because it handles wide, mixed-scale
@@ -205,7 +358,7 @@ more rounds but reaches a higher, flatter ceiling.
 
 ---
 
-### 4.2 SVM — comparator
+### 5.2 SVM — comparator
 
 `sklearn.svm.SVC` with `probability=True` and `class_weight="balanced"`, wrapped
 in a `StandardScaler` (kernels need comparably-scaled inputs). It finds the
@@ -236,7 +389,7 @@ SVC has no `feature_importances_`).
 
 ---
 
-### 4.3 Logistic regression — baseline
+### 5.3 Logistic regression — baseline
 
 `LogisticRegression` (`solver="liblinear"`, `class_weight="balanced"`,
 `max_iter=2000`) in a `StandardScaler`. A linear log-odds model — the simplest
@@ -265,7 +418,7 @@ weight toward zero:
 
 ---
 
-### 4.4 Bidirectional LSTM — deep comparator
+### 5.4 Bidirectional LSTM — deep comparator
 
 A Keras `Sequential` bidirectional LSTM wrapped in `scikeras.KerasClassifier`
 so it plugs into the same GridSearchCV loop. Imports are deferred so the package
@@ -309,7 +462,7 @@ train–val gap up to a point, then starts hurting:
 
 ---
 
-### 4.5 Riemannian — covariance comparator
+### 5.5 Riemannian — covariance comparator
 
 Runs directly on the raw epoch tensor. The intuition: EEG class information
 lives in the **spatial covariance** of the signal, and covariance matrices live
@@ -352,7 +505,7 @@ stability gain:
 
 ---
 
-### 4.6 CNN (EEGNet-lite hybrid)
+### 5.6 CNN (EEGNet-lite hybrid)
 
 A compact convolutional net on the raw tensor, **fused** with the XGB-style
 tabular branch (including eLORETA source columns). Per-channel
@@ -381,19 +534,19 @@ flowchart TB
 | `separable_filters` | `16` | Filters in the separable temporal block (higher-level temporal features). |
 | `temporal_kernel` / `separable_kernel` | `65` / `17` | Receptive-field length in samples. Longer kernels see slower dynamics (good for the slow CNV). |
 | `pool_1` / `pool_2` | `4` / `8` | Temporal downsampling. More pooling = coarser time, fewer params, less overfit. |
-| `dropout` | `0.5` | Regularization strength (see dropout curve in §4.4). |
+| `dropout` | `0.5` | Regularization strength (see dropout curve in §5.4). |
 | `l2` | `1e-4` | Weight decay on conv/dense kernels. |
 | `learning_rate` | `1e-3` | Adam step size. |
 | `tabular_units` / `fusion_units` | `32` / `32` | Width of the tabular branch and the post-fusion layer. |
 | `epochs` / `batch_size` | `30` / `16` | Training budget; early stopping (`patience 8`, `val_split 0.2`) guards overfit. |
 
 > **Real-data note:** CNN diagnostics run on the **late** window (1–2 s) and sit
-> at ~0.45–0.63 baseline AUC. Its time-occlusion map (see §6) shows the early
+> at ~0.45–0.63 baseline AUC. Its time-occlusion map (see §7) shows the early
 > part of the late window carries the most information.
 
 ---
 
-### 4.7 EEGNet (hybrid)
+### 5.7 EEGNet (hybrid)
 
 A faithful local implementation of the **EEGNet** block (Lawhern et al., 2018):
 the same temporal → depthwise-spatial → separable-temporal structure as the CNN
@@ -417,11 +570,11 @@ above, but with EEGNet's signature **max-norm weight constraints** (depthwise
 > and posts the **highest single-subject baseline AUCs in the project** — up to
 > **0.94 (P13)** and **0.82 (P15)**, cohort baseline often 0.6–0.7. This is the
 > strongest neural signal so far and reinforces the full-window finding. See the
-> CNN-vs-EEGNet comparison in §6.
+> CNN-vs-EEGNet comparison in §7.
 
 ---
 
-### 4.8 EEGNeXt — sophisticated hybrid CNN
+### 5.8 EEGNeXt — sophisticated hybrid CNN
 
 A more sophisticated CNN built on the EEGNet-lite block, for when the compact
 `cnn`/`eegnet` comparators leave signal on the table. It keeps the hybrid
@@ -465,7 +618,7 @@ flowchart TB
 | `separable_kernel` | `16` | Temporal kernel inside the residual separable blocks. |
 | `n_residual_blocks` | `2` | How many residual separable blocks to stack = network depth. More = higher capacity, more overfit risk. |
 | `se_ratio` | `4` | Squeeze-Excitation reduction ratio. Smaller = a larger attention bottleneck (more expressive gating, more params). |
-| `dropout` | `0.5` | Regularization across conv and fusion blocks (see dropout curve in §4.4). |
+| `dropout` | `0.5` | Regularization across conv and fusion blocks (see dropout curve in §5.4). |
 | `norm_rate` | `0.25` | Max-norm constraint on the dense/classifier weights — EEGNet-style regularizer. |
 | `l2` | `1e-4` | Weight decay on the conv/dense kernels. |
 | `learning_rate` | `1e-3` | Adam step size. |
@@ -485,7 +638,7 @@ AUC keeps up.
 
 ---
 
-### 4.9 Shrinkage-LDA CNV benchmark
+### 5.9 Shrinkage-LDA CNV benchmark
 
 An opt-in, deliberately minimal ERP baseline: the `cnv_benchmark` feature block
 computes **250 ms mean-amplitude bins** over the **9 medial motor channels**
@@ -497,7 +650,7 @@ crediting any complex model.
 |---|---|---|
 | `bin_n` | `0.25 s` | Averaging window per bin. Wider = smoother, fewer features; narrower = more temporal detail. |
 | `channels` | 9 medial motor | The ROI. Restricting to motor cortex tests the foot-motor-preparation hypothesis directly. |
-| `shrinkage` | `auto` | LDA covariance shrinkage (stability vs bias, as in §4.5). |
+| `shrinkage` | `auto` | LDA covariance shrinkage (stability vs bias, as in §5.5). |
 | `enabled` | `false` | Off by default — add `cnv_benchmark` to `features.blocks` to emit it. |
 
 > **Status:** scaffolded, not yet run as a benchmark. Cheap to add and a good
@@ -505,9 +658,9 @@ crediting any complex model.
 
 ---
 
-## 5. Tuning machinery shared across models
+## 6. Tuning machinery shared across models
 
-Beyond per-model knobs, three cross-cutting controls shape every run.
+Beyond per-model knobs, four cross-cutting controls shape every run.
 
 **Nested cross-validation** (`modeling.cv`): outer `RepeatedStratifiedKFold`
 (5 splits × 20 repeats by default) with an inner `StratifiedKFold` (3 splits)
@@ -536,7 +689,7 @@ repeats, and prune passes. Rough ladder (see `configs/README.md`):
 | `lightning` | single-participant smoke / iteration | lowest |
 | `quick` / `express` | cohort screening (the screening results use **express**) | medium |
 | `default` | full publication run | highest (hours) |
-| `riemannian`, `cnn`, `eegnet` | model-specific overlays (set window, input path, source requirement) | varies |
+| `riemannian`, `cnn`, `eegnet`, `eegnext` | model-specific overlays (set window, input path, source requirement) | varies |
 
 **Feature-selection toggles** (XGB path) — each can be switched off to isolate
 its effect:
@@ -548,12 +701,40 @@ its effect:
 | `modeling.shap_prune.enabled` | derived | Skip SHAP-prune subset + refit. |
 | `modeling.feature_selection.method` | `stability` | `rfecv` (legacy) or `none`. |
 
+**Cross-subject pooling** (`models/pooling.py`, `scripts/09_pooling_comparison.py`,
+`configs/pooling_compare.yaml`): three training workflows that reuse the
+**exact** in-fold feature-selection funnel and nested hyperparameter search from
+`train.py`, differing only in how data is shared across subjects. Supported for
+all tabular models (`xgb`, `svm`, `logistic`).
+
+| Mode | Training data for held-out subject *s* | Test set | Question answered |
+|---|---|---|---|
+| `per_participant` | *s*'s own training split only (~64 epochs) | *s*'s held-out fold | within-subject only (the per-participant baseline) |
+| **`partial`** | *s*'s training split **+ all other subjects** | *s*'s held-out fold | global prior + local adaptation (**recommended**) |
+| **`full`** | **all other subjects only** | all of *s* | pure cross-subject transfer (leave-one-subject-out) |
+
+`per_participant` and `partial` share **identical test folds**, so their
+difference is a clean paired estimate of what pooling buys. Both pooled modes
+use **subject-grouped inner CV** (via `groups` threaded into
+`train._fit_score_split`) so the hyperparameter search never peeks across the
+train/test subject boundary — without this, the inner score would itself be
+optimistic and defeat the purpose.
+
+Run the three-way comparison:
+
+```bash
+python scripts/09_pooling_comparison.py --config configs/pooling_compare.yaml
+# Writes outputs/runs/pooling_compare_<id>/pooling_summary.csv
+```
+
 ---
 
-## 6. Real results so far
+## 7. Real results so far
 
 _Source: `outputs/screening/` (runs 2026-05-14 → 2026-05-29, `scripts/06_compare_runs.py`)
-and `outputs/diagnostics/` (CNN/EEGNet occlusion starters). AUC 0.50 = chance._
+and `outputs/diagnostics/` (CNN/EEGNet occlusion starters).
+Pooling: `outputs/runs/pooling_compare_demo/` (2026-06-10, `scripts/09_pooling_comparison.py`).
+AUC 0.50 = chance._
 
 ### Diagnostic 1 — mean test AUC ± 95% CI (early cohort, n=8, late window)
 
@@ -596,6 +777,35 @@ Occluding each 250 ms slice and measuring the AUC drop: within the late window,
 the **earlier slices (1.0–1.5 s)** are the most informative on average — another
 hint that the discriminative signal starts before the late window even opens.
 
+### Pooling comparison — attacking the inner-vs-outer gap
+
+`xgb`, 8-subject subset (P30, P02, P15, P13, P25, P07, P12, P08), reduced
+~2.3k-feature set (`amplitude` + `slopes` blocks only, `bin_widths=[0.25, 0.5]`)
+for tractability. Source: `outputs/runs/pooling_compare_demo/pooling_summary.csv`.
+Reproduce: `python scripts/09_pooling_comparison.py --config configs/pooling_compare.yaml`.
+
+| mode | folds | held-out AUC | inner-CV | **gap (inner − outer)** |
+|---|---|---|---|---|
+| `per_participant` (baseline) | 32 | 0.567 | 0.744 | **+0.177** |
+| `full` (leave-subject-out) | 8 | 0.626 | 0.611 | **−0.015** |
+| `partial` (prior + local) | 32 | **0.673** | 0.637 | **−0.036** |
+
+**Both goals achieved at once:**
+- **The gap collapses** from **+0.177 to ≈0**. With ~1.5k pooled epochs the
+  subject-grouped inner CV is stable and, if anything, mildly *conservative*
+  vs the held-out fold — the honest direction.
+- **Held-out AUC rises.** `partial` shares the baseline's exact test folds, so
+  its **+0.106 AUC** (0.567 → 0.673) is a clean paired gain; `full` (no target
+  data at all) still beats the baseline at 0.626.
+
+Caveat: 8 subjects + reduced features make per-subject AUC noisy
+(`test_auc_sd ≈ 0.19`); the gap-collapse and partial-pooling lift are the robust
+takeaways — re-run on the full cohort/feature set to confirm magnitudes.
+
+> Full rationale and all non-pooling gap remedies (CV restructuring, grid
+> regularization, feature-funnel tightening, metric alignment, calibration) are
+> in [`docs/OVERFITTING_GAP_SOLUTIONS.md`](docs/OVERFITTING_GAP_SOLUTIONS.md).
+
 ### The five screening diagnostics, summarized
 
 | Diagnostic | What it measures | Finding |
@@ -603,12 +813,12 @@ hint that the discriminative signal starts before the late window even opens.
 | D1 — mean AUC ± CI | accuracy | XGB best (0.58 late / 0.65 full); others near chance late. |
 | D2 — tier-response slope | does more budget help? | Only XGB has positive slope (+0.016); logistic/SVM flat (near ceiling). |
 | D3 — across-fold variance | stability | Moderate & similar (~0.10–0.16 SD); SVM most volatile. |
-| D4 — inner-vs-outer gap | overfitting | Classical models overfit (+0.20–0.29); Riemannian generalizes (~0.05). |
+| D4 — inner-vs-outer gap | overfitting | Classical models overfit (+0.20–0.29); Riemannian generalizes (~0.05). Pooling collapses the XGB gap to ≈0. |
 | D5 — per-participant ranking | homogeneity | XGB most rank-1 finishes; rankings scattered → heterogeneous signal. |
 
 ---
 
-## 7. Decision support — recommended next steps
+## 8. Decision support — recommended next steps
 
 Ordered by expected payoff (synthesized from the diagnostics above and
 `outputs/screening/SCREENING_SUMMARY_2026-05-29.md`):
@@ -617,12 +827,15 @@ Ordered by expected payoff (synthesized from the diagnostics above and
    leakage/labeling artifact, then consider promoting full CNV (or a wider
    window) to the primary analysis. This is the single highest-leverage move —
    it dwarfs tuning.
-2. **Center tuning on XGBoost.** It has the best AUC, the only non-flat tier
+2. **Close the inner-vs-outer gap.** The structural fix is now implemented and
+   validated: **`partial` pooling** collapses the gap to ≈0 and raises held-out
+   AUC (+0.106 on the 8-subject demo). Re-run on the full cohort and full feature
+   set to confirm; also consider the within-design fixes documented in
+   [`docs/OVERFITTING_GAP_SOLUTIONS.md`](docs/OVERFITTING_GAP_SOLUTIONS.md) (metric
+   alignment, grid regularization, funnel tightening) as complementary levers.
+3. **Center tuning on XGBoost.** It has the best AUC, the only non-flat tier
    slope, and the most rank-1 finishes. Deprioritize logistic/SVM tuning on the
    late window (flat and below chance there).
-3. **Fix the inner-vs-outer overfitting gap** in the classical pipelines
-   (lighter hyperparameter search, calibrated nested CV) before trusting any
-   express-tier AUC as a real number.
 4. **Complete the partial full-CNV runs.** `bin_full_cnv_stats_pyramid_core` has
    SVM on only 7 participants — run logistic/XGB on the full cohort to make the
    full-window comparison apples-to-apples.
@@ -646,10 +859,11 @@ Ordered by expected payoff (synthesized from the diagnostics above and
 | Want calibrated probabilities now? | Riemannian (but low AUC) | tune XGB calibration |
 | Is the signal linear (full window)? | Logistic is competitive & cheap | keep XGB/neural |
 | Enough trials for deep nets? | EEGNet (full window) | classical + stability selection |
+| Gap between inner CV and held-out AUC? | `partial` pooling (implemented) | within-design grid / funnel fixes |
 
 ---
 
-## 8. Progress tracker
+## 9. Progress tracker
 
 **Legend:** ✅ done · 🟡 in progress / partial · ⚪ scaffolded, not run · ⬜ not started
 
@@ -665,13 +879,21 @@ Ordered by expected payoff (synthesized from the diagnostics above and
 | Models | EEGNeXt (multi-scale + SE + residual hybrid) | ✅ implemented + wired · ⚪ not yet run (needs TF) |
 | Models | BiLSTM with **true per-timestep windowing** | ⬜ blocked on windowing |
 | Models | Shrinkage-LDA CNV benchmark | ⚪ enabled flag off |
+| Pooling | `models/pooling.py` — per / partial / full workflows | ✅ implemented |
+| Pooling | `scripts/09_pooling_comparison.py` — three-way comparison script | ✅ |
+| Pooling | `configs/pooling_compare.yaml` — 8-subject / reduced-features config | ✅ |
+| Pooling | 8-subject demo run (pooling_compare_demo) | ✅ gap validated |
+| Pooling | Full-cohort / full-feature pooling run | ⬜ next action |
 | Screening | 4-model express screen (n=8, n=11) | ✅ |
 | Screening | Late-vs-full window comparison | ✅ headline result |
 | Screening | Full-CNV cohort for all classical models | 🟡 SVM-only partial run remains |
-| Analysis | Confirm window effect is not leakage | ⬜ **next action** |
-| Analysis | Inner-vs-outer gap mitigation | ⬜ |
+| Analysis | Confirm window effect is not leakage | ⬜ |
+| Analysis | Inner-vs-outer gap — structural fix (pooling) | ✅ validated on 8-subject demo |
+| Analysis | Inner-vs-outer gap — within-design fixes (§2–§5 of OVERFITTING_GAP_SOLUTIONS.md) | ⬜ |
 | Analysis | Per-participant selection / ensembling | ⬜ |
 | Analysis | Sliding-window AUC time-course | ⚪ configured, not run |
+| Docs | `docs/OVERFITTING_GAP_SOLUTIONS.md` — gap-remediation guide | ✅ |
+| Tests | `tests/test_pooling.py` — pooling data-sharing semantics | ✅ |
 
 ---
 
@@ -727,6 +949,13 @@ eegnext:                              # configs/eegnext.yaml; sophisticated CNN
   dropout: [0.25, 0.5]
   norm_rate: 0.25
   learning_rate: 1e-3
+
+# Pooling comparison overlay (configs/pooling_compare.yaml):
+#   participants: [P30, P02, P15, P13, P25, P07, P12, P08]  # 8-subject demo subset
+#   features.blocks: [amplitude, slopes]                      # ~2.3k cols (tractable)
+#   modeling.cv.n_splits: 4, n_repeats: 1, inner_splits: 2
+#   modeling.search.n_iter: 8, halving.max_resources: 160
+#   modeling.feature_selection.method: stability, max_features: 40
 ```
 
 Search controls: `cv = RepeatedStratifiedKFold(5×20)`, inner `StratifiedKFold(3)`.

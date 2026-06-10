@@ -524,11 +524,20 @@ def _fit_score_split(
     y: pd.Series,
     train_idx: np.ndarray,
     test_idx: np.ndarray,
+    *,
+    groups: np.ndarray | None = None,
 ) -> dict:
-    """Fit feature selection and hyperparameter search inside one outer fold."""
+    """Fit feature selection and hyperparameter search inside one outer fold.
+
+    ``groups`` (optional) labels each row of ``X`` with a grouping key (e.g. the
+    subject id in pooled training). When provided, the inner hyperparameter
+    search uses subject-grouped CV so tuning does not leak across subjects.
+    Left as ``None`` for the per-participant path, which is unchanged.
+    """
     mcfg = cfg["modeling"]
     X_train, X_test = X.iloc[train_idx].copy(), X.iloc[test_idx].copy()
     y_train, y_test = y.iloc[train_idx].copy(), y.iloc[test_idx].copy()
+    g_train = np.asarray(groups)[train_idx] if groups is not None else None
 
     # 1. Correlation drop (cheap)
     keep = fs.correlation_drop(X_train, threshold=float(mcfg.get("correlation_threshold", 0.9)))
@@ -601,7 +610,7 @@ def _fit_score_split(
     scale_pos_weight = _scale_pos_weight(y_train)
     search = _fit_search(
         factory, cfg, model_name, X_train, y_train,
-        scale_pos_weight=scale_pos_weight,
+        scale_pos_weight=scale_pos_weight, groups=g_train,
     )
     log.info("[%s/%s] outer fold best CV=%.3f, params=%s",
              participant_id, model_name, search.best_score_, search.best_params_)
@@ -629,7 +638,7 @@ def _fit_score_split(
             X_train, X_test = X_train[keep_gain], X_test[keep_gain]
             search = _fit_search(
                 factory, cfg, model_name, X_train, y_train,
-                scale_pos_weight=scale_pos_weight,
+                scale_pos_weight=scale_pos_weight, groups=g_train,
             )
             best = search.best_estimator_
             best_classifier = unwrap_classifier(best)
@@ -659,7 +668,7 @@ def _fit_score_split(
             X_train, X_test = X_train[keep_shap], X_test[keep_shap]
             search = _fit_search(
                 factory, cfg, model_name, X_train, y_train,
-                scale_pos_weight=scale_pos_weight,
+                scale_pos_weight=scale_pos_weight, groups=g_train,
             )
             best = search.best_estimator_
     elif not (shap_enabled and shap_refit and shap_quantile > 0):
@@ -691,6 +700,7 @@ def _fit_search(
     y_train: pd.Series,
     *,
     scale_pos_weight: float,
+    groups: np.ndarray | None = None,
 ) -> GridSearchCV | RandomizedSearchCV | HalvingRandomSearchCV:
     mcfg = cfg["modeling"]
     estimator, param_grid = _make_search_estimator(
@@ -698,14 +708,26 @@ def _fit_search(
         scale_pos_weight=scale_pos_weight,
         n_features=X_train.shape[1:] if getattr(X_train, "ndim", 2) == 3 else X_train.shape[1],
     )
-    inner_cv = StratifiedKFold(
-        n_splits=_bounded_splits(
-            y_train,
-            int(_cv_config(cfg).get("inner_splits", mcfg.get("inner_cv_splits", 2))),
-        ),
-        shuffle=True,
-        random_state=int(mcfg.get("random_state", 1)),
-    )
+    n_inner = int(_cv_config(cfg).get("inner_splits", mcfg.get("inner_cv_splits", 2)))
+    fit_params: dict = {}
+    if groups is not None:
+        # Pooled modes: keep all epochs from one subject together inside the
+        # inner hyperparameter-search CV so tuning never peeks across the
+        # train/test subject boundary (otherwise the inner score is optimistic).
+        groups = np.asarray(groups)
+        n_groups = int(pd.unique(groups).size)
+        inner_cv = StratifiedGroupKFold(
+            n_splits=max(2, min(n_inner, n_groups)),
+            shuffle=True,
+            random_state=int(mcfg.get("random_state", 1)),
+        )
+        fit_params["groups"] = groups
+    else:
+        inner_cv = StratifiedKFold(
+            n_splits=_bounded_splits(y_train, n_inner),
+            shuffle=True,
+            random_state=int(mcfg.get("random_state", 1)),
+        )
     search = _make_search_cv(
         estimator=estimator,
         param_grid=param_grid,
@@ -713,7 +735,7 @@ def _fit_search(
         model_name=model_name,
         cv=inner_cv,
     )
-    search.fit(X_train, y_train)
+    search.fit(X_train, y_train, **fit_params)
     return search
 
 

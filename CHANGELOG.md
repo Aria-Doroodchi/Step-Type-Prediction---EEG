@@ -24,6 +24,20 @@
 - **`run.py`, `scripts/04_train.py`, `scripts/07_feature_informativeness.py`,
   `scripts/08_tensor_model_diagnostics.py`** — `eegnext` added to the
   `SPEED_TIERS` maps and the tensor / full-CNV model sets.
+- **`scripts/06_compare_runs.py`** — `eegnext` added to the screening
+  diagnostics: the `--default-tier` choices, the single-tier/tensor-model
+  classification sets, and the run-name model/tier inference fallbacks
+  (`eegnext` ordered before `eegnet` so the more specific token wins). `eegnext`
+  now has full parity with `cnn`/`eegnet` across the performance recorders and
+  diagnostic tools (per-run metrics, screening, occlusion).
+
+### Tests
+
+- **`tests/test_imports.py`** — added `eegnet`/`eegnext`/`lstm` to the import
+  smoke list (previously only `cnn` was covered) and a
+  `test_eegnext_has_full_recorder_and_diagnostic_parity` guard that locks the
+  registry, forced-full-channel, normalizer, and diagnostic-script wiring so the
+  parity cannot silently regress.
 
 ## 2026-05-29 — Shape-decomposition features + stability selection
 

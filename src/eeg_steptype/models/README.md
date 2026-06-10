@@ -216,6 +216,23 @@ hybrid fusion, `require_source: true`) and runs on the full-CNV window:
 python run.py --speed-tier eegnext --participants P25 --stages train
 ```
 
+**Performance recording & diagnostics** are the same model-generic tools the
+other models use — `eegnext` is wired into all of them, no bespoke tooling:
+
+- **Per-run metrics**: every training run writes `outputs/runs/<run_id>/`
+  (`metrics.csv`, `rollup.csv`, config snapshot, git SHA) via the generic
+  `train.py` → `evaluate.py` path. `scripts/05_visualize.py` plots it.
+- **Cross-model screening** (`scripts/06_compare_runs.py`) aggregates runs into
+  the five diagnostics (AUC ± CI, tier slope, fold variance, inner-vs-outer gap,
+  per-participant ranking); `eegnext` is recognised as a tensor-model tier.
+- **Occlusion diagnostics** (`scripts/08_tensor_model_diagnostics.py`) — the
+  same channel/time-occlusion probe used for `cnn`/`eegnet`:
+
+  ```bash
+  python scripts/08_tensor_model_diagnostics.py --model eegnext \
+      --run outputs/runs/<eegnext_run_id> --participants P25
+  ```
+
 ---
 
 ## Running

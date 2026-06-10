@@ -27,7 +27,10 @@ from eeg_steptype.models.train import run as run_train
 
 
 STAGES = ["preprocess", "src", "features", "train"]
-FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet", "eegnext"}
+# Hybrid tensor models also need the source + tabular feature stages built before
+# training (the full prediction window is now the default for every model and is
+# set in configs/default.yaml, so this set no longer governs the window).
+NEURAL_HYBRID_MODELS = {"cnn", "eegnet", "eegnext"}
 NEURAL_FEATURE_STAGES = ["src", "features"]
 
 SPEED_TIERS = {
@@ -56,7 +59,7 @@ def _resolve_config_path(
 
 def _expand_stages_for_model(stages: list[str], model: str) -> list[str]:
     """Ensure hybrid neural training has its source/tabular feature inputs."""
-    if model not in FULL_CNV_DEFAULT_MODELS or "train" not in stages:
+    if model not in NEURAL_HYBRID_MODELS or "train" not in stages:
         return stages
 
     expanded: list[str] = []
@@ -187,8 +190,6 @@ def main() -> None:
         or cfg.get("modeling", {}).get("default_model")
         or "xgb"
     )
-    if args.prediction_window is None and effective_model in FULL_CNV_DEFAULT_MODELS:
-        cfg = apply_prediction_window(cfg, "full_cnv")
     stages = _expand_stages_for_model(list(args.stages), effective_model)
     if stages != list(args.stages):
         log.info(

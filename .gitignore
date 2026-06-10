@@ -95,3 +95,6 @@ desktop.ini
 # Empty leftover dir from reorganization (figs/ contents moved to outputs/figs/)
 # =============================================================================
 /figs/
+
+# Secondary Python 3.12 venv for TensorFlow-backed neural models (Py3.14 has no TF wheels)
+.venv312/

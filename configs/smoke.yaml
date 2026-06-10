@@ -36,6 +36,10 @@ features:
     Alpha: [8.0, 13.0]
   blocks: [amplitude, slopes, psd]   # skip src by default for smoke
 
+# Pin the smoke run to the late window (its synthetic discriminative signal lives
+# in 1.0-2.0 s); the project default is full CNV, so set the label explicitly.
+_prediction_window: late_cnv
+
 # Strip LORETA: cache_forward off (we won't typically run src in smoke);
 # if smoke does run src, the binning is coarser.
 source_localization:
