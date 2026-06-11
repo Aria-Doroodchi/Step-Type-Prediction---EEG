@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-06-11 — Perf loop concluded: plateau after Round 4 (v2.4.1)
+
+The agentic perf-improvement loop reached its stopping condition (3 consecutive no-win
+rounds). No code/behavior change — documentation and results only.
+
+### Results
+
+- **Rounds 2–4 produced no further XGB win.** Looser feature funnel (−0.039),
+  richer/deeper search (+0.020 screen → +0.001 at cohort scale), and Legendre shape
+  features (+0.008) are all null at the 20-subject scale. The pooled XGB is at its ceiling
+  on the 2.3k fast feature set. Every promising 8-subject screen lift shrank toward zero on
+  the 20-subject confirm — the confirm step killed 2 false positives.
+- **CNN confirmation baseline** established: cohort AUC 0.5675 (gap +0.013, 18 subjects).
+  No CNN improvement candidate was screened (cost-prohibitive in-session).
+- Final: **XGB 0.5674 → 0.5957** (gap +0.166 → −0.014) via Round-1 partial pooling.
+
+### Added / updated
+
+- **`outputs/perf_loop/SUMMARY.md`** — baseline→final, ranked table of all 8 changes tried,
+  the winner's key + legacy override, and recommended next steps.
+- **`XGB_MODEL_SUMMARY.md` §3.5, `MODELS.md` §7** — pooling section updated with the
+  confirmed 20-subject numbers (was "re-run to confirm magnitudes").
+- `LEDGER.md` — Rounds 2–4 results and the loop-complete summary.
+
 ## 2026-06-10 — Cross-subject partial pooling wired into the train entrypoint (perf loop, v2.4.0)
 
 Agentic perf-improvement loop, Round 1. Cross-subject **partial pooling** confirmed

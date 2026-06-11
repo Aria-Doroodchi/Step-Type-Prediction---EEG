@@ -253,10 +253,25 @@ the *relative* gap is the point, not the absolute AUC;
 
 Caveat: 8 subjects + reduced features make per-subject AUC noisy
 (`test_auc_sd ≈ 0.19`); the gap-collapse and partial-pooling lift are the robust
-takeaways — re-run on the full cohort/feature set to confirm magnitudes. Full
-rationale and the other (non-pooling) gap remedies are in
-[`docs/OVERFITTING_GAP_SOLUTIONS.md`](docs/OVERFITTING_GAP_SOLUTIONS.md); reproduce
-with `python scripts/09_pooling_comparison.py --config configs/pooling_compare.yaml`.
+takeaways — re-run on the full cohort/feature set to confirm magnitudes.
+
+**Confirmed on the full 20-subject cohort** (perf loop, `r1_pool_confirm20`):
+
+| mode | cohort AUC | gap |
+|---|---|---|
+| per_participant (baseline) | 0.5646 | +0.173 |
+| **partial** | **0.5957** | **−0.014** |
+| full | 0.5882 | −0.012 |
+
+The **gap collapse reproduces robustly** (+0.173 → −0.014); the AUC lift **shrinks**
+from the 8-subject +0.106 to **+0.031 paired** (t=1.27, not significant) at cohort scale —
+real but modest. Partial pooling is now a confirmed, one-line opt-in
+(`modeling.pooling.mode: partial`, committed overlay [`configs/pooling.yaml`](configs/pooling.yaml);
+default stays `per_participant`). A subsequent 4-round perf loop found **no further XGB win**
+(looser funnel, richer search, and Legendre shape features are all null at cohort scale) —
+the pooled model is at its feature-set ceiling. Full rationale and the other (non-pooling)
+gap remedies are in [`docs/OVERFITTING_GAP_SOLUTIONS.md`](docs/OVERFITTING_GAP_SOLUTIONS.md);
+reproduce with `python scripts/09_pooling_comparison.py --config configs/pooling_compare.yaml`.
 
 ---
 

@@ -800,7 +800,17 @@ Reproduce: `python scripts/09_pooling_comparison.py --config configs/pooling_com
 
 Caveat: 8 subjects + reduced features make per-subject AUC noisy
 (`test_auc_sd ≈ 0.19`); the gap-collapse and partial-pooling lift are the robust
-takeaways — re-run on the full cohort/feature set to confirm magnitudes.
+takeaways.
+
+**Confirmed on the full 20-subject cohort** (`r1_pool_confirm20`): `per_participant`
+0.5646 (gap +0.173), **`partial` 0.5957 (gap −0.014)**, `full` 0.5882 (gap −0.012).
+The **gap collapse reproduces robustly**; the AUC lift shrinks from +0.106 (8-subj) to
+**+0.031 paired** (t=1.27, n.s.) at cohort scale — real but modest. Promoted as the
+one-line opt-in `modeling.pooling.mode: partial` (committed overlay
+[`configs/pooling.yaml`](configs/pooling.yaml); global default stays `per_participant`).
+A follow-on 4-round perf loop found no further XGB win — looser funnel, richer search, and
+Legendre shape features are all null at cohort scale (see
+[`outputs/perf_loop/SUMMARY.md`](outputs/perf_loop/SUMMARY.md)).
 
 > Full rationale and all non-pooling gap remedies (CV restructuring, grid
 > regularization, feature-funnel tightening, metric alignment, calibration) are
