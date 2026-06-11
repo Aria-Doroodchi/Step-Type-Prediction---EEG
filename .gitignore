@@ -38,6 +38,8 @@ outputs/figs/
 outputs/perf_loop/*.log
 outputs/perf_loop/*.stalled
 outputs/perf_loop/__pycache__/
+# Machine-specific run-config snapshots (absolute paths); like outputs/runs/ configs.
+outputs/perf_loop/*_cfg.yaml
 
 # Per-machine config (committed copy lives at configs/local.yaml.example)
 configs/local.yaml
