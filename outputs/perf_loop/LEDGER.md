@@ -271,3 +271,53 @@ funnel/grid/shape levers are all null at cohort scale. **CNN: baselines establis
 candidate was screened** (each CNN screen ≈ the entire XGB loop's compute; XGB had the cheaper
 headroom). CNN gap is already small (+0.013), so only AUC-raising levers (dropout/kernel/fusion)
 remain — recommended as next steps in SUMMARY.md.
+
+---
+
+# RICH-POOLING SUB-LOOP (2026-06-12) — does partial pooling help on the RICH ~12k set?
+
+The whole loop above ran on the 2.3k **fast** set. This sub-loop tests the single highest-EV
+remaining hypothesis: does cross-subject **partial pooling on the RICH feature set** produce a
+real cohort-AUC gain — or at least make the project's best AUC (rich per-participant **0.655**,
+gap **+0.169**, run `bin_full_cnv_rich_mean_0125_xgb`) **honest**?
+
+## Method / harness (STAGE 0)
+- **New code:** `modeling.pre_kbest` (default null=off) — cheap ANOVA top-K pre-filter in
+  `train._fit_score_split`, fit on the train fold only, BEFORE the dense correlation drop.
+  Collapses the p×p corr-matrix cost that makes the rich path (×~20 under pooling) intractable.
+  120 tests green. Commit `c8ebce4`.
+- **Feature set:** `configs/pooling_compare_rich.yaml` = `amplitude(0.125,mean)+slopes+psd`,
+  bin 0.125, full-CNV, fresh `cache_tag rich_nosrc_0125`. This is the recorded rich recipe
+  MINUS `src`+`cnv_benchmark` (drops src so all 20 subjects run without the eLORETA b0.125
+  caches P35/P39 lack). Verified build: **80 epochs × 9728 cols** (full rich = 12.3k; src+cnv_b
+  ≈ 2.6k), far richer than the 2.3k fast set. pre_kbest 2000 + light funnel (k_best 150,
+  stability 8/5) — confirmed working in-log (`[k-best] selected 2000 / 9728`).
+
+## STAGE 1 — SCREEN (8 subjects, all 3 modes) — run id `r_rich_screen8`
+Time-log: 16:12:12 → 16:39:04 (~27 min; cache builds ~19 min + comparison ~8 min). On estimate.
+
+| mode | cohort AUC | gap | folds |
+|---|---|---|---|
+| per_participant (matched baseline) | 0.6496 (sd 0.101) | **+0.1515** | 32 |
+| **partial** | **0.6652** (sd 0.207) | **+0.0231** | 32 |
+| full (LOSO transfer) | 0.5939 (sd 0.247) | +0.0568 | 8 |
+
+**Paired partial − per_participant (same folds): +0.0156 AUC, SE 0.0843, t=0.19, 4/8 up.**
+Per-subject deltas wildly scattered: P12 +0.36, P25 +0.355 up; P13 −0.23, P30 −0.22, P15 −0.19 down.
+
+**Reading the screen:**
+- The matched rich per_participant arm (0.6496, gap +0.152) **reproduces the recorded rich
+  level** (0.655, gap +0.169) — the no-src light-funnel harness is a faithful rich proxy.
+- **The GAP COLLAPSES** (+0.152 → +0.023, −0.128) — the robust, reproducible pooling effect.
+- **The AUC lift is NULL** (paired +0.0156, t=0.19) — well below the +0.03 STAGE-1 gate. On the
+  fast set the same screen gave +0.086; on rich it is ~0. **The rich features have absorbed most
+  of the cross-subject-shared signal pooling exploited** (per_participant jumped 0.567→0.650).
+- `full` (0.594) < `partial` (0.665): LOSO transfer is clearly worse than partial here.
+
+**GATE decision (judgment call, flagged):** the AUC-win gate (+0.03 paired) is NOT cleared, and
+the 8-subj screen is optimistic, so an **AUC win** at confirm is not expected. BUT the task's
+objective is dual (AUC gain **or** honest best-AUC), and the gap collapse — the documented-robust
+effect — is the deliverable for the honesty branch. That branch ("AUC ~flat but gap collapses →
+promote the honest config") can only be landed on the **20-subject cohort** vs the recorded
+0.655/+0.169. So the 20-subj confirm proceeds, framed as **confirming the gap collapse / honesty
+result at cohort scale**, recording the AUC honestly (expected ~flat). Sleep disabled first.
