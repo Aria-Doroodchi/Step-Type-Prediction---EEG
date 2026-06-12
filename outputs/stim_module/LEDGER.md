@@ -160,3 +160,80 @@ stimulation trigger calibration. Branch: `feat/stim-module`.
 - The ~10 ms biphasic structure (clean optima cluster at 267 vs 277 ms) is the
   two lobes of the biphasic artifact; both are within ±5 ms of 273 ms and below
   the required precision, so they do not affect the recommendation.
+
+---
+
+## 2026-06-12 ~12:05 — TASK 2: SEP evoked plots + component t-tests (git c1ecbf7)
+
+User request: limit to the 30-participant study cohort; build evoked SEPs for
+(standing pooled, straight stepping = 4 stims pooled, diagonal stepping = 4
+stims pooled); t-test P2P / P50 / N90; then by stim ORDER (1st..4th in each
+path), t-test the same. Settings agreed: uniform automated preprocessing (no
+CSD), re-measure the standing offset, Part B = both within-path and matched
+order. Alignment = Task-1 uniform 273 ms (stim) / re-measured offset (standing).
+
+### Cohort handling
+- 30 requested. **P26 excluded** (no Stim/Standing .bdf). **P01** has no Standing
+  file → contributes to stepping/Part B but not standing contrasts. **P05** Stim
+  is a 12-trial fragment → its stepping cells fall below the 15-trial floor and
+  are dropped (its 300-trial standing is kept). Net: 29 participants with data;
+  paired tests use pairwise-complete n (27–28 per contrast).
+
+### Preprocessing (uniform, automated; `stim_preprocess.py`)
+- pick 64 EEG → biosemi64 montage → notch 60 Hz + harmonics → pyprep auto
+  bad-channel detect + interpolate → average reference → ICA (infomax-extended,
+  fit on a 1–100 Hz / 256 Hz copy, auto-labelled by ICLabel, artifact ICs at
+  p≥0.8 excluded) → 0.1–36 Hz bandpass → epoch −100..300 ms, baseline (−50,0),
+  fixed 150 µV reject → average. NO CSD/ASR/zapline (would distort P50/N90).
+- Standing offset re-measured per participant from its own artifact: clean in
+  most (e.g. P25 267.4, P35 266.7 ms, FWHM ~12 ms — same fixed latency as the
+  stim task); falls back to 273 ms where the artifact is undetectable (P31, P33).
+- Cached per-participant evokeds in `outputs/stim_module/evokeds/<pid>.npz`
+  (driver `cache_06_evokeds.py`); stats/plots in `measure_07_stats_plots.py`.
+
+### SEP morphology (vertex Cz, grand-average, true-stim-aligned)
+- Reproducible but small: a weak early positive **P50 (~40 ms, ~0.1 µV)** and a
+  dominant negative **N90 trough (~70–90 ms, ~−0.35 to −0.49 µV)**, then a late
+  positive rise (~130–160 ms). Components measured per participant as max in
+  P50 window [25,65] ms and min in N90 window [65,115] ms; P2P = P50−N90.
+- Consistent with Task 1: the cortical SEP here is low-amplitude (sub-µV).
+
+### Results — paired t-tests at Cz (Holm-corrected within each measure family)
+- **Part A (standing / straight / diagonal):** NO significant differences in
+  P2P, P50, or N90 (all p_holm > 0.6). The three conditions have
+  near-identical vertex SEPs. Tables: `ttests_partA.csv`.
+- **Part B2 (matched order, straight-N vs diagonal-N):** only stim #2 shows a
+  P2P difference (straight > diagonal, Δ=+0.52 µV, t(26)=+2.33, raw p=0.028,
+  p_holm=0.11, dz=0.45) — a trend, not surviving correction. #1/#3/#4 null.
+  Table: `ttests_partB_matched.csv`.
+- **Part B1 (within-path order):** the notable effect is **straight stim #1 <
+  stim #2 in P2P** (Δ=−0.47 µV, t(26)=−2.91, raw p=0.0073, dz=−0.56) — strong as
+  an uncorrected effect but only marginal after Holm (p_holm=0.087) and somewhat
+  window-sensitive (Holm 0.036 with a [75,130] ms N90 window). Diagonal shows
+  weaker N90-amplitude trends across order (e.g. #2 vs #4, raw p=0.03) that do
+  not survive correction. Table: `ttests_partB_within.csv`.
+
+### Verdict (Task 2)
+- The first stim in straight stepping evokes a SMALLER vertex SEP (P2P) than
+  later stims — the only effect approaching significance; treat as suggestive
+  (uncorrected p<0.01, marginal after multiple-comparison correction), worth
+  confirming with a pre-registered window or a repeated-measures model.
+- Otherwise SEP amplitude/components are statistically indistinguishable across
+  standing vs straight vs diagonal and across most stim orders, at this (low)
+  cortical-SEP SNR.
+
+### Figures (`outputs/stim_module/figs/`)
+- `sep_partA_conditions.png` — standing/straight/diagonal grand-avg ±SEM at Cz.
+- `sep_partB_straight_order.png`, `sep_partB_diagonal_order.png` — by stim order.
+- `sep_partB_matched_order.png` — straight vs diagonal at each matched order.
+
+### Tables (`outputs/stim_module/`)
+- `sep_measures_per_participant.csv` — per-participant P50/N90/P2P + latencies.
+- `ttests_partA.csv`, `ttests_partB_within.csv`, `ttests_partB_matched.csv`.
+
+### Notes / caveats
+- Components are sub-µV; null results are expected at this SNR and do not imply
+  no true differences. Windows were set from the grand-average morphology, not
+  tuned for significance; the one trend's sensitivity to window is flagged above.
+- Paired (within-subject) t-tests, pairwise-complete; Holm within each measure
+  family. ROI-mean (Cz,C1,C2,FCz,CPz) available via the script's CHANNEL switch.
