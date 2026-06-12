@@ -1,5 +1,70 @@
 # Changelog
 
+## 2026-06-11 — Perf loop concluded: plateau after Round 4 (v2.4.1)
+
+The agentic perf-improvement loop reached its stopping condition (3 consecutive no-win
+rounds). No code/behavior change — documentation and results only.
+
+### Results
+
+- **Rounds 2–4 produced no further XGB win.** Looser feature funnel (−0.039),
+  richer/deeper search (+0.020 screen → +0.001 at cohort scale), and Legendre shape
+  features (+0.008) are all null at the 20-subject scale. The pooled XGB is at its ceiling
+  on the 2.3k fast feature set. Every promising 8-subject screen lift shrank toward zero on
+  the 20-subject confirm — the confirm step killed 2 false positives.
+- **CNN confirmation baseline** established: cohort AUC 0.5675 (gap +0.013, 18 subjects).
+  No CNN improvement candidate was screened (cost-prohibitive in-session).
+- Final: **XGB 0.5674 → 0.5957** (gap +0.166 → −0.014) via Round-1 partial pooling.
+
+### Added / updated
+
+- **`outputs/perf_loop/SUMMARY.md`** — baseline→final, ranked table of all 8 changes tried,
+  the winner's key + legacy override, and recommended next steps.
+- **`XGB_MODEL_SUMMARY.md` §3.5, `MODELS.md` §7** — pooling section updated with the
+  confirmed 20-subject numbers (was "re-run to confirm magnitudes").
+- `LEDGER.md` — Rounds 2–4 results and the loop-complete summary.
+
+## 2026-06-10 — Cross-subject partial pooling wired into the train entrypoint (perf loop, v2.4.0)
+
+Agentic perf-improvement loop, Round 1. Cross-subject **partial pooling** confirmed
+on the full 20-subject cohort as the strongest lever on the inner-vs-outer overfit gap.
+
+### Added
+
+- **`models/train.py` — `run()` now routes on `modeling.pooling.mode`.** `partial`/`full`
+  dispatch the pooled workflow (`models.pooling`) from the normal `04_train.py` path
+  (previously reachable only via `scripts/09_pooling_comparison.py`). Tabular models only;
+  **tensor models (cnn/eegnet/eegnext) and <2-subject cohorts auto-fall back to
+  per_participant**, so the toggle is safe for neural runs and smoke configs.
+- **`configs/pooling.yaml`** — committed overlay whose default *is* the improved behavior
+  (`modeling.pooling.mode: partial`). Layer on any tier:
+  `python scripts/04_train.py --model xgb --config configs/pooling.yaml`.
+- **`outputs/perf_loop/`** — the loop's ledger (`LEDGER.md`, source of truth) and
+  screen→confirm harness (`aggregate.py`, `screen.sh`, …). `*.log` are gitignored (90 MB+).
+
+### Changed / new config key
+
+- **`modeling.pooling.mode`** — now an explicit, documented key in `configs/default.yaml`.
+  - **Default (legacy):** `per_participant` — one model per subject on ~80 epochs (the
+    per-subject paradigm; global default unchanged, preserves chronological check + tests).
+  - **Improved (confirmed):** `partial` — each subject's train split + all other subjects'
+    epochs, same test folds (paired), subject-grouped inner CV. Enable via `configs/pooling.yaml`
+    or set the key directly. `full` = leave-one-subject-out transfer.
+
+### Results (20-subject cohort, 2.3k fast feature set, express CV; `r1_pool_confirm20`)
+
+| mode | cohort AUC | overfit gap |
+|---|---|---|
+| per_participant (baseline) | 0.5646 | +0.173 |
+| **partial** | **0.5957** | **−0.014** |
+| full | 0.5882 | −0.012 |
+
+Partial vs per_participant (paired, same folds): **+0.031 AUC** (t=1.27, not significant —
+the AUC lift is modest/noisy) and a **robust gap collapse (+0.173 → −0.014)**. Pooling
+strictly dominates the objective (AUC not worse, guardrail far better). Default kept at
+`per_participant` as a deliberate judgment call (a paradigm flip is disproportionate to a
+t=1.27 lift); `partial` is the one-line, confirmed-better cross-subject option. 118 tests pass.
+
 ## 2026-06-08 — EEGNeXt sophisticated hybrid CNN
 
 ### Added
@@ -24,6 +89,20 @@
 - **`run.py`, `scripts/04_train.py`, `scripts/07_feature_informativeness.py`,
   `scripts/08_tensor_model_diagnostics.py`** — `eegnext` added to the
   `SPEED_TIERS` maps and the tensor / full-CNV model sets.
+- **`scripts/06_compare_runs.py`** — `eegnext` added to the screening
+  diagnostics: the `--default-tier` choices, the single-tier/tensor-model
+  classification sets, and the run-name model/tier inference fallbacks
+  (`eegnext` ordered before `eegnet` so the more specific token wins). `eegnext`
+  now has full parity with `cnn`/`eegnet` across the performance recorders and
+  diagnostic tools (per-run metrics, screening, occlusion).
+
+### Tests
+
+- **`tests/test_imports.py`** — added `eegnet`/`eegnext`/`lstm` to the import
+  smoke list (previously only `cnn` was covered) and a
+  `test_eegnext_has_full_recorder_and_diagnostic_parity` guard that locks the
+  registry, forced-full-channel, normalizer, and diagnostic-script wiring so the
+  parity cannot silently regress.
 
 ## 2026-05-29 — Shape-decomposition features + stability selection
 

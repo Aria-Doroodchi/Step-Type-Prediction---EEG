@@ -127,7 +127,10 @@ def apply_prediction_window(cfg: dict, window_name: str | None) -> dict:
     out = copy.deepcopy(cfg)
     out.setdefault("features", {})["min_time"] = selected["min_time"]
     out.setdefault("features", {})["max_time"] = selected["max_time"]
-    out.setdefault("_prediction_window", window_name)
+    # Direct assignment (not setdefault): an explicitly selected window must
+    # overwrite any default `_prediction_window` baked into the config, otherwise
+    # `--prediction-window late_cnv` runs get mislabeled as the default window.
+    out["_prediction_window"] = window_name
     return out
 
 

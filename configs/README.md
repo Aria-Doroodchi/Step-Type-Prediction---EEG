@@ -54,11 +54,11 @@ parallel.participants` once the joblib pool is saturated.
 - **quick** — pre-final-run. Almost matches default behavior except for the
   CV-repeat budget. Good for sharing preliminary results internally.
 - **riemannian** — covariance-based comparator. Different model family (not a
-  speed-trimmed XGB), different data path (epoch tensors at
-  `data/features/tensor/`, not the flat parquet), and different default window
-  (`full_cnv` 0-2 s). Use as a comparator to the tree/kernel models, not as a
-  faster XGB. The "AUC drop" column doesn't apply because there's no XGB
-  baseline being approximated.
+  speed-trimmed XGB) and different data path (epoch tensors at
+  `data/features/tensor/`, not the flat parquet). Uses the project-default
+  `full_cnv` (0-2 s) window like every other model. Use as a comparator to the
+  tree/kernel models, not as a faster XGB. The "AUC drop" column doesn't apply
+  because there's no XGB baseline being approximated.
 - **cnn / eegnet / eegnext** — hybrid neural comparators on the epoch tensor
   fused with the tabular feature parquet (`full_cnv` window, `require_source`).
   `cnn` and `eegnet` are compact EEGNet-style starters; `eegnext` adds a

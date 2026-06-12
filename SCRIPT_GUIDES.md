@@ -141,7 +141,7 @@ subset relevant to their stage.
 |---|---|---|---|
 | `--config PATH` | path to a YAML file | `configs/default.yaml` (implicit) | Layered overlay on top of `default.yaml` and `local.yaml`. Right-most overlay wins on key conflicts. |
 | `--speed-tier NAME` | `lightning`, `express`, `quick`, `riemannian`, `cnn`, `eegnet`, `eegnext` | (none) | Shortcut for `--config configs/<tier>.yaml`. Ignored if `--config` is also passed. `lightning` / `express` / `quick` are XGB-family speed trims; `riemannian` / `cnn` / `eegnet` / `eegnext` are separate model + data paths (epoch tensors instead of the flat parquet). See [§3.5](#35-speed-tiered-runs). |
-| `--prediction-window NAME` | named window from `prediction_windows` in config, e.g. `late_cnv`, `full_cnv` | `late_cnv` | Overrides `features.min_time` / `features.max_time` for this run only. Affects feature extraction and training. |
+| `--prediction-window NAME` | named window from `prediction_windows` in config, e.g. `full_cnv`, `late_cnv` | `full_cnv` | Overrides `features.min_time` / `features.max_time` for this run only. Affects feature extraction and training. Omit it to use the default full-CNV window. |
 | `--participant-override-mode MODE` | `raw_assembly_only`, `full`, `none` | `raw_assembly_only` | How aggressively to apply per-participant YAMLs from `configs/overrides/Pxx.yaml`. `raw_assembly_only` keeps preprocessing uniform across the cohort. `full` opts into every per-participant tweak. `none` ignores the override files entirely. |
 
 ### 2.2 Cohort selection
@@ -611,10 +611,10 @@ the flat per-bin aggregates:
 | `data/features/tensor/<pid>_<cond>_epochs_t<min>-<max>.npz`             | `tensor.build_tensor_for_participant` | `riemannian`, plus the tensor branch of `cnn`/`eegnet` |
 
 Both are keyed by the prediction window (`_t<min>-<max>`), so the same
-participant can have, for example, `features_t1p0-2p0.parquet` for the
-default late-CNV window *and* `epochs_t0p0-2p0.npz` for the Riemannian
-full-CNV window coexisting on disk without colliding. The two caches are
-independent: switching from `xgb` to `svm` reuses the parquet without
+participant can have, for example, `features_t0p0-2p0.parquet` for the
+default full-CNV window *and* `features_t1p0-2p0.parquet` from an opt-in
+`--prediction-window late_cnv` run coexisting on disk without colliding. The two
+caches are independent: switching from `xgb` to `svm` reuses the parquet without
 needing the tensor, and switching from `xgb` to `riemannian` triggers a
 lazy build of the tensor on first use without invalidating the parquet.
 
@@ -802,7 +802,7 @@ happen *inside* the model pipeline, not as separate selection stages.
 | Aspect                          | default               | quick               | express             | lightning           | riemannian            |
 |---------------------------------|-----------------------|---------------------|---------------------|---------------------|------------------------|
 | Default model when `--model` omitted | xgb              | xgb (inherited)     | xgb (inherited)     | xgb (inherited)     | **riemannian**         |
-| Default prediction window       | late_cnv (1.0-2.0 s)  | late_cnv            | late_cnv            | late_cnv            | **full_cnv (0-2.0 s)** |
+| Default prediction window       | full_cnv (0-2.0 s)    | full_cnv (inherited)| full_cnv (inherited)| full_cnv (inherited)| full_cnv (0-2.0 s)     |
 | `resources.n_jobs`              | -8                    | -8 (inherited)      | -8 (inherited)      | -8 (inherited)      | -8 (inherited)         |
 | `modeling.parallel.participants`| unset → sequential    | **-10**             | **-8**              | **-8**              | **-8**                 |
 | Channel mode default            | full                  | full (inherited)    | full (inherited)    | full (inherited)    | full (forced)          |

@@ -56,6 +56,9 @@ PACKAGE_MODULES = [
     "eeg_steptype.models.normalization",
     "eeg_steptype.models.riemannian",
     "eeg_steptype.models.cnn",
+    "eeg_steptype.models.eegnet",
+    "eeg_steptype.models.eegnext",
+    "eeg_steptype.models.lstm",
     # viz
     "eeg_steptype.viz",
     "eeg_steptype.viz.results",
@@ -76,9 +79,10 @@ def test_config_load(smoke_config_path):
     assert cfg["resources"]["n_jobs"] == 2
     assert cfg["features"]["min_time"] == 1.0
     assert cfg["features"]["max_time"] == 2.0
-    assert cfg["prediction_windows"]["primary"]["name"] == "late_cnv"
-    assert cfg["prediction_windows"]["secondary"]["full_cnv"]["cropped_training"]["stride"] == 0.25
-    assert cfg["prediction_windows"]["secondary"]["sliding_auc"]["enabled"] is True
+    assert cfg["prediction_windows"]["primary"]["name"] == "full_cnv"
+    assert cfg["prediction_windows"]["primary"]["cropped_training"]["stride"] == 0.25
+    assert cfg["prediction_windows"]["primary"]["sliding_auc"]["enabled"] is True
+    assert cfg["prediction_windows"]["secondary"]["late_cnv"]["min_time"] == 1.0
     assert cfg["features"]["cnv_benchmark"]["enabled"] is False
     assert cfg["features"]["cnv_benchmark"]["bin_n"] == 0.25
     assert cfg["channel_selection"]["mode"] == "full"
@@ -272,7 +276,7 @@ def test_feature_path_is_window_aware():
     cfg = load_config()
     path = features_path(cfg, "P01", "One")
 
-    assert path.name == "P01_One_features_t1p0-2p0_b0p0625.parquet"
+    assert path.name == "P01_One_features_t0p0-2p0_b0p0625.parquet"
 
 
 def test_feature_path_includes_optional_cache_tag():
@@ -283,7 +287,7 @@ def test_feature_path_includes_optional_cache_tag():
     cfg["features"]["cache_tag"] = "bin_stats_0125"
     path = features_path(cfg, "P01", "One")
 
-    assert path.name == "P01_One_features_t1p0-2p0_b0p0625_bin_stats_0125.parquet"
+    assert path.name == "P01_One_features_t0p0-2p0_b0p0625_bin_stats_0125.parquet"
 
 
 def test_legacy_feature_bin_path_keeps_old_cache_name():
@@ -292,7 +296,7 @@ def test_legacy_feature_bin_path_keeps_old_cache_name():
 
     cfg = apply_feature_bin_width(load_config(), 0.125)
 
-    assert features_path(cfg, "P01", "One").name == "P01_One_features_t1p0-2p0.parquet"
+    assert features_path(cfg, "P01", "One").name == "P01_One_features_t0p0-2p0.parquet"
     assert src_csv_path(cfg, "P01", "One").name == "P01_One_src.csv"
 
 
@@ -1150,3 +1154,62 @@ def test_full_channel_selection_is_forced_for_future_tensor_models():
     out = _apply_channel_selection(df, cfg, "cnn")
 
     assert list(out.columns) == ["condition", "Cz_bin_0", "P8_bin_0"]
+
+
+def test_eegnext_has_full_recorder_and_diagnostic_parity():
+    """EEGNeXt must be wired into the same recorders + diagnostics as cnn/eegnet.
+
+    This is a no-TensorFlow guard against the wiring silently regressing: it
+    covers the per-run recorder path (registry + forced-full channels), the
+    fold-local normalizer, and the tensor occlusion / screening diagnostic
+    scripts that key off model-name sets.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    from eeg_steptype.models import MODEL_FACTORIES
+    from eeg_steptype.models.train import NEURAL_HYBRID_MODELS, _effective_channel_mode
+    from eeg_steptype.models.normalization import make_normalizer
+    from eeg_steptype.models import eegnext
+
+    # 1. Registry: registered as a tensor model, like cnn/eegnet.
+    assert "eegnext" in MODEL_FACTORIES
+    assert MODEL_FACTORIES["eegnext"]["data_representation"] == "tensor"
+    assert "eegnext" in NEURAL_HYBRID_MODELS
+
+    # 2. Recorder/training path forces full channels for the tensor input.
+    cfg = {"channel_selection": {"mode": "roi", "roi": {"channels": ["Cz"]}}}
+    assert _effective_channel_mode(cfg, "eegnext", "roi") == "full"
+
+    # 3. Fold-local normalizer is provided (not a no-op None).
+    assert make_normalizer("eegnext", {"modeling": {"eegnext": {}}}) is not None
+
+    # 4. Non-empty hyperparameter grid for the search recorder.
+    assert isinstance(eegnext.param_grid({}), dict) and eegnext.param_grid({})
+
+    # 5. Diagnostic scripts recognise eegnext in their model/tier sets.
+    scripts_dir = Path(__file__).resolve().parents[1] / "scripts"
+
+    def _load(path: Path):
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    diag = _load(scripts_dir / "08_tensor_model_diagnostics.py")
+    assert "eegnext" in diag.TENSOR_MODELS
+    assert "eegnext" in diag.SPEED_TIERS
+    assert "eegnext" in diag.FULL_CNV_DEFAULT_MODELS
+
+    compare = _load(scripts_dir / "06_compare_runs.py")
+
+    class _Run:
+        def __init__(self, name):
+            self.name = name
+
+    import pandas as pd
+
+    # eegnext is disambiguated from eegnet by the name-inference fallbacks.
+    assert compare._infer_model(pd.DataFrame(), {}, _Run("screen_eegnext_full")) == "eegnext"
+    assert compare._infer_model(pd.DataFrame(), {}, _Run("screen_eegnet_full")) == "eegnet"
+    assert compare._infer_tier({}, _Run("run_eegnext_p25")) == "eegnext"

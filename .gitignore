@@ -33,6 +33,14 @@ outputs/runs/
 outputs/qc/
 outputs/figs/
 
+# perf-loop run logs are large (90 MB+) and regenerable; keep the LEDGER /
+# SUMMARY markdown and the harness scripts (aggregate.py, screen.sh, *.sh) tracked.
+outputs/perf_loop/*.log
+outputs/perf_loop/*.stalled
+outputs/perf_loop/__pycache__/
+# Machine-specific run-config snapshots (absolute paths); like outputs/runs/ configs.
+outputs/perf_loop/*_cfg.yaml
+
 # Per-machine config (committed copy lives at configs/local.yaml.example)
 configs/local.yaml
 
@@ -95,3 +103,6 @@ desktop.ini
 # Empty leftover dir from reorganization (figs/ contents moved to outputs/figs/)
 # =============================================================================
 /figs/
+
+# Secondary Python 3.12 venv for TensorFlow-backed neural models (Py3.14 has no TF wheels)
+.venv312/

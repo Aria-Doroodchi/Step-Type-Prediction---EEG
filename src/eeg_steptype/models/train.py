@@ -524,11 +524,20 @@ def _fit_score_split(
     y: pd.Series,
     train_idx: np.ndarray,
     test_idx: np.ndarray,
+    *,
+    groups: np.ndarray | None = None,
 ) -> dict:
-    """Fit feature selection and hyperparameter search inside one outer fold."""
+    """Fit feature selection and hyperparameter search inside one outer fold.
+
+    ``groups`` (optional) labels each row of ``X`` with a grouping key (e.g. the
+    subject id in pooled training). When provided, the inner hyperparameter
+    search uses subject-grouped CV so tuning does not leak across subjects.
+    Left as ``None`` for the per-participant path, which is unchanged.
+    """
     mcfg = cfg["modeling"]
     X_train, X_test = X.iloc[train_idx].copy(), X.iloc[test_idx].copy()
     y_train, y_test = y.iloc[train_idx].copy(), y.iloc[test_idx].copy()
+    g_train = np.asarray(groups)[train_idx] if groups is not None else None
 
     # 1. Correlation drop (cheap)
     keep = fs.correlation_drop(X_train, threshold=float(mcfg.get("correlation_threshold", 0.9)))
@@ -601,7 +610,7 @@ def _fit_score_split(
     scale_pos_weight = _scale_pos_weight(y_train)
     search = _fit_search(
         factory, cfg, model_name, X_train, y_train,
-        scale_pos_weight=scale_pos_weight,
+        scale_pos_weight=scale_pos_weight, groups=g_train,
     )
     log.info("[%s/%s] outer fold best CV=%.3f, params=%s",
              participant_id, model_name, search.best_score_, search.best_params_)
@@ -629,7 +638,7 @@ def _fit_score_split(
             X_train, X_test = X_train[keep_gain], X_test[keep_gain]
             search = _fit_search(
                 factory, cfg, model_name, X_train, y_train,
-                scale_pos_weight=scale_pos_weight,
+                scale_pos_weight=scale_pos_weight, groups=g_train,
             )
             best = search.best_estimator_
             best_classifier = unwrap_classifier(best)
@@ -659,7 +668,7 @@ def _fit_score_split(
             X_train, X_test = X_train[keep_shap], X_test[keep_shap]
             search = _fit_search(
                 factory, cfg, model_name, X_train, y_train,
-                scale_pos_weight=scale_pos_weight,
+                scale_pos_weight=scale_pos_weight, groups=g_train,
             )
             best = search.best_estimator_
     elif not (shap_enabled and shap_refit and shap_quantile > 0):
@@ -691,6 +700,7 @@ def _fit_search(
     y_train: pd.Series,
     *,
     scale_pos_weight: float,
+    groups: np.ndarray | None = None,
 ) -> GridSearchCV | RandomizedSearchCV | HalvingRandomSearchCV:
     mcfg = cfg["modeling"]
     estimator, param_grid = _make_search_estimator(
@@ -698,14 +708,26 @@ def _fit_search(
         scale_pos_weight=scale_pos_weight,
         n_features=X_train.shape[1:] if getattr(X_train, "ndim", 2) == 3 else X_train.shape[1],
     )
-    inner_cv = StratifiedKFold(
-        n_splits=_bounded_splits(
-            y_train,
-            int(_cv_config(cfg).get("inner_splits", mcfg.get("inner_cv_splits", 2))),
-        ),
-        shuffle=True,
-        random_state=int(mcfg.get("random_state", 1)),
-    )
+    n_inner = int(_cv_config(cfg).get("inner_splits", mcfg.get("inner_cv_splits", 2)))
+    fit_params: dict = {}
+    if groups is not None:
+        # Pooled modes: keep all epochs from one subject together inside the
+        # inner hyperparameter-search CV so tuning never peeks across the
+        # train/test subject boundary (otherwise the inner score is optimistic).
+        groups = np.asarray(groups)
+        n_groups = int(pd.unique(groups).size)
+        inner_cv = StratifiedGroupKFold(
+            n_splits=max(2, min(n_inner, n_groups)),
+            shuffle=True,
+            random_state=int(mcfg.get("random_state", 1)),
+        )
+        fit_params["groups"] = groups
+    else:
+        inner_cv = StratifiedKFold(
+            n_splits=_bounded_splits(y_train, n_inner),
+            shuffle=True,
+            random_state=int(mcfg.get("random_state", 1)),
+        )
     search = _make_search_cv(
         estimator=estimator,
         param_grid=param_grid,
@@ -713,7 +735,7 @@ def _fit_search(
         model_name=model_name,
         cv=inner_cv,
     )
-    search.fit(X_train, y_train)
+    search.fit(X_train, y_train, **fit_params)
     return search
 
 
@@ -1107,6 +1129,46 @@ def _train_one_with_checkpoint(
         return pid, None, exc
 
 
+def _run_pooled(
+    cfg: dict,
+    model: str,
+    rdir,
+    mode: str,
+    *,
+    channel_mode: str | None = None,
+) -> pd.DataFrame:
+    """Cross-subject pooled training path (modeling.pooling.mode = partial|full).
+
+    Builds the shared pooled feature frame once and runs the requested pooling
+    workflow from :mod:`models.pooling` (imported lazily to avoid the
+    train<->pooling import cycle). Writes the same metrics.csv / rollup.csv
+    artifacts as the per-participant path so downstream tooling is unchanged;
+    pooled rows carry cv_mode="pooled_<mode>" and a held_out_participant column.
+    """
+    from . import pooling  # lazy: pooling imports train at module load
+
+    if MODEL_FACTORIES[model].get("data_representation") != "tabular":
+        raise ValueError(
+            f"modeling.pooling.mode={mode!r} supports tabular models only "
+            "(xgb / svm / logistic); tensor models have no shared feature frame."
+        )
+    participants = list(cfg["participants"])
+    log.info(
+        "Cross-subject pooling: mode=%s model=%s on %d subjects",
+        mode, model, len(participants),
+    )
+    pooled = pooling.build_pooled_frame(cfg, participants, model, channel_mode=channel_mode)
+    rows = pooling.train_pooled(
+        cfg, model, mode=mode, channel_mode=channel_mode, pooled_frame=pooled,
+    )
+    df = pd.DataFrame(rows)
+    write_csv(df, rdir / "metrics.csv")
+    rollup = cv_rollup(df)
+    log.info("Pooled cohort rollup: %s", rollup.to_dict(orient="records"))
+    rollup.to_csv(rdir / "rollup.csv", index=False)
+    return df
+
+
 def run(
     cfg: dict,
     *,
@@ -1125,6 +1187,30 @@ def run(
     rdir = ensure_dir(run_dir(cfg, run_id))
     if cfg.get("logging", {}).get("stamp_runs", True):
         stamp_run(rdir, cfg, model=model)
+
+    # Cross-subject pooling (modeling.pooling.mode). Default "per_participant"
+    # is the legacy within-subject path below; "partial"/"full" route through
+    # models.pooling, which shares each subject's training data with the rest of
+    # the cohort to escape the ~80-epoch p>>n budget (the single biggest lever on
+    # the inner-vs-outer gap; OVERFITTING_GAP_SOLUTIONS.md §6). Tabular models only.
+    pool_mode = str(
+        (cfg.get("modeling", {}).get("pooling", {}) or {}).get("mode", "per_participant")
+    ).lower()
+    if pool_mode != "per_participant":
+        # Pooling shares a tabular feature frame across subjects; it is undefined
+        # for tensor models and for cohorts with <2 subjects. Fall back to the
+        # per-participant path in those cases so a global pooling default stays
+        # safe for neural runs and single-subject smoke configs.
+        is_tabular = MODEL_FACTORIES[model].get("data_representation") == "tabular"
+        n_subjects = len(cfg.get("participants", []))
+        if not is_tabular:
+            log.info("[pooling] mode=%s requested but %s is a tensor model; "
+                     "using per-participant training.", pool_mode, model)
+        elif n_subjects < 2:
+            log.info("[pooling] mode=%s requested but only %d subject(s); "
+                     "using per-participant training.", pool_mode, n_subjects)
+        else:
+            return _run_pooled(cfg, model, rdir, pool_mode, channel_mode=channel_mode)
 
     n_workers = _parallel_participants(cfg)
     participants = list(cfg["participants"])

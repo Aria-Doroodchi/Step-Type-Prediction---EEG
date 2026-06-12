@@ -31,7 +31,6 @@ SPEED_TIERS = {
     "eegnet":     "configs/eegnet.yaml",
     "eegnext":    "configs/eegnext.yaml",
 }
-FULL_CNV_DEFAULT_MODELS = {"cnn", "eegnet", "eegnext"}
 
 
 def _resolve_config_path(
@@ -170,8 +169,6 @@ def main() -> None:
         or cfg.get("modeling", {}).get("default_model")
         or "xgb"
     )
-    if args.prediction_window is None and effective_model in FULL_CNV_DEFAULT_MODELS:
-        cfg = apply_prediction_window(cfg, "full_cnv")
 
     log.info(
         "Training model=%s channel_mode=%s on %d participants (parallel=%s)",

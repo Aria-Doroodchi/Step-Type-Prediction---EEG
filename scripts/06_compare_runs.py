@@ -163,7 +163,8 @@ def _infer_model(df: pd.DataFrame, cfg: dict, run_dir: Path) -> str:
     if default:
         return str(default)
     name = run_dir.name.lower()
-    for m in ("riemannian", "eegnet", "cnn", "logistic", "xgb", "svm", "lstm"):
+    # eegnext before eegnet so the more specific token wins the name match.
+    for m in ("riemannian", "eegnext", "eegnet", "cnn", "logistic", "xgb", "svm", "lstm"):
         if m in name:
             return m
     return "unknown"
@@ -190,7 +191,8 @@ def _infer_tier(cfg: dict, run_dir: Path, *, default_tier: str | None = None) ->
 
     # 2. Run-directory name token.
     name = run_dir.name.lower()
-    for t in ("riemannian", "eegnet", "cnn", "lightning", "express", "quick"):
+    # eegnext before eegnet so the more specific token wins the name match.
+    for t in ("riemannian", "eegnext", "eegnet", "cnn", "lightning", "express", "quick"):
         if t in name:
             return t
 

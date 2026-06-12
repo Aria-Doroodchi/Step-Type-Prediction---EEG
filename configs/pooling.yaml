@@ -1,0 +1,32 @@
+# =====================================================================
+# Cross-subject PARTIAL pooling — confirmed perf-loop win (2026-06-10).
+#
+# Layer this on default.yaml (or any tier) to switch the XGB / SVM / logistic
+# training workflow from per-participant (one model per subject on ~80 epochs)
+# to PARTIAL pooling: each subject's own training split is augmented with every
+# other subject's epochs, tested on the subject's held-out fold (same test folds
+# as per-participant -> a clean paired comparison). Subject-grouped inner CV
+# keeps the hyperparameter search from peeking across the train/test subject
+# boundary. See docs/OVERFITTING_GAP_SOLUTIONS.md §6 and models/pooling.py.
+#
+#   python scripts/04_train.py --model xgb --config configs/pooling.yaml
+#   python scripts/04_train.py --model xgb --speed-tier express \
+#       --config configs/pooling.yaml _perf_cohort20.yaml   # perf-loop confirm
+#
+# CONFIRMED (20-subject cohort, 2.3k fast feature set, express CV):
+#   per_participant  cohort AUC 0.5646   gap +0.173
+#   partial          cohort AUC 0.5957   gap -0.014   (paired +0.031, t=1.27)
+# Headline: the inner-vs-outer overfit gap COLLAPSES (+0.17 -> -0.01) and the
+# held-out AUC does not regress (modest +0.03 lift). Tabular models only; tensor
+# models (cnn/eegnet/eegnext) and <2-subject cohorts auto-fall back to
+# per-participant (train.run routing).
+#
+# LEGACY / opt-out: this is the default-OFF path. The global default in
+# configs/default.yaml stays modeling.pooling.mode: per_participant (the
+# per-subject paradigm). To pool, add this overlay; to force per-subject while
+# this overlay is active, set modeling.pooling.mode: per_participant below.
+# =====================================================================
+
+modeling:
+  pooling:
+    mode: partial          # partial | full | per_participant (legacy)
