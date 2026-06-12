@@ -127,7 +127,8 @@ $artifactPaths = @(
     "data\features",
     "data\src",
     "outputs\runs",
-    "outputs\qc"
+    "outputs\qc",
+    "outputs\stim_module\evokeds"
 )
 
 Write-Step "Repository: $repoRoot"
