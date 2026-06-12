@@ -1,0 +1,107 @@
+# =====================================================================
+# RICH-feature pooling comparison (scripts/09_pooling_comparison.py).
+# Layered on configs/default.yaml. Tests whether cross-subject PARTIAL pooling
+# produces a real cohort-AUC gain on the RICH feature set (the prior perf loop
+# ran only on the 2.3k "fast" set). See outputs/perf_loop/RICH_POOLING_SUMMARY.md.
+#
+# FEATURE SET: amplitude(0.125, mean) + slopes + psd at bin_n 0.125, full-CNV
+# (0.0-2.0 s) -- i.e. the recorded rich recipe `rich_mean_0125`
+# (outputs/runs/bin_full_cnv_rich_mean_0125_xgb, per-participant cohort 0.655,
+# gap +0.169) MINUS the `src` (eLORETA) and `cnv_benchmark` blocks. Dropping src
+# unblocks all 20 subjects (P35/P39 lack the eLORETA b0.125 source caches that
+# `src` needs) and avoids the eLORETA build cost, while staying far richer than
+# the 2.3k fast set (~8k columns -- verify in the run log). The PSD freqs/bands
+# below match the recorded rich run so this is genuinely "rich minus src".
+#
+# CACHE_TAG: feature caches are keyed by {window}_{bin}_{cache_tag} and DO NOT
+# include the block list. `rich_nosrc_0125` is a FRESH tag so this no-src frame
+# never collides with the existing `bin_rich_mean_0125` cache (which carries
+# src+cnv_benchmark columns). Changing blocks here REQUIRES bumping this tag.
+#
+# FUNNEL: kept LIGHT (k_best 150, stability n_subsamples 8 / n_lambda 5) -- the
+# prior loop showed heavy per-fold selection is unnecessary once pooling moves
+# the regime to p~=n, and that loosening the funnel hurts. A cheap ANOVA
+# pre-filter (modeling.pre_kbest: 2000) runs BEFORE the dense correlation drop to
+# make the rich path tractable (the corr matrix is quadratic in p).
+#
+#   PYTHONUTF8=1 ./.venv/Scripts/python.exe scripts/09_pooling_comparison.py \
+#       --config configs/pooling_compare_rich.yaml \
+#       --modes per_participant partial full --run-id r_rich_screen8
+# =====================================================================
+
+# SCREEN subset (8) spanning the signal range. Override with --participants for
+# the 20-subject CONFIRM.
+participants: [P30, P02, P15, P13, P25, P07, P12, P08]
+
+features:
+  bin_n: 0.125
+  min_time: 0.0            # full CNV (project default)
+  max_time: 2.0
+  blocks: [amplitude, slopes, psd]   # rich minus src + cnv_benchmark
+  cache_tag: rich_nosrc_0125         # FRESH tag (no-src frame; do not reuse bin_rich_mean_0125)
+  amplitude:
+    bin_widths: [0.125]
+    stats: [mean]
+  # PSD freqs/bands copied verbatim from the recorded rich run
+  # (outputs/runs/bin_full_cnv_rich_mean_0125_xgb) so the psd block matches.
+  freqs:
+    fmin: 0.1
+    fmax: 40.0
+    fstep: 0.2
+  freq_bands:
+    Subdelta: [0.1,  1.0]
+    Delta:    [1.0,  4.0]
+    Theta:    [4.0,  8.0]
+    Alpha:    [8.0, 13.0]
+    Beta:     [13.0, 30.0]
+    Gamma:    [30.0, 40.0]
+
+modeling:
+  # Cheap ANOVA top-K pre-filter BEFORE the correlation drop (train-fold only).
+  # Collapses the p x p correlation-matrix cost on the ~8k-column rich frame.
+  pre_kbest: 2000
+  cv:
+    mode: repeated_stratified
+    n_splits: 4
+    n_repeats: 1
+    inner_splits: 2
+    chronological_check: false
+  search:
+    method: auto
+    n_iter: 8
+    halving:
+      resource: n_estimators
+      min_resources: 40
+      max_resources: 160
+      factor: 3
+  correlation_threshold: 0.97
+  k_best: 150
+  feature_selection:
+    method: stability
+    stability:
+      n_subsamples: 8
+      n_lambda: 5
+      threshold: 0.55
+      max_features: 40
+      min_features: 6
+  gain_prune:
+    enabled: true
+    refit: true
+    mode: zero
+  shap_prune:
+    enabled: false
+  xgb:
+    n_estimators: 160
+    param_grid:
+      max_depth: [2, 3, 4]
+      min_child_weight: [1, 3]
+      gamma: [0, 0.5, 1.0]
+      reg_lambda: [1, 5, 10]
+      reg_alpha: [0, 0.5]
+      subsample: [0.7, 1.0]
+      colsample_bytree: [0.6, 1.0]
+      learning_rate: [0.03, 0.05]
+
+logging:
+  level: INFO
+  stamp_runs: true

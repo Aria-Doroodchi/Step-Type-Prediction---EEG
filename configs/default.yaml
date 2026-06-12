@@ -286,6 +286,13 @@ modeling:
       max_resources: 1000
       factor: 3
       aggressive_elimination: false
+  # Optional cheap univariate pre-filter (ANOVA top-K) fit on the train fold
+  # only, applied BEFORE the correlation drop. The correlation drop builds a
+  # dense p x p matrix per fold (~1.2 GB at 12.3k cols, ~8 GB at 31.7k), which is
+  # the binding wall-clock cost of the rich-feature path; pre-cutting p with a
+  # linear-time ANOVA top-K collapses it. null = legacy/off (no pre-cut); set an
+  # int (e.g. 2000) to enable. Leakage-safe; see models/train._fit_score_split.
+  pre_kbest: null
   correlation_threshold: 0.9
   k_best: 500
   # Feature selection inside each outer fold (fit on train only, applied to

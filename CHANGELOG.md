@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-06-12 — Rich-pooling sub-loop: cheap ANOVA pre-filter (`modeling.pre_kbest`)
+
+Sub-loop on `perf/agentic-improvements` testing cross-subject **partial pooling on the
+RICH ~12k-feature set** (the prior loop ran only on the 2.3k fast set). One code change
+unblocks it; everything else is config + docs.
+
+### Added
+
+- **`modeling.pre_kbest`** (default `null` = legacy/off) — a cheap univariate ANOVA top-K
+  pre-filter in `models/train._fit_score_split`, fit on the **train fold only** and applied
+  **before** the correlation drop. The correlation drop builds a dense `p x p` matrix per
+  fold (~1.2 GB at 12.3k cols, ~8 GB at 31.7k) — the binding wall-clock cost of the rich
+  path, made ~20x heavier by pooling. Cutting `p` with a linear-time top-K first collapses
+  it (XGB_MODEL_SUMMARY §4). Leakage-safe (reuses `feature_selection.select_kbest`); the
+  null default leaves the per-participant path byte-identical. Legacy/opt-out: leave unset
+  or `null`. Enable with an int, e.g. `modeling.pre_kbest: 2000`.
+- **`configs/pooling_compare_rich.yaml`** — rich pooled comparison overlay: blocks
+  `amplitude(0.125, mean) + slopes + psd` (drops `src`+`cnv_benchmark` so all 20 subjects
+  run without the eLORETA b0.125 caches that P35/P39 lack), fresh `cache_tag: rich_nosrc_0125`,
+  the light pooled funnel (k_best 150, stability n_subsamples 8 / n_lambda 5), and
+  `pre_kbest: 2000`.
+
 ## 2026-06-11 — Perf loop concluded: plateau after Round 4 (v2.4.1)
 
 The agentic perf-improvement loop reached its stopping condition (3 consecutive no-win
