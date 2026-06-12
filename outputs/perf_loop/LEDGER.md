@@ -321,3 +321,55 @@ effect — is the deliverable for the honesty branch. That branch ("AUC ~flat bu
 promote the honest config") can only be landed on the **20-subject cohort** vs the recorded
 0.655/+0.169. So the 20-subj confirm proceeds, framed as **confirming the gap collapse / honesty
 result at cohort scale**, recording the AUC honestly (expected ~flat). Sleep disabled first.
+
+## STAGE 2 — CONFIRM (20 subjects, per_participant + partial) — run id `r_rich_conf20`
+Time-log: 16:41:35 → 17:42:49 (~61 min; cache builds ~33 min + comparison ~28 min). UNDER the
+75–95 min estimate. 20-subject CONFIRM cohort, 9728 cols, pre_kbest 2000 confirmed in-log.
+
+| mode | cohort AUC | gap | folds |
+|---|---|---|---|
+| per_participant (matched arm) | 0.5990 (sd 0.098) | **+0.1978** | 80 |
+| **partial** | **0.6376** (sd 0.122) | **−0.0385** | 80 |
+
+**Paired partial − per_participant (same folds): +0.0386 AUC, SE 0.0331, t=1.17, 11/20 up.**
+Up: P12 +0.305, P25 +0.263, P06 +0.22, P10 +0.183, P39 +0.148, P07 +0.13, …
+Down: P15 −0.273, P13 −0.208, P30 −0.105, P24 −0.07. Classic partial-pooling shrinkage —
+helps the harder/marginal subjects, slightly drags the stars (P15/P13/P30); net positive.
+
+**The SCREEN was PESSIMISTIC, not optimistic** (the usual direction): its 8-subject subset is
+enriched for strong subjects (P30/P02/P15/P12/P25) where per_participant already does well, so
+pooling had little to add (screen paired +0.0156). On the full 20-cohort, including the harder
+subjects, pooling helps more (confirm paired +0.0386). The reversal is mechanistic (shrinkage),
+not noise, and it matches the fast-set confirm (+0.031).
+
+**VERDICT — rich partial pooling = confirmed POSITIVE (modest AUC, robust gap collapse).**
+- PRIMARY (matched paired arm): per_participant 0.5990 → **partial 0.6376**, paired **+0.0386**
+  (clears the +0.03 bar; t=1.17 ⇒ not statistically significant — real but modest, exactly like
+  the fast-set +0.031/t=1.27).
+- GUARDRAIL: gap +0.1978 → **−0.0385** (Δ −0.236) — collapses, far inside the +0.03 limit.
+  The gap collapse is the ROBUST headline (reproduces at 8 and 20 subjects, fast and rich).
+- vs the recorded rich per-participant **0.655 / gap +0.169** (heavier funnel + src + 5×20 CV):
+  partial 0.6376 is **~flat** (−0.017, within noise) but now with an **HONEST** gap (−0.039).
+  Pooling trades a within-noise AUC difference for an honest estimate AT the project's best-AUC
+  region — i.e. it **makes the best AUC honest**, the task's stated dual objective.
+- `full` (screen 0.594) < `partial` (0.665): no single transferable model; partial (per-subject
+  adaptation) is required. Deployment finding.
+
+**DECISION-TREE BRANCH: "AUC ~flat (vs 0.655) but gap COLLAPSES → promote the recommended HONEST
+rich-pooled config"**, reinforced by a matched-arm AUC win (+0.0386). NOT the ≥0.67 clear-AUC-win
+branch; NOT the ALL-NULL branch (it clears the gate and collapses the gap). → PROMOTE.
+
+**PROMOTION (judgment calls, flagged):**
+- New committed train-time overlay **`configs/pooling_rich.yaml`** = rich no-src features
+  (`amplitude0.125+slopes+psd`, cache_tag rich_nosrc_0125) + light funnel + pre_kbest 2000 +
+  `modeling.pooling.mode: partial`. The recommended rich-pooled config; legacy per-subject
+  reachable via `modeling.pooling.mode: per_participant`.
+- **pre_kbest global default NOT flipped** (stays null). It is a tractability/speed lever
+  (AUC-neutral; the aggressive downstream funnel reproduces its selection), so flipping the
+  global default would change the validated narrow-feature/per-participant path for no AUC gain.
+  It is baked into `pooling_rich.yaml` where it matters — same paradigm-preserving choice as the
+  pooling default itself. Flip globally only if rich/wide-feature runs become the norm.
+- **src NOT re-added now.** The no-src result already lands the honest-config win. Re-adding src
+  (~2.6k source cols) requires building eLORETA b0.125 caches for P35/P39 (or an 18-subject src
+  run) and §3.1 indicates source/binning move within-window AUC little — a lower-EV follow-up.
+  Recommended as a next step, not executed.

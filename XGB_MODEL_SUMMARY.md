@@ -206,6 +206,13 @@ XGB run that was configured but never aggregated
 > is the concrete motivation for next-step #6 (shrink the feature explosion: ROI
 > restriction, a cheaper pre-filter before correlation drop, or a lower-variance
 > binning).
+>
+> **Implemented (2026-06-12):** the "cheaper pre-filter before correlation drop"
+> is now `modeling.pre_kbest` — a train-fold-only ANOVA top-K applied *before* the
+> correlation drop (default `null` = off; e.g. `2000`). It collapses the quadratic
+> corr-matrix cost and is what made the rich-feature pooling confirm tractable
+> (§3.5). AUC-neutral (the downstream funnel reproduces its selection); enable it
+> on wide-feature runs via [`configs/pooling_rich.yaml`](configs/pooling_rich.yaml).
 
 Because §3.1 already shows that **binning barely moves XGB within a window**
 (five late recipes span only 0.558–0.568), the `full_cnv / stats_pyramid_core`
@@ -272,6 +279,24 @@ default stays `per_participant`). A subsequent 4-round perf loop found **no furt
 the pooled model is at its feature-set ceiling. Full rationale and the other (non-pooling)
 gap remedies are in [`docs/OVERFITTING_GAP_SOLUTIONS.md`](docs/OVERFITTING_GAP_SOLUTIONS.md);
 reproduce with `python scripts/09_pooling_comparison.py --config configs/pooling_compare.yaml`.
+
+**Confirmed on the RICH feature set too** (rich-pooling sub-loop, run `r_rich_conf20`,
+20 subjects, `amplitude0.125+slopes+psd` ≈ 9.7k cols — the recorded rich recipe minus
+`src`+`cnv_benchmark`, with a new `modeling.pre_kbest` ANOVA pre-filter making it tractable):
+
+| mode | cohort AUC | gap |
+|---|---|---|
+| per_participant (matched arm) | 0.5990 | +0.1978 |
+| **partial** | **0.6376** | **−0.0385** |
+
+Paired **+0.0386 AUC** (t=1.17, n.s.) and the **gap collapses +0.198 → −0.039**. vs the
+recorded rich per-participant **0.655 / +0.169** (heavier funnel + src + 5×20 CV) the pooled
+0.6376 is ~flat (−0.017, within noise) but now **honest** — pooling makes the project's
+best-AUC region trustworthy. The pattern matches the fast set (modest, non-significant AUC
+lift; robust gap collapse), now at the higher rich operating point — the rich features and
+pooling are largely **complementary**, not redundant. Recommended rich config:
+[`configs/pooling_rich.yaml`](configs/pooling_rich.yaml); full write-up in
+[`outputs/perf_loop/RICH_POOLING_SUMMARY.md`](outputs/perf_loop/RICH_POOLING_SUMMARY.md).
 
 ---
 

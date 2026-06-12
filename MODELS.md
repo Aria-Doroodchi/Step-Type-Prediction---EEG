@@ -812,6 +812,17 @@ A follow-on 4-round perf loop found no further XGB win — looser funnel, richer
 Legendre shape features are all null at cohort scale (see
 [`outputs/perf_loop/SUMMARY.md`](outputs/perf_loop/SUMMARY.md)).
 
+**Confirmed on the RICH feature set** (rich-pooling sub-loop, `r_rich_conf20`, 20 subjects,
+`amplitude0.125+slopes+psd` ≈ 9.7k cols = recorded rich recipe minus `src`+`cnv_benchmark`;
+a new `modeling.pre_kbest` ANOVA pre-filter before the correlation drop makes it tractable):
+`per_participant` 0.5990 (gap +0.198), **`partial` 0.6376 (gap −0.039)** — paired **+0.0386
+AUC** (t=1.17, n.s.) and the **gap collapses +0.198 → −0.039**. vs the recorded rich
+per-participant **0.655 / +0.169** the pooled 0.6376 is ~flat (within noise) but **honest** —
+pooling makes the project's best-AUC region trustworthy. Same pattern as the fast set, now at
+the higher rich operating point; the two levers are largely complementary. Recommended config
+[`configs/pooling_rich.yaml`](configs/pooling_rich.yaml); write-up in
+[`outputs/perf_loop/RICH_POOLING_SUMMARY.md`](outputs/perf_loop/RICH_POOLING_SUMMARY.md).
+
 > Full rationale and all non-pooling gap remedies (CV restructuring, grid
 > regularization, feature-funnel tightening, metric alignment, calibration) are
 > in [`docs/OVERFITTING_GAP_SOLUTIONS.md`](docs/OVERFITTING_GAP_SOLUTIONS.md).

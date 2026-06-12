@@ -72,9 +72,13 @@ Flip the default if you want it project-wide. Tabular models only; tensor models
 1. **Decide the pooling default.** If cross-subject pooling is acceptable for the thesis,
    flip `configs/default.yaml` `modeling.pooling.mode: partial` (and pin the per-participant
    unit tests). The gap honesty alone may justify it.
-2. **Try pooling on the RICH feature set.** The whole loop ran on the tractable 2.3k set;
-   per-participant on the 12.3k rich set already reaches ~0.655. Pooling there (heavier, was
-   out of in-session scope) is the most likely real AUC gain left.
+2. ~~**Try pooling on the RICH feature set.**~~ **DONE (2026-06-12, rich-pooling sub-loop).**
+   Confirmed on 20 subjects (`r_rich_conf20`, `amplitude0.125+slopes+psd` ≈ 9.7k cols, new
+   `modeling.pre_kbest` pre-filter): `per_participant` 0.5990 → **`partial` 0.6376**, paired
+   **+0.0386** (t=1.17, n.s.), **gap +0.198 → −0.039**. Same pattern as the fast set at the
+   higher rich operating point — modest non-significant AUC lift, robust gap collapse; pooling
+   makes the recorded rich best-AUC (0.655) honest. Promoted: [`configs/pooling_rich.yaml`](../../configs/pooling_rich.yaml).
+   Write-up: [`RICH_POOLING_SUMMARY.md`](RICH_POOLING_SUMMARY.md).
 3. **A dedicated CNN sub-loop.** Screen dropout / temporal-kernel / fusion-unit on the
    8-subject set (budget ~1 h per candidate). The CNN's small gap means there is room to add
    capacity if AUC keeps up.
