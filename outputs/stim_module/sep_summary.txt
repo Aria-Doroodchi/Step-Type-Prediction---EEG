@@ -1,0 +1,7 @@
+n clean participants with SEP: 17
+Uniform-alignment group SEP RMS:  0.167 uV (P2P 0.728)
+Hand-set-alignment group SEP RMS: 0.308 uV (P2P 0.690)
+Ratio uniform/handset (RMS): 0.54x
+Hand-set residual vs uniform (273ms), ms: mean 53.3, SD 41.7
+Cost slope: -0.36 % group-SEP amplitude lost per ms of between-participant alignment jitter SD
+=> with measured between-participant SD ~5 ms, group SEP retains ~105% vs perfect alignment (cost negligible).

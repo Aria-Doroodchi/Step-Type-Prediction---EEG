@@ -1,0 +1,85 @@
+# =====================================================================
+# Foot-sole electrical-stimulation (SEP) module configuration.
+#
+# Sibling to the main EEG step-type pipeline. Merge ON TOP of default.yaml
+# (and local.yaml) — this file only adds a `stim_events` block and does NOT
+# alter any existing pipeline behaviour. The main `events:` block (256/512/96)
+# is untouched; the stim module uses `stim_events:` below instead.
+#
+# Task 1 (trigger-delta calibration) deliverable: see
+# outputs/stim_module/LEDGER.md. Primary input: {raw_root}/Pxx/Pxx_Stim.bdf.
+# =====================================================================
+
+# Trigger codes for the stimulation task (BioSemi `Status` channel) — LOCKED.
+stim_events:
+  one:  256        # "One" audio prompt (straight)
+  two:  512        # "Two" audio prompt (diagonal)
+  stim: 1024       # electrical-stimulation trigger (fires BEFORE the true stim)
+
+  # Per prompt block: 4 × stim (1024). Each 1024 is attributed to the preceding
+  # 256/512 prompt by an explicit walk (scripts/stim_module/stim_common.pair_stims,
+  # analogous to events.py::_pair). Within-train ISI ≈ 520 ms.
+  max_stims_per_prompt: 4
+
+  # -------------------------------------------------------------------
+  # RECOMMENDED uniform trigger→true-stim offset (Task 1 calibration).
+  #
+  # The hardware 1024 trigger fires a near-CONSTANT amount BEFORE the true
+  # stimulus. Measured from the stim ARTIFACT (sharp broadband deflection,
+  # ground truth) in 18/33 clean participants: offset = 273.8 ± 4.9 ms
+  # (between-participant SD), 95% CI on the mean [271.6, 276.1] ms; the artifact
+  # GA is razor-sharp (FWHM ≈ 12 ms) ⇒ trial jitter is small ⇒ a single shift
+  # is appropriate. The offset is constant in TIME, not samples (the two 2048 Hz
+  # recordings land in the same ms cluster), so specify it in SECONDS and convert
+  # per recording:  corrected_sample = stim_sample + round(trigger_offset_s * sfreq)
+  #
+  # Apply uniformly to every participant/condition (One, Two, Control), replacing
+  # ALL the hand-set per-participant/per-condition sample deltas below.
+  trigger_offset_s: 0.273          # 273 ms
+  trigger_offset_ci_ms: [271.6, 276.1]
+  # convenience (informational; the pipeline should compute from sfreq):
+  #   280 samples @ 1024 Hz, 560 samples @ 2048 Hz
+  apply_uniform_offset: true       # false ⇒ fall back to hand_set_deltas below
+
+  # -------------------------------------------------------------------
+  # PROVENANCE — researcher hand-set deltas this offset REPLACES (in SAMPLES,
+  # added to the 1024 sample index in the original Pxx_Stim.py). Kept for the
+  # record only; NOT used when apply_uniform_offset is true. Note these are in
+  # samples and were not rescaled for the 2048 Hz recordings (P02, P11), so they
+  # under-corrected those by ~half — one reason to prefer the uniform TIME offset.
+  hand_set_deltas:     # pid: {sfreq, Control, One, Two}  (samples)
+    #   pid   sfreq    Control  One   Two
+    P01: {sfreq: 1024, Control: null, One: 215, Two: 225}
+    P02: {sfreq: 2048, Control: 233,  One: 221, Two: 242}
+    P03: {sfreq: 1024, Control: 276,  One: 236, Two: 246}
+    P04: {sfreq: 1024, Control: 252,  One: 266, Two: 194}
+    P05: {sfreq: 1024, Control: 266,  One: 266, Two: 266}   # 12-trial fragment
+    P06: {sfreq: 1024, Control: 225,  One: 266, Two: 290}
+    P07: {sfreq: 1024, Control: 262,  One: 266, Two: 266}
+    P08: {sfreq: 1024, Control: 240,  One: 252, Two: 211}
+    P09: {sfreq: 1024, Control: 245,  One: 180, Two: 180}
+    P10: {sfreq: 1024, Control: 210,  One: 263, Two: 263}
+    P11: {sfreq: 2048, Control: 246,  One: 211, Two: 191}
+    P12: {sfreq: 1024, Control: 176,  One: 167, Two: 98}
+    P13: {sfreq: 1024, Control: 241,  One: 241, Two: 241}
+    P14: {sfreq: 1024, Control: 266,  One: 225, Two: 256}
+    P15: {sfreq: 1024, Control: 258,  One: 248, Two: 263}
+    P16: {sfreq: 1024, Control: 262,  One: 277, Two: 277}
+    P17: {sfreq: 1024, Control: 282,  One: 276, Two: 275}
+    P18: {sfreq: 1024, Control: 245,  One: 245, Two: 215}
+    P19: {sfreq: 1024, Control: 205,  One: 219, Two: 266}
+    P21: {sfreq: 1024, Control: 253,  One: 234, Two: 211}
+    P22: {sfreq: 1024, Control: 317,  One: 317, Two: 317}
+    P23: {sfreq: 1024, Control: 256,  One: 256, Two: 256}
+    P24: {sfreq: 1024, Control: 266,  One: 250, Two: 266}
+    P25: {sfreq: 1024, Control: 240,  One: 243, Two: 225}
+    P27: {sfreq: 1024, Control: 266,  One: 266, Two: 266}
+    P28: {sfreq: 1024, Control: 256,  One: 256, Two: 256}
+    P29: {sfreq: 1024, Control: 225,  One: 215, Two: 225}
+    P30: {sfreq: 1024, Control: 272,  One: 256, Two: 256}
+    P31: {sfreq: 1024, Control: 266,  One: 266, Two: 266}
+    P33: {sfreq: 1024, Control: 256,  One: 269, Two: 269}
+    P35: {sfreq: 1024, Control: 262,  One: 266, Two: 266}
+    P37: {sfreq: 1024, Control: 256,  One: 256, Two: 225}
+    P39: {sfreq: 1024, Control: 260,  One: 260, Two: 205}
+    # P26: no Stim.bdf
