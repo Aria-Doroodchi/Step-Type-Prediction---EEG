@@ -539,6 +539,17 @@ def _fit_score_split(
     y_train, y_test = y.iloc[train_idx].copy(), y.iloc[test_idx].copy()
     g_train = np.asarray(groups)[train_idx] if groups is not None else None
 
+    # 0. Optional cheap univariate pre-filter (ANOVA top-K) BEFORE the dense
+    #    correlation drop. Fit on the TRAIN fold only (leakage-safe, like every
+    #    other funnel stage). On wide rich frames (~8k-32k cols) the correlation
+    #    drop builds a p x p matrix whose cost is quadratic in p; cutting p with
+    #    a linear-time ANOVA pre-filter first makes the rich-feature path
+    #    tractable (XGB_MODEL_SUMMARY §4). Default null = legacy/off (no pre-cut).
+    pre_k = mcfg.get("pre_kbest", None)
+    if pre_k not in (None, "none", "None", 0) and int(pre_k) < X_train.shape[1]:
+        keep = fs.select_kbest(X_train, y_train, k=int(pre_k))
+        X_train, X_test = X_train[keep], X_test[keep]
+
     # 1. Correlation drop (cheap)
     keep = fs.correlation_drop(X_train, threshold=float(mcfg.get("correlation_threshold", 0.9)))
     X_train, X_test = X_train[keep], X_test[keep]

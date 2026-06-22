@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-06-12 — Rich-pooling sub-loop: cheap ANOVA pre-filter (`modeling.pre_kbest`)
+
+Sub-loop on `perf/agentic-improvements` testing cross-subject **partial pooling on the
+RICH ~12k-feature set** (the prior loop ran only on the 2.3k fast set). One code change
+unblocks it; everything else is config + docs.
+
+### Added
+
+- **`modeling.pre_kbest`** (default `null` = legacy/off) — a cheap univariate ANOVA top-K
+  pre-filter in `models/train._fit_score_split`, fit on the **train fold only** and applied
+  **before** the correlation drop. The correlation drop builds a dense `p x p` matrix per
+  fold (~1.2 GB at 12.3k cols, ~8 GB at 31.7k) — the binding wall-clock cost of the rich
+  path, made ~20x heavier by pooling. Cutting `p` with a linear-time top-K first collapses
+  it (XGB_MODEL_SUMMARY §4). Leakage-safe (reuses `feature_selection.select_kbest`); the
+  null default leaves the per-participant path byte-identical. Legacy/opt-out: leave unset
+  or `null`. Enable with an int, e.g. `modeling.pre_kbest: 2000`.
+- **`configs/pooling_compare_rich.yaml`** — rich pooled comparison overlay: blocks
+  `amplitude(0.125, mean) + slopes + psd` (drops `src`+`cnv_benchmark` so all 20 subjects
+  run without the eLORETA b0.125 caches that P35/P39 lack), fresh `cache_tag: rich_nosrc_0125`,
+  the light pooled funnel (k_best 150, stability n_subsamples 8 / n_lambda 5), and
+  `pre_kbest: 2000`.
+- **`configs/pooling_rich.yaml`** — committed train-time overlay (the **recommended HONEST
+  rich-pooled config**): the rich no-src frame + light funnel + `pre_kbest: 2000` +
+  `modeling.pooling.mode: partial`. Use `scripts/04_train.py --model xgb --config
+  configs/pooling_rich.yaml`. Legacy/opt-out: `modeling.pooling.mode: per_participant`.
+
+### Result — CONFIRMED rich partial pooling (20-subject cohort, run `r_rich_conf20`)
+
+| arm | cohort AUC | gap |
+|---|---|---|
+| recorded rich per-participant (heavy funnel + src, 5×20 CV) | 0.655 | +0.169 |
+| per_participant (matched: no-src, light funnel) | 0.5990 | +0.1978 |
+| **partial (rich pooled)** | **0.6376** | **−0.0385** |
+
+- **Paired partial − per_participant: +0.0386 AUC** (SE 0.033, t=1.17, 11/20 up) — clears the
+  +0.03 bar; t=1.17 ⇒ real but **not** statistically significant (like the fast set's +0.031).
+- **Gap collapses +0.1978 → −0.0385** — the robust headline; reproduces at 8 and 20 subjects,
+  fast and rich. vs the recorded rich 0.655, the pooled 0.6376 is ~flat (−0.017, within noise)
+  but **honest**. Pooling makes the project's best-AUC region trustworthy.
+- The 8-subject screen was *pessimistic* (+0.0156) — its subset is enriched for strong subjects;
+  the full cohort showed the real lift (shrinkage helps the harder subjects, drags the stars).
+- `pre_kbest` global default stays `null` (tractability lever, AUC-neutral). `pooling.mode`
+  global default stays `per_participant` (paradigm preservation). `src` not re-added (lower-EV).
+- Full write-up: `outputs/perf_loop/RICH_POOLING_SUMMARY.md`; numbers in `LEDGER.md`. 120 tests green.
+
 ## 2026-06-11 — Perf loop concluded: plateau after Round 4 (v2.4.1)
 
 The agentic perf-improvement loop reached its stopping condition (3 consecutive no-win

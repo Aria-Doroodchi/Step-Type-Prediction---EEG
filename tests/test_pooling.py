@@ -150,3 +150,33 @@ def test_invalid_mode_rejected(synthetic_cohort):
 
     with pytest.raises(ValueError):
         pooling.train_pooled(synthetic_cohort, "logistic", mode="bogus")
+
+
+def test_pre_kbest_caps_features_before_funnel(synthetic_cohort):
+    """modeling.pre_kbest cuts the column count before the correlation drop.
+
+    With selection disabled (method=none) the final feature count is governed by
+    the pre-filter, so a small pre_kbest must cap n_features_final at <= K. The
+    pre-filter is fit on the train fold only (it reuses select_kbest, the same
+    leakage-safe ANOVA used downstream), so this only checks the cap + wiring.
+    """
+    from eeg_steptype.models import pooling
+
+    base = pd.DataFrame(pooling.train_pooled(synthetic_cohort, "logistic", mode="partial"))
+    n_base = int(base["n_features_final"].max())
+
+    synthetic_cohort["modeling"]["pre_kbest"] = 5
+    capped = pd.DataFrame(pooling.train_pooled(synthetic_cohort, "logistic", mode="partial"))
+    assert (capped["n_features_final"] <= 5).all()
+    # The cap must actually bind (the synthetic frame has > 5 raw columns).
+    assert n_base > 5
+
+
+def test_pre_kbest_null_is_noop(synthetic_cohort):
+    """Default (pre_kbest unset / null) leaves the funnel unchanged."""
+    from eeg_steptype.models import pooling
+
+    rows_default = pd.DataFrame(pooling.train_pooled(synthetic_cohort, "logistic", mode="partial"))
+    synthetic_cohort["modeling"]["pre_kbest"] = None
+    rows_null = pd.DataFrame(pooling.train_pooled(synthetic_cohort, "logistic", mode="partial"))
+    assert rows_default["n_features_final"].tolist() == rows_null["n_features_final"].tolist()

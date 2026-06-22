@@ -1,0 +1,91 @@
+# =====================================================================
+# RICH-feature cross-subject PARTIAL pooling — recommended HONEST config
+# (rich-pooling sub-loop, confirmed 2026-06-12).
+#
+# Train-time sibling of configs/pooling_compare_rich.yaml (which drives the
+# 3-mode comparison via scripts/09). Layer this on default.yaml to train the XGB
+# pooled-partial model on the RICH feature set:
+#
+#   PYTHONUTF8=1 ./.venv/Scripts/python.exe scripts/04_train.py \
+#       --model xgb --config configs/pooling_rich.yaml
+#
+# WHAT IT IS: the recorded rich recipe `rich_mean_0125`
+# (amplitude0.125+slopes+psd+src+cnv_benchmark, per-participant cohort 0.655,
+# gap +0.169) MINUS src + cnv_benchmark, under cross-subject PARTIAL pooling.
+# Dropping src unblocks all 20 subjects (P35/P39 lack the eLORETA b0.125 caches).
+#
+# CONFIRMED (20-subject CONFIRM cohort, run r_rich_conf20, 9728 cols):
+#   per_participant (matched)  cohort AUC 0.5990   gap +0.198
+#   partial                    cohort AUC 0.6376   gap -0.039   (paired +0.0386, t=1.17)
+# Headline: the inner-vs-outer overfit gap COLLAPSES (+0.198 -> -0.039) and the
+# held-out AUC is ~flat vs the recorded rich 0.655 while becoming HONEST -- i.e.
+# pooling makes the project's best-AUC region trustworthy. vs the matched
+# per-participant arm it is a modest paired AUC win (+0.0386, clears +0.03, but
+# t=1.17 => not statistically significant; the gap collapse is the robust part).
+# `full` (LOSO transfer) < partial on the screen, so per-subject adaptation is
+# required (no single transferable model). See outputs/perf_loop/RICH_POOLING_SUMMARY.md.
+#
+# CACHE_TAG `rich_nosrc_0125` is FRESH (the feature cache key omits the block
+# list); never collides with the existing src-bearing `bin_rich_mean_0125` cache.
+# Changing features.blocks here REQUIRES bumping this tag.
+#
+# LEGACY / opt-out: to train per-subject on this same rich frame, set
+# modeling.pooling.mode: per_participant below. To disable the ANOVA pre-filter,
+# set modeling.pre_kbest: null (slower on the wide frame, same model).
+# =====================================================================
+
+features:
+  bin_n: 0.125
+  min_time: 0.0            # full CNV
+  max_time: 2.0
+  blocks: [amplitude, slopes, psd]   # rich minus src + cnv_benchmark
+  cache_tag: rich_nosrc_0125         # FRESH tag (do not reuse bin_rich_mean_0125)
+  amplitude:
+    bin_widths: [0.125]
+    stats: [mean]
+  freqs:                   # match the recorded rich PSD
+    fmin: 0.1
+    fmax: 40.0
+    fstep: 0.2
+  freq_bands:
+    Subdelta: [0.1,  1.0]
+    Delta:    [1.0,  4.0]
+    Theta:    [4.0,  8.0]
+    Alpha:    [8.0, 13.0]
+    Beta:     [13.0, 30.0]
+    Gamma:    [30.0, 40.0]
+
+modeling:
+  # Cross-subject partial pooling (the confirmed lever). Legacy: per_participant.
+  pooling:
+    mode: partial          # partial | full | per_participant (legacy)
+  # Cheap ANOVA pre-filter before the dense correlation drop (train-fold only).
+  # Tractability lever for the wide rich frame; legacy/off = null.
+  pre_kbest: 2000
+  correlation_threshold: 0.97
+  k_best: 150
+  feature_selection:
+    method: stability
+    stability:
+      n_subsamples: 8
+      n_lambda: 5
+      threshold: 0.55
+      max_features: 40
+      min_features: 6
+  gain_prune:
+    enabled: true
+    refit: true
+    mode: zero
+  shap_prune:
+    enabled: false
+  xgb:
+    n_estimators: 160
+    param_grid:
+      max_depth: [2, 3, 4]
+      min_child_weight: [1, 3]
+      gamma: [0, 0.5, 1.0]
+      reg_lambda: [1, 5, 10]
+      reg_alpha: [0, 0.5]
+      subsample: [0.7, 1.0]
+      colsample_bytree: [0.6, 1.0]
+      learning_rate: [0.03, 0.05]
