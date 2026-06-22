@@ -1,0 +1,4 @@
+clean n=18; uniform offset mean=273.83 ms SD=4.94; onset mean=272.25 ms
+group artifact peak uniform/handset = 2.86x; FWHM uniform=13 ms vs hand-set=22 ms
+hand-set residual vs uniform: mean 48.3 ms, SD 45.5 ms
+cost: at measured between-ptp SD 4.9 ms, an early cortical SEP component (FWHM 30 ms) retains 93.2% of its amplitude vs perfect alignment (negligible). Required precision is ~+-10 ms.

@@ -16,6 +16,7 @@ and regenerable). They are already excluded by `.gitignore`:
 | `data/src`        | Source-localization inputs / intermediates    |
 | `outputs/runs`    | Per-run model outputs                         |
 | `outputs/qc`      | Quality-control artifacts                     |
+| `outputs/stim_module/evokeds` | Stim-module cached per-participant SEP evokeds (.npz) |
 
 Keeping them out of Git solves the "don't bloat the repo" problem but creates a
 new one: **how do you get the same artifacts onto a second machine** without
