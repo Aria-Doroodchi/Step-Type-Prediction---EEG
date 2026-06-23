@@ -39,6 +39,8 @@ def main() -> None:
     p.add_argument("--run-id", default=None)
     p.add_argument("--channel-mode", choices=["full", "roi"], default=None)
     p.add_argument("--cv-mode", choices=["repeated_stratified", "grouped"], default=None)
+    p.add_argument("--ablation", choices=["combined", "window", "electrode", "sep"],
+                   default=None, help="Feature-block ablation arm for the train stage.")
     p.add_argument("--parallel-participants", type=int, default=None)
     p.add_argument("--n-jobs", type=int, default=None)
     p.add_argument("--force", action="store_true")
@@ -50,6 +52,8 @@ def main() -> None:
             "participants"] = int(args.parallel_participants)
     if args.n_jobs is not None:
         cfg.setdefault("resources", {})["n_jobs"] = int(args.n_jobs)
+    if args.ablation is not None:
+        cfg.setdefault("modeling", {})["ablation"] = args.ablation
 
     setup_logging(cfg.get("logging", {}).get("level", "INFO"))
     log = get_logger("run_state")

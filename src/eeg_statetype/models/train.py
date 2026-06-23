@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 import time
 
 import numpy as np
@@ -72,6 +73,33 @@ def _balance_standing(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     return out
 
 
+def _apply_ablation(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """Restrict feature blocks for the ablation.
+
+    arm:
+      'combined'  (all, default)
+      'window'    drop sep      -> amplitude+slopes+psd+src   (brief's SEP test)
+      'electrode' drop sep+src  -> amplitude+slopes+psd       (tests if src helps)
+      'sep'       sep only
+    """
+    arm = str(cfg.get("modeling", {}).get("ablation", "combined")).lower()
+    if arm in ("combined", "all", ""):
+        return df
+    meta = {"condition", "participant_id", "block_id", "epoch"}
+    sep_cols = {c for c in df.columns if c.startswith("sep_")}
+    src_cols = {c for c in df.columns if re.search(r"-(?:lh|rh)_bin_-?\d+$", c)}
+    if arm == "window":
+        keep = [c for c in df.columns if c not in sep_cols]
+    elif arm == "electrode":
+        keep = [c for c in df.columns if c not in sep_cols and c not in src_cols]
+    elif arm == "sep":
+        keep = [c for c in df.columns if c in sep_cols or c in meta]
+    else:
+        raise ValueError(f"unknown ablation arm {arm!r} (combined|window|electrode|sep)")
+    log.info("Ablation '%s': %d -> %d columns", arm, df.shape[1], len(keep))
+    return df[keep]
+
+
 def train_one_participant(participant_id, cfg, model_name, *,
                           channel_mode=None, cv_mode=None) -> list[dict]:
     cfg = apply_participant_override(cfg, participant_id)
@@ -80,6 +108,7 @@ def train_one_participant(participant_id, cfg, model_name, *,
     df = build_for_participant(participant_id, cfg)
     df = _balance_standing(df, cfg)
     df = _apply_channel_selection(df, cfg, model_name, channel_mode=channel_mode)
+    df = _apply_ablation(df, cfg)
     df = df.dropna(axis=1, how="any")
 
     present = [c for c in CLASS_NAMES if c in set(df["condition"])]
@@ -94,7 +123,10 @@ def train_one_participant(participant_id, cfg, model_name, *,
             f"[{participant_id}] too few epochs in smallest class ({counts}); skipped.")
 
     groups = df["block_id"] if "block_id" in df.columns else None
-    X = df.drop(columns=["condition", "participant_id", "block_id"], errors="ignore")
+    # Drop the epoch INDEX from features: per-condition epoch ranges differ
+    # (standing 0..n_stand, stepping 0..~40), so 'epoch' would leak the label.
+    X = df.drop(columns=["condition", "participant_id", "block_id", "epoch"],
+                errors="ignore")
     y = df["condition"].map(LABEL_MAP).astype(int)
     X, y = X.reset_index(drop=True), y.reset_index(drop=True)
     if groups is not None:
@@ -114,6 +146,7 @@ def train_one_participant(participant_id, cfg, model_name, *,
                  i, len(splits), eta.format())
         row.update({k: v for k, v in split.items() if not k.endswith("_idx")})
         row["channel_mode"] = _effective_channel_mode(cfg, model_name, channel_mode)
+        row["ablation"] = str(cfg.get("modeling", {}).get("ablation", "combined"))
         rows.append(row)
     return rows
 

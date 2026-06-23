@@ -1,0 +1,26 @@
+# SCREEN overlay — ~8 representative participants with speedups + reduced CV.
+# Merged on top of configs/state/default.yaml. A real-but-fast preview to pick a
+# baseline and run the ablation before committing the full-32 compute. The full
+# run uses configs/state/default.yaml (full CV) + cohort_fast.yaml.
+#
+# Cohort spans the tricky cases: P02/P11 (2048 Hz Stim), P03 (split Stim),
+# P05 (Stim_1 fragment-replacement), P06 (1024 Stim + 2048 Standing),
+# P29 (2048 Standing + crops), P15/P30 (regular).
+
+participants: [P02, P03, P05, P06, P11, P15, P29, P30]
+
+preprocessing:
+  ica:
+    fit_resample_sfreq: 256        # ~4-8× faster ICA fit; unmixing applied full-res
+
+standing:
+  max_windows: 50                  # cap before per-epoch eLORETA cost
+
+modeling:
+  parallel:
+    participants: -8               # joblib for the train stage
+  cv:
+    n_repeats: 10                  # SCREEN: half the repeats (full run uses 20)
+  feature_selection:
+    stability:
+      n_subsamples: 30
