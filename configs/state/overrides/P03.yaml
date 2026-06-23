@@ -1,0 +1,8 @@
+# P03 — state raw assembly (manual crop/concat).
+# Extracted from the precedent Pxx_Stim_2s.py (Stim) / Pxx_Stim.py (Control).
+# Everything else (bads, ICA, reference, filter, reject) is AUTOMATED.
+raw_assembly:
+  Stim:
+    files:
+      - {path: "P03/P03_Stim.bdf"}
+      - {path: "P03/P03_Stim_2.bdf", tmin: 6, tmax: 543}

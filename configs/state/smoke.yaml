@@ -1,0 +1,21 @@
+# Fast smoke overlay for the state module — merged on top of configs/state/default.yaml.
+# Shrinks CV + funnel so the 3-class pipeline can be validated end-to-end in
+# minutes on 1-2 participants. NOT for real results.
+
+participants: [P06, P03]
+
+modeling:
+  pre_kbest: 1000
+  cv:
+    n_splits: 3
+    n_repeats: 2
+    inner_splits: 2
+  feature_selection:
+    stability:
+      n_subsamples: 10
+      n_lambda: 6
+      max_features: 80
+  search:
+    n_iter: 8
+  xgb:
+    n_estimators: 200

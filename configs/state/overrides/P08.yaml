@@ -1,0 +1,7 @@
+# P08 — state raw assembly (manual crop/concat).
+# Extracted from the precedent Pxx_Stim_2s.py (Stim) / Pxx_Stim.py (Control).
+# Everything else (bads, ICA, reference, filter, reject) is AUTOMATED.
+raw_assembly:
+  Standing:
+    files:
+      - {path: "P08/P08_Standing.bdf", tmin: 0, tmax: 80}

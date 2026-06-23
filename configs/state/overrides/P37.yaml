@@ -1,0 +1,8 @@
+# P37 — state raw assembly (manual crop/concat).
+# Extracted from the precedent Pxx_Stim_2s.py (Stim) / Pxx_Stim.py (Control).
+# Everything else (bads, ICA, reference, filter, reject) is AUTOMATED.
+raw_assembly:
+  Stim:
+    files:
+      - {path: "P37/P37_Stim.bdf", tmin: 0, tmax: 545}
+      - {path: "P37/P37_Stim.bdf", tmin: 562, tmax: 1100}

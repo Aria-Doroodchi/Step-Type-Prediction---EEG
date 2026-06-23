@@ -1,0 +1,11 @@
+# P13 — state raw assembly (manual crop/concat).
+# Extracted from the precedent Pxx_Stim_2s.py (Stim) / Pxx_Stim.py (Control).
+# Everything else (bads, ICA, reference, filter, reject) is AUTOMATED.
+raw_assembly:
+  Stim:
+    files:
+      - {path: "P13/P13_Stim.bdf", tmin: 12, tmax: 543}
+      - {path: "P13/P13_Stim.bdf", tmin: 560, tmax: 1094}
+  Standing:
+    files:
+      - {path: "P13/P13_Standing.bdf", tmin: 4, tmax: 125}

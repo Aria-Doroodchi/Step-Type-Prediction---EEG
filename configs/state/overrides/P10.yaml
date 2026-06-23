@@ -1,0 +1,7 @@
+# P10 — state raw assembly (manual crop/concat).
+# Extracted from the precedent Pxx_Stim_2s.py (Stim) / Pxx_Stim.py (Control).
+# Everything else (bads, ICA, reference, filter, reject) is AUTOMATED.
+raw_assembly:
+  Stim:
+    files:
+      - {path: "P10/P10_Stim.bdf", tmin: 316}

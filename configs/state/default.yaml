@@ -1,0 +1,127 @@
+# =====================================================================
+# State module — 3-class motor-state classification config.
+#
+# This file holds only the DELTAS from the CNV pipeline config. The state
+# loader (eeg_statetype.config.load_config) merges:
+#     configs/default.yaml  <-  configs/local.yaml  <-  THIS  <-  [overlays]
+# so all preprocessing/modeling settings are inherited from the CNV branch and
+# stay in sync; only the dependent variable (2 -> 3 classes), the new SEP
+# feature block, standing-window epoching, and the multiclass XGB objective
+# change here. Per-participant raw-assembly lives in configs/state/overrides/.
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# Cohort: all 32 participants with BOTH Stim+Standing files (user decision
+# 2026-06-23 — include P04/P09/P17/P22 that the CNV branch had dropped).
+# P01 has no Standing; P26 has neither -> excluded. P05_Stim.bdf is a 40 s
+# fragment -> the min-epoch guard will drop it (logged, not crashed).
+# ---------------------------------------------------------------------
+participants:
+  - P02
+  - P03
+  - P04
+  - P05
+  - P06
+  - P07
+  - P08
+  - P09
+  - P10
+  - P11
+  - P12
+  - P13
+  - P14
+  - P15
+  - P16
+  - P17
+  - P18
+  - P19
+  - P21
+  - P22
+  - P23
+  - P24
+  - P25
+  - P27
+  - P28
+  - P29
+  - P30
+  - P31
+  - P33
+  - P35
+  - P37
+  - P39
+
+# Three motor states. Internal label map (eeg_statetype.models.train):
+#   standing -> 0 (Control), straight -> 1 (One/256), diagonal -> 2 (Two/512)
+conditions: [standing, straight, diagonal]
+
+# ---------------------------------------------------------------------
+# State event codes. Cue/response pairing reuses the CNV `events:` block
+# (256/512/96, inherited). `state_events` adds the e-stim code + the Task-1
+# uniform trigger->true-stim offset (mirrors configs/stim.yaml).
+# ---------------------------------------------------------------------
+state_events:
+  one:  256        # straight prompt
+  two:  512        # diagonal prompt
+  response: 96     # cue->response pairing target (stepping window lock)
+  stim: 1024       # foot-sole electrical-stimulation trigger
+  max_stims_per_prompt: 4
+  # Uniform trigger->true-stim offset (stim module Task 1): 273 ms, CI
+  # [271.6, 276.1]. Applied per file as round(0.273 * sfreq) samples.
+  trigger_offset_s: 0.273
+  apply_uniform_offset: true      # false -> fall back to configs/stim.yaml hand_set_deltas
+
+# ---------------------------------------------------------------------
+# Standing 2 s epoching (no cue structure -> windows cut from the continuous
+# recording). Balanced to the stepping count for a clean ~40/40/40 problem.
+# ---------------------------------------------------------------------
+standing:
+  window_s: 2.0
+  method: tiled                   # "tiled" (non-overlapping) | "random"
+  balance: per_class_max          # "per_class_max" (~match stepping/class) | "none" (keep all)
+  random_state: 42
+  drop_stim_edge_s: 0.30          # keep the SEP window in-bounds at window edges
+
+# ---------------------------------------------------------------------
+# Features: CNV's four blocks + the new per-epoch SEP block.
+# (Own cache namespace via io.py features_state/ dir + cache_tag.)
+# ---------------------------------------------------------------------
+features:
+  blocks: [amplitude, slopes, psd, src, sep]
+  cache_tag: state_v1
+  # Per-epoch foot-SEP summaries (eeg_statetype.features.sep). Leakage-safe:
+  # computed from the in-epoch e-stims only (per-prompt for stepping,
+  # time-contained for standing). Components read >=15 ms (after the artifact).
+  sep:
+    vertex_channels: [Cz, C1, C2, FCz, CPz]
+    grid_sfreq: 1024.0            # common ms grid (covers 1024 & 2048 Hz files)
+    tmin: -0.10
+    tmax:  0.30
+    baseline: [-0.05, 0.0]
+    reject_uv: 150.0              # per-epoch peak-to-peak reject (µV)
+    p50_ms:  [40, 50]
+    n90_ms:  [75, 90]
+    window_ms: [15, 130]          # P2P + RMS read window
+    per_channel: true             # emit per-vertex-channel + vertex-mean summaries
+    missing_fill: 0.0             # value for epochs with no usable in-epoch e-stim
+    # Stim-artifact handling for the WINDOW blocks (validity trap #2): blank the
+    # +/- this many ms around each corrected e-stim before amplitude/slopes/psd.
+    blank_window_features: true
+    blank_halfwidth_ms: 12
+
+# ---------------------------------------------------------------------
+# Modeling: binary -> multiclass.
+# ---------------------------------------------------------------------
+modeling:
+  scoring: roc_auc_ovr            # inner-search scoring (macro one-vs-rest AUC); f1_macro alt
+  # Leakage-safe ANOVA pre-filter (fit on the train fold) BEFORE the dense
+  # correlation drop. The rich+SEP feature set is ~19k cols/epoch; the p×p
+  # correlation matrix is otherwise the binding cost. null=off (CNV default).
+  pre_kbest: 2000
+  cv:
+    chronological_check: false    # 3-class temporal folds can miss a class; off by default
+  shap_prune:
+    enabled: false                # multiclass SHAP aggregation is fiddly; gain-prune stays on
+  xgb:
+    objective: "multi:softprob"
+    eval_metric: "mlogloss"
+    num_class: 3

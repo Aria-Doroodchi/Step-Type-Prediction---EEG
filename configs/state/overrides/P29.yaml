@@ -1,0 +1,11 @@
+# P29 — state raw assembly (manual crop/concat).
+# Extracted from the precedent Pxx_Stim_2s.py (Stim) / Pxx_Stim.py (Control).
+# Everything else (bads, ICA, reference, filter, reject) is AUTOMATED.
+raw_assembly:
+  Stim:
+    files:
+      - {path: "P29/P29_Stim.bdf", tmin: 20, tmax: 1098}
+  Standing:
+    files:
+      - {path: "P29/P29_Standing.bdf", tmin: 0, tmax: 38}
+      - {path: "P29/P29_Standing.bdf", tmin: 122, tmax: 273}

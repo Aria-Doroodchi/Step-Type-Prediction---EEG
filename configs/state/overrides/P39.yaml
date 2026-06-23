@@ -1,0 +1,8 @@
+# P39 — state raw assembly (manual crop/concat).
+# Extracted from the precedent Pxx_Stim_2s.py (Stim) / Pxx_Stim.py (Control).
+# Everything else (bads, ICA, reference, filter, reject) is AUTOMATED.
+raw_assembly:
+  Stim:
+    files:
+      - {path: "P39/P39_Stim.bdf", tmin: 0, tmax: 544}
+      - {path: "P39/P39_Stim_2.bdf", tmin: 0, tmax: 544}

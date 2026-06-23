@@ -1,0 +1,20 @@
+# Cohort overlay with speed optimizations — merged on top of configs/state/default.yaml.
+# Makes the 32-participant run tractable. Faithful (no-speedup) results use
+# configs/state/default.yaml directly.
+
+preprocessing:
+  ica:
+    # Downsample ONLY the ICA-fit copy (~4× faster Picard on the long Stim
+    # recordings; the unmixing matrix is applied to the full-res analysis copy).
+    # Mirrors the stim module (ICA_FIT_SF=256). Nyquist 128 Hz > ICLabel's 100 Hz.
+    fit_resample_sfreq: 256
+
+standing:
+  # Cap standing windows before the per-epoch eLORETA / SEP cost. Standing is
+  # balanced down to the stepping count (~40) at train time anyway, so ~50 leaves
+  # slack while cutting src cost on the longer standing recordings.
+  max_windows: 50
+
+modeling:
+  parallel:
+    participants: -8          # joblib: train participants concurrently, inner threads pinned

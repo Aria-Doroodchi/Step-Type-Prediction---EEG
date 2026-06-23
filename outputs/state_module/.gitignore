@@ -1,0 +1,5 @@
+# Generated artifacts — keep only LEDGER.md (+ small CSV summaries if added).
+logs/
+figs/
+qc/
+runs/

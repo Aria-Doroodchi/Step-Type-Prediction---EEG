@@ -1,0 +1,11 @@
+# P07 — state raw assembly (manual crop/concat).
+# Extracted from the precedent Pxx_Stim_2s.py (Stim) / Pxx_Stim.py (Control).
+# Everything else (bads, ICA, reference, filter, reject) is AUTOMATED.
+raw_assembly:
+  Stim:
+    files:
+      - {path: "P07/P07_Stim.bdf"}
+      - {path: "P07/P07_Stim_2.bdf"}
+  Standing:
+    files:
+      - {path: "P07/P07_Standing.bdf", tmin: 20, tmax: 190}
