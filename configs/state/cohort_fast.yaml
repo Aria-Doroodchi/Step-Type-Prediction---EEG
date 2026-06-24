@@ -8,6 +8,11 @@ preprocessing:
     # recordings; the unmixing matrix is applied to the full-res analysis copy).
     # Mirrors the stim module (ICA_FIT_SF=256). Nyquist 128 Hz > ICLabel's 100 Hz.
     fit_resample_sfreq: 256
+    # Fit ICA on a bounded central segment + cap iterations: Picard on the full
+    # ~1080 s Stim recordings converged slowly/hung (one rank-62 file 520 s,
+    # another an indefinite hang). Precedent scripts fit ICA on a ~50 s crop.
+    fit_max_duration_s: 180
+    max_iter: 200
 
 standing:
   # Cap standing windows before the per-epoch eLORETA / SEP cost. Standing is

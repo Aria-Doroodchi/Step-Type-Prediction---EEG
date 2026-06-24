@@ -107,7 +107,21 @@ def _process_source_file(participant_id, cfg, source_file, conds, qc, *, force):
     # the stim module (ICA_FIT_SF=256). Off by default to stay CNV-faithful.
     analysis = _filter.make_analysis_copy(raw, cfg)
     ica_train = _filter.make_ica_training_copy(raw, cfg)
-    fit_sf = cfg.get("preprocessing", {}).get("ica", {}).get("fit_resample_sfreq")
+    icfg = cfg.get("preprocessing", {}).get("ica", {})
+    # Crop the ICA-fit copy to a representative central segment. Picard on the
+    # full ~1080 s Stim recordings converges slowly/unstably (520 s on one rank-62
+    # file, an indefinite hang on another); a bounded segment makes the fit fast
+    # and robust. The researcher's precedent scripts likewise fit ICA on a ~50 s
+    # crop. The unmixing matrix is still applied to the full-res analysis copy.
+    fit_dur = icfg.get("fit_max_duration_s")
+    if fit_dur and float(ica_train.times[-1]) > float(fit_dur):
+        mid = float(ica_train.times[-1]) / 2.0
+        lo = max(0.0, mid - float(fit_dur) / 2.0)
+        hi = min(float(ica_train.times[-1]), lo + float(fit_dur))
+        log.info("[%s/%s] cropping ICA-fit copy to %.0f s (%.0f-%.0f s) for speed",
+                 participant_id, source_file, float(fit_dur), lo, hi)
+        ica_train.crop(tmin=lo, tmax=hi)
+    fit_sf = icfg.get("fit_resample_sfreq")
     if fit_sf and float(ica_train.info["sfreq"]) > float(fit_sf):
         log.info("[%s/%s] downsampling ICA-fit copy %.0f -> %.0f Hz for speed",
                  participant_id, source_file, ica_train.info["sfreq"], float(fit_sf))

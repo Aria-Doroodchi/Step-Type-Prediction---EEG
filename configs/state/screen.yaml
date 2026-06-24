@@ -12,6 +12,8 @@ participants: [P02, P03, P05, P06, P11, P15, P29, P30]
 preprocessing:
   ica:
     fit_resample_sfreq: 256        # ~4-8× faster ICA fit; unmixing applied full-res
+    fit_max_duration_s: 180        # fit ICA on a 180 s central segment (robust on long Stim files)
+    max_iter: 200                  # cap Picard iterations (prevents non-convergence hangs)
 
 standing:
   max_windows: 50                  # cap before per-epoch eLORETA cost
