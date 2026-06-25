@@ -199,3 +199,41 @@ Naive sequential cohort ETA (32 participants): preprocess ~7 h (ICA-bound) +
 src ~6 h + features ~1.5 h + train (parallelizable). Optimizations available:
 ICA-fit downsampling (≈4× faster ICA), capping standing windows before src,
 joblib participant parallelism. To be decided at the checkpoint.
+
+---
+
+## 2026-06-24 ~09:25 — INCIDENT: 22 h SCREEN stall — root-caused + fixed (git 555cb8a)
+
+### What happened
+The first SCREEN build (launched 06-23 10:23) **silently stalled for ~22 h**. The
+python process died mid-ICA on **P05's Stim file** (10:42:46) and the background
+shell hung without emitting a completion event, so no notification fired and the
+run was waited on blind. P02/P03 preprocessed fine; P06 had faithful epochs from
+the smoke; src/features never started.
+
+### Root cause — Picard ICA on the long Stim recordings (NOT memory/sleep)
+- 44 GB RAM free → **not OOM**; no kernel-power sleep and no app-error event at
+  the freeze. The downsampling WAS applied to every file.
+- But ICA fit time on the ~1080 s Stim files was wildly variable and convergence-
+  bound, not sample-bound: P02 Stim 64 s, **P03 Stim 520 s** (rank 62),
+  **P05 Stim hung indefinitely** (rank 58). Standing files (~135 s) were all fine
+  (15–26 s). ⇒ Picard converges slowly/unstably on the long recordings.
+
+### Fix (validated)
+1. **Fit ICA on a bounded central segment** (`preprocessing.ica.fit_max_duration_s
+   = 180`) + cap iterations (`max_iter = 200`). The researcher's own precedent
+   scripts fit ICA on a ~50 s crop; the unmixing is still applied full-res. **P05
+   Stim ICA: hang → 14.8 s; P05 now fully preprocesses in 3.2 min** (straight 40 /
+   diagonal 40 / standing 50, 4.00 e-stims/epoch — P05 is usable via Stim_1.bdf).
+2. **Process-isolated cohort runner** (`scripts/state_module/run_cohort.py`): each
+   (participant, stage) in its own subprocess with per-stage timeouts
+   (preprocess 1200 s / src 3000 s / features 900 s), resumable, writing a
+   heartbeat to `outputs/state_module/logs/cohort_progress.txt`. A future hang is
+   now killed by the timeout and the batch continues; progress is monitored live.
+
+### Lesson
+One long-lived process for the whole cohort is fragile + unobservable. Long runs
+must be process-isolated, timeout-guarded, and actively monitored (not waited on
+via a single completion notification).
+
+### Now running (monitored): robust SCREEN build (8 participants, fast config).
