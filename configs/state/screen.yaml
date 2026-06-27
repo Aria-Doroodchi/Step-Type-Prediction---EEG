@@ -26,3 +26,14 @@ modeling:
   feature_selection:
     stability:
       n_subsamples: 30
+  # Right-sized hyperparameter SEARCH budget for the directional SCREEN preview
+  # (NOT a CV/validity reduction). The default xgb halving search (n_iter=100,
+  # up to 1000 trees) single-threaded was ~74 s/fold -> ~5 h for 4 arms. A
+  # lighter search keeps the ablation directional at ~1 h; the full-32 run uses
+  # the full search for final numbers.
+  search:
+    n_iter: 30
+    halving:
+      max_resources: 400
+  xgb:
+    n_estimators: 400

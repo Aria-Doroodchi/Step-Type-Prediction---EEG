@@ -237,3 +237,50 @@ must be process-isolated, timeout-guarded, and actively monitored (not waited on
 via a single completion notification).
 
 ### Now running (monitored): robust SCREEN build (8 participants, fast config).
+
+---
+
+## 2026-06-26 ~21:10 — SCREEN BASELINE + ABLATION (8 participants, full CV)
+
+First real cohort result. SCREEN cohort = P02 P03 P05 P06 P11 P15 P29 P30 (covers
+2048 Hz Stim, split Stim, fragment-replacement, mixed-sfreq, crops, regular).
+xgb, per-participant nested CV `repeated_stratified` 5×10 (n_repeats=10).
+Search budget right-sized for the preview (n_iter=30, n_estimators=400); the
+full-32 run will use the full search. Figures in `outputs/state_module/figs/`.
+
+### 4-arm ablation (cohort macro-OVR AUC ± CI95; chance: AUC 0.5 / acc 0.333)
+| arm | blocks | macroAUC | acc | standing | straight | diagonal | overfit gap |
+|---|---|---|---|---|---|---|---|
+| **combined** | amp+slopes+psd+src+sep | **0.869±0.006** | 0.718 | 0.976 | 0.602 | 0.578 | 0.042 |
+| **window** | amp+slopes+psd+src | 0.869±0.006 | 0.717 | 0.974 | 0.601 | 0.577 | 0.043 |
+| **electrode** | amp+slopes+psd | 0.864±0.006 | 0.707 | 0.979 | 0.586 | 0.556 | 0.048 |
+| **sep** | sep only | 0.599±0.009 | 0.417 | 0.526 | 0.366 | 0.360 | 0.020 |
+
+### Verdicts (the deliverable questions)
+- **Does the SEP block add signal beyond the CNV window features? → NO.**
+  combined == window (0.869 vs 0.869, identical per-class recall). The 36 SEP
+  features are leakage-safe and carry weak *standalone* signal (sep-only 0.599),
+  but are redundant against the ~19k window features and get filtered out in
+  selection. (Confirms the P06 smoke at cohort scale.)
+- **Does `src` (per-epoch eLORETA) earn its compute? → NO (barely helps).**
+  window 0.869 vs electrode 0.864 = **+0.005 AUC** for src — negligible vs its
+  ~3–5 s/epoch cost (the low single-trial variance-explained, 5–12%, predicted
+  this). **Recommendation: drop `src` (and `sep`) for the full-32 run** → the
+  `electrode` set (amp+slopes+psd) gives 0.864, ~all the signal, and removes the
+  ~5 h eLORETA bottleneck.
+- **Which states are separable?** standing is near-perfectly detected (recall
+  ~0.97–0.98); straight vs diagonal is the hard part (~0.58 each). **Validity
+  caveat (trap #2):** standing's separability is partly the stim-rhythm confound,
+  not only motor state — artifacts are blanked but the blank *pattern* differs by
+  condition. The confound-free comparison is **straight vs diagonal** (both
+  stepping, identical stim structure): ~0.58 recall, modestly above the 0.5
+  two-way chance — i.e. the original CNV binary signal persists in the 3-class
+  setting. A stim-artifact-only control is the remaining check (Phase 4).
+- All arms honest: inner-vs-outer overfit gap 0.02–0.05.
+
+### Recommendation for the full-32 run
+Use the **`electrode`** feature set (amp+slopes+psd; drop src + sep), full CV
+(5×20) and full search. This drops the eLORETA stage entirely (~hours saved) for
+−0.005 AUC. Keep the SEP/src code + the combined config as documented null
+results. Smoke-validated speed/robustness fixes (ICA-fit crop, idle-sleep
+disabled, process-isolated resumable runner) carry over.
