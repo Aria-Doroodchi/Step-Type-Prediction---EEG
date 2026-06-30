@@ -38,6 +38,19 @@ def _load_participants(config: str) -> list[str]:
     return list(load_config([config] if config else None)["participants"])
 
 
+def keep_system_awake() -> bool:
+    """Hold ES_SYSTEM_REQUIRED so the machine doesn't idle-sleep mid-build."""
+    import platform
+    if platform.system() != "Windows":
+        return False
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)
+        return True
+    except Exception:
+        return False
+
+
 def _hb(msg: str) -> None:
     line = f"{datetime.now():%Y-%m-%d %H:%M:%S}  {msg}"
     print(line, flush=True)
@@ -77,7 +90,8 @@ def main():
 
     pids = args.participants or _load_participants(args.config)
     _hb(f"==== COHORT START: {len(pids)} participants, stages={args.stages}, "
-        f"config={args.config}, force={args.force} ====")
+        f"config={args.config}, force={args.force}, keep-awake="
+        f"{'ON' if keep_system_awake() else 'off'} ====")
     summary = []
     for i, pid in enumerate(pids, 1):
         for stage in args.stages:

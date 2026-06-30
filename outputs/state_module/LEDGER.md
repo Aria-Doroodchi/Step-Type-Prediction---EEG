@@ -278,9 +278,41 @@ full-32 run will use the full search. Figures in `outputs/state_module/figs/`.
   setting. A stim-artifact-only control is the remaining check (Phase 4).
 - All arms honest: inner-vs-outer overfit gap 0.02–0.05.
 
-### Recommendation for the full-32 run
-Use the **`electrode`** feature set (amp+slopes+psd; drop src + sep), full CV
-(5×20) and full search. This drops the eLORETA stage entirely (~hours saved) for
-−0.005 AUC. Keep the SEP/src code + the combined config as documented null
-results. Smoke-validated speed/robustness fixes (ICA-fit crop, idle-sleep
-disabled, process-isolated resumable runner) carry over.
+### Recommendation for the full-32 run (REVISED at n=20 — see below)
+At n=8 the `electrode` set looked sufficient (src only +0.005). At n=20 src adds
++0.023 and clearly helps the confound-free stepping discrimination, so it is
+worth keeping. SEP remains droppable. Smoke-validated speed/robustness fixes
+(ICA-fit crop, idle-sleep disabled, process-isolated resumable runner) carry over.
+
+---
+
+## 2026-06-29 ~22:40 — 20-PARTICIPANT BUILD + RETRAIN (config screen20.yaml)
+
+Built 12 more participants (P04 P07 P08 P09 P10 P12 P13 P14 P16 P17 P18 P19) with
+the SCREEN config incl. `src` (user decision), then retrained the 3-class model +
+4-arm ablation on all **20** (P02 P03 P04 P05 P06 P07 P08 P09 P10 P11 P12 P13 P14
+P15 P16 P17 P18 P19 P29 P30). Build per participant ~11-12 min (preprocess ~3 +
+src ~6.6 + features ~1.5; all 1024 Hz). Ran in a detached visible PowerShell
+window (idle-sleep disabled + keep-awake); survived a Claude-session restart.
+Reused the 8 trained participants from checkpoints.
+
+### 20-participant ablation (macro-OVR AUC ± CI95; chance AUC 0.5 / acc 0.333)
+| arm | macroAUC | acc | mF1 | standing | straight | diagonal | gap |
+|---|---|---|---|---|---|---|---|
+| **combined** | **0.886±0.004** | 0.748 | 0.742 | 0.950 | 0.658 | 0.636 | 0.043 |
+| **window** | 0.885±0.004 | 0.745 | 0.739 | 0.945 | 0.658 | 0.632 | 0.043 |
+| **electrode** | 0.862±0.005 | 0.710 | 0.701 | 0.962 | 0.590 | 0.577 | 0.056 |
+| **sep** | 0.573±0.007 | 0.396 | 0.385 | 0.458 | 0.361 | 0.370 | 0.031 |
+
+### Verdicts at n=20 (vs n=8)
+- **SEP adds nothing — HOLDS.** combined 0.886 ≈ window 0.885 (identical within CI),
+  same as n=8. SEP standalone weak (0.573).
+- **`src` (eLORETA): VERDICT SHIFTED.** window 0.885 vs electrode 0.862 = **+0.023
+  AUC** (was +0.005 at n=8), and it lifts the confound-free stepping recall by
+  ~0.06–0.07 (straight 0.658 vs 0.590; diagonal 0.632 vs 0.577). So src is worth
+  keeping for the full run — the n=8 "drop src" call was premature; with more
+  participants its contribution to straight-vs-diagonal is material.
+- **Headline improves with n:** combined macro-AUC 0.869→0.886, acc 0.718→0.748,
+  and stepping recall 0.60/0.58→0.66/0.64 — more data sharpens the hard classes.
+  Honest throughout (overfit gap 0.043). Standing still ~0.95 (confound caveat
+  unchanged; the artifact-only control is still pending).

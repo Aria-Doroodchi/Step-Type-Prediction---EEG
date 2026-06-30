@@ -1,0 +1,31 @@
+# 20-participant config — the SCREEN 8 + the next 12 (full feature set, incl. src).
+# Same settings as configs/state/screen.yaml so the 12 new participants are
+# byte-for-byte consistent with the 8 already processed; only the participant
+# list grows to 20. Used for the combined build + retrain.
+
+participants: [P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12, P13, P14,
+               P15, P16, P17, P18, P19, P29, P30]
+
+preprocessing:
+  ica:
+    fit_resample_sfreq: 256
+    fit_max_duration_s: 180
+    max_iter: 200
+
+standing:
+  max_windows: 50
+
+modeling:
+  parallel:
+    participants: -8
+  cv:
+    n_repeats: 10
+  feature_selection:
+    stability:
+      n_subsamples: 30
+  search:
+    n_iter: 30
+    halving:
+      max_resources: 400
+  xgb:
+    n_estimators: 400

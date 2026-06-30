@@ -50,12 +50,13 @@ def keep_system_awake() -> bool:
         return False
 
 
-def main(model: str = "xgb"):
+def main(model: str = "xgb", config: str = "configs/state/screen.yaml"):
     setup_logging("INFO")
     log = get_logger("state.screen_ablation")
     log.info("keep-system-awake: %s", "ON" if keep_system_awake() else "unavailable")
-    cfg = load_config(["configs/state/screen.yaml"])
+    cfg = load_config([config])
     pids = list(cfg["participants"])
+    log.info("ablation on %d participants (config=%s)", len(pids), config)
 
     rollups: dict[str, pd.DataFrame] = {}
     metrics: dict[str, pd.DataFrame] = {}
@@ -90,4 +91,5 @@ def main(model: str = "xgb"):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "xgb")
+    main(sys.argv[1] if len(sys.argv) > 1 else "xgb",
+         sys.argv[2] if len(sys.argv) > 2 else "configs/state/screen.yaml")
