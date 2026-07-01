@@ -179,7 +179,7 @@ def build_html():
       <div><strong>Prepared by:</strong> <span class="placeholder">[your name]</span></div>
       <div><strong>For:</strong> <span class="placeholder">[supervisor name]</span></div>
       <div><strong>Affiliation:</strong> <span class="placeholder">Sunnybrook Research Institute</span></div>
-      <div><strong>Date:</strong> June 2026 &middot; 20-participant run</div>
+      <div><strong>Date:</strong> June 2026 &middot; full 32-participant cohort</div>
     </div>
   </header>
 
@@ -203,16 +203,16 @@ def build_html():
   gets their own model, tested only on their own held-out data.</p>
 
   <div class="cards">
-    <div class="card"><div class="big">0.89</div><div class="lab">average score (macro-AUC), where 0.50&nbsp;=&nbsp;chance</div></div>
-    <div class="card"><div class="big">75%</div><div class="lab">three-way accuracy (chance&nbsp;=&nbsp;33%)</div></div>
-    <div class="card"><div class="big">20</div><div class="lab">participants, each with their own model</div></div>
+    <div class="card"><div class="big">0.88</div><div class="lab">average score (macro-AUC), where 0.50&nbsp;=&nbsp;chance</div></div>
+    <div class="card"><div class="big">73%</div><div class="lab">three-way accuracy (chance&nbsp;=&nbsp;33%)</div></div>
+    <div class="card"><div class="big">32</div><div class="lab">participants (the full cohort), each with their own model</div></div>
   </div>
 
   <div class="callout key"><span class="lab">Headline</span>
-    <p>Across twenty participants, the model separates the three motor states with an average
-    <strong>macro-AUC of 0.886</strong> (chance = 0.50) and <strong>75% accuracy</strong> (chance =
+    <p>Across all thirty-two participants, the model separates the three motor states with an average
+    <strong>macro-AUC of 0.878</strong> (chance = 0.50) and <strong>73% accuracy</strong> (chance =
     33%), and it does so honestly — the gap between its optimistic internal score and its real
-    held-out score is tiny (0.04). <strong>Standing is almost always identified correctly; telling a
+    held-out score is tiny (0.05). <strong>Standing is almost always identified correctly; telling a
     straight step from a diagonal one is the hard part.</strong> A controlled comparison (Section 7)
     shows that a planned new <em>foot-stimulation</em> feature adds essentially nothing on top of the
     basic scalp features, while the <em>brain-source</em> feature adds a small but real boost to the
@@ -290,7 +290,7 @@ def build_html():
   vertex sensors. Critically, each epoch's SEP is built <em>only from its own pulses</em> — never shared
   across trials — so it cannot secretly leak the answer.</p>
 
-  {fig("fig_condition_erp.png", "The average brain signal over the 2-second window at the top of the head, for each state, across the twenty participants. Standing (grey) sits apart from the two stepping states; straight (blue) and diagonal (orange) overlap heavily — a first visual hint that standing is easy to spot but the two step types are hard to tell apart.", 5)}
+  {fig("fig_condition_erp.png", "The average brain signal over the 2-second window at the top of the head, for each state, across the thirty-two participants. Standing (grey) sits apart from the two stepping states; straight (blue) and diagonal (orange) overlap heavily — a first visual hint that standing is easy to spot but the two step types are hard to tell apart.", 5)}
 
   {fig("fig_sep.png", "The foot-stimulation response (SEP) at the vertex, averaged across participants, for each state. The small deflections after the pulse are the brain's sensory response. The traces differ only modestly between states — consistent with the result (Section 7) that this feature adds little once the ordinary scalp features are present.", 6)}
 
@@ -309,7 +309,7 @@ def build_html():
   three states. Each per-person model is then scored on held-out epochs it never saw.</p>
 
   <h2 id="results">7 &nbsp;Results: which states are separable, and what helps</h2>
-  <p>The headline numbers come from twenty participants with the full honest test. To find out <em>which
+  <p>The headline numbers come from all thirty-two participants with the full honest test. To find out <em>which
   features actually matter</em>, we ran the same analysis four times, each time with a different feature
   set — an <strong>ablation</strong>. This is the most informative result in the report.</p>
 
@@ -318,30 +318,30 @@ def build_html():
   <table>
     <thead><tr><th>Feature set</th><th>What's included</th><th>Macro-AUC</th><th>3-way accuracy</th></tr></thead>
     <tbody>
-      <tr><td><strong>Combined</strong></td><td>everything (scalp + brain-source + foot-SEP)</td><td><strong>0.886</strong></td><td>75%</td></tr>
-      <tr><td><strong>Window</strong></td><td>scalp + brain-source (no foot-SEP)</td><td>0.885</td><td>74%</td></tr>
+      <tr><td><strong>Combined</strong></td><td>everything (scalp + brain-source + foot-SEP)</td><td><strong>0.878</strong></td><td>73%</td></tr>
+      <tr><td><strong>Window</strong></td><td>scalp + brain-source (no foot-SEP)</td><td>0.877</td><td>73%</td></tr>
       <tr><td><strong>Electrode</strong></td><td>scalp features only (amplitude, slopes, power)</td><td>0.862</td><td>71%</td></tr>
-      <tr><td><strong>SEP only</strong></td><td>just the foot-stimulation feature</td><td>0.573</td><td>40%</td></tr>
+      <tr><td><strong>SEP only</strong></td><td>just the foot-stimulation feature</td><td>0.584</td><td>40%</td></tr>
     </tbody>
   </table>
 
   <div class="callout key"><span class="lab">Two clean answers</span>
     <p><strong>Does the new foot-SEP feature add anything?</strong> No. "Combined" and "Window" score
-    identically (0.886 vs 0.885), so once the ordinary scalp features are present, the foot-SEP is
-    redundant — although on its own it does carry a weak signal (0.57). <strong>Do the expensive
+    identically (0.878 vs 0.877), so once the ordinary scalp features are present, the foot-SEP is
+    redundant — although on its own it does carry a weak signal (0.58). <strong>Do the expensive
     brain-source features earn their keep?</strong> Yes, modestly — removing them drops the score by
-    0.023 (0.885 → 0.862), and more tellingly it costs ~6&ndash;7 points of accuracy on the hard
-    straight-vs-diagonal distinction (66/63% &rarr; 59/58%). (In an earlier 8-person preview this gap
-    looked negligible; with more people the brain-source contribution became clear.)</p>
+    0.015 (0.877 → 0.862), and more tellingly it costs ~4 points of accuracy on the hard
+    straight-vs-diagonal distinction (63/61% &rarr; 59/57%). (In an early 8-person preview this gap
+    looked negligible; across the full cohort the brain-source contribution is small but consistent.)</p>
   </div>
 
   <p>The <strong>confusion matrix</strong> shows <em>where</em> the accuracy comes from: rows are the
   true state, columns are the model's guess, and the diagonal counts correct calls.</p>
 
-  {fig("fig_confusion.png", "Three-by-three confusion matrix across the twenty participants. Standing is identified almost perfectly (~95% of standing epochs correct). The errors concentrate in the bottom-right block: straight and diagonal steps are most often confused <em>with each other</em> (~64–66% correct each), not with standing.", 10)}
+  {fig("fig_confusion.png", "Three-by-three confusion matrix across all thirty-two participants. Standing is identified almost perfectly (~96% of standing epochs correct). The errors concentrate in the bottom-right block: straight and diagonal steps are most often confused <em>with each other</em> (~61–63% correct each), not with standing.", 10)}
 
   <p>So the three states are <strong>not</strong> equally easy. Per-class accuracy is about
-  <strong>95% for standing, 66% for straight, and 64% for diagonal</strong>. Standing is trivially
+  <strong>96% for standing, 63% for straight, and 61% for diagonal</strong>. Standing is trivially
   separable from movement; the genuinely hard sub-problem — telling a straight step from a diagonal one —
   is exactly the original step-type question, and it sits modestly above its own two-way chance line.</p>
 
@@ -369,7 +369,7 @@ def build_html():
 
   <h2 id="next">9 &nbsp;Summary and next steps</h2>
   <p>In plain terms: <strong>a 2-second EEG window distinguishes standing, straight stepping, and
-  diagonal stepping well above chance</strong> (macro-AUC 0.89, accuracy 75% versus 33%), with an honest
+  diagonal stepping well above chance</strong> (macro-AUC 0.88, accuracy 73% versus 33%), with an honest
   test. Standing is easy (with the confound caveat above); separating the two step types is the hard,
   meaningful part. The controlled comparison was decisive: the new foot-SEP feature adds nothing beyond
   the basic scalp measurements, whereas the brain-source features give a small but real boost to the
@@ -377,10 +377,9 @@ def build_html():
 
   <p><strong>Where this goes next:</strong></p>
   <ul>
-    <li><strong>Finish the full group.</strong> Twenty of the thirty-two participants are done; the
-      remaining twelve are the next step. The ablation says to <strong>keep the brain-source features</strong>
-      (they help straight-vs-diagonal) but <strong>drop the foot-SEP block</strong> (redundant), trimming
-      the feature set without losing accuracy.</li>
+    <li><strong>The full cohort is complete (all 32 participants).</strong> The ablation's guidance for a
+      production feature set: <strong>keep the brain-source features</strong> (they give a small,
+      consistent lift to straight-vs-diagonal) and <strong>drop the foot-SEP block</strong> (redundant).</li>
     <li><strong>Run the stimulation-artefact control</strong> to pin down how much of the standing result
       is the rhythm confound versus genuine motor state.</li>
     <li><strong>Focus on straight-vs-diagonal</strong>, the confound-free core problem, and connect it back
@@ -405,12 +404,12 @@ def build_html():
     <dt>XGBoost</dt><dd>The model used here: hundreds of small decision trees added together, each correcting the previous ones' mistakes.</dd>
   </dl>
 
-  <p class="foot">A 20-participant run of the 3-class motor-state classifier, the three-way sibling of
-  the EEG step-type project. Per-participant nested cross-validation; cohort macro-AUC 0.886, 3-way
-  accuracy 75% (chance 33%), inner-vs-outer gap 0.04. Figures 2&ndash;4, 7&ndash;8 are explanatory
-  schematics shared with the step-type report; Figures 1, 5&ndash;6, 9&ndash;11 are generated from this
-  project's own data and results. Bracketed yellow fields on the title page are placeholders to be
-  filled in. The remaining 12 of 32 participants are pending.</p>
+  <p class="foot">The full 32-participant cohort run of the 3-class motor-state classifier, the
+  three-way sibling of the EEG step-type project. Per-participant nested cross-validation; cohort
+  macro-AUC 0.878, 3-way accuracy 73% (chance 33%), inner-vs-outer gap 0.05. Figures 2&ndash;4,
+  7&ndash;8 are explanatory schematics shared with the step-type report; Figures 1, 5&ndash;6, 9&ndash;11
+  are generated from this project's own data and results. Bracketed yellow fields on the title page are
+  placeholders to be filled in. Cohort complete (32/32).</p>
 
 </div></body></html>"""
 

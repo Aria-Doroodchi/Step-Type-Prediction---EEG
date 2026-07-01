@@ -316,3 +316,37 @@ Reused the 8 trained participants from checkpoints.
   and stepping recall 0.60/0.58→0.66/0.64 — more data sharpens the hard classes.
   Honest throughout (overfit gap 0.043). Standing still ~0.95 (confound caveat
   unchanged; the artifact-only control is still pending).
+
+---
+
+## 2026-06-30 ~23:30 — FULL 32-PARTICIPANT COHORT (config screen32.yaml)
+
+Built the final 12 (P21 P22 P23 P24 P25 P27 P28 P31 P33 P35 P37 P39) and
+retrained the 3-class model + 4-arm ablation on ALL 32 (every participant with
+both Stim+Standing recordings). Same config as the 20-run (reduced search, full
+CV n_repeats=10) so the 20 trained participants were reused. Detached visible
+PowerShell window; survived a session restart. This is the definitive cohort result.
+
+### 32-participant ablation (macro-OVR AUC ± CI95; chance AUC 0.5 / acc 0.333)
+| arm | macroAUC | acc | mF1 | standing | straight | diagonal | gap |
+|---|---|---|---|---|---|---|---|
+| **combined** | **0.878±0.003** | 0.734 | 0.728 | 0.964 | 0.628 | 0.611 | 0.047 |
+| **window** | 0.877±0.003 | 0.733 | 0.727 | 0.962 | 0.629 | 0.607 | 0.047 |
+| **electrode** | 0.862±0.003 | 0.710 | 0.702 | 0.973 | 0.585 | 0.570 | 0.056 |
+| **sep** | 0.584±0.005 | 0.404 | 0.393 | 0.465 | 0.375 | 0.372 | 0.029 |
+
+### Final verdicts (n=8 → 20 → 32 trajectory)
+- **SEP adds nothing — CONFIRMED at full cohort.** combined 0.878 ≈ window 0.877
+  (within CI). Consistent across all three sample sizes. SEP standalone weak
+  (0.584). → Drop the SEP block for production.
+- **`src` (eLORETA) adds a modest but real boost — KEEP.** window 0.877 vs
+  electrode 0.862 = **+0.015 AUC** (trajectory +0.005 → +0.023 → +0.015), and it
+  lifts the confound-free stepping recall by ~0.04 (straight 0.629 vs 0.585;
+  diagonal 0.607 vs 0.570). The n=8 "drop src" call was premature; at the full
+  cohort src earns its keep for the hard straight-vs-diagonal problem.
+- **Headline (full cohort): macro-OVR AUC 0.878 ± 0.003, acc 0.734, gap 0.047.**
+  Tight CI. Per-class: standing 0.96 (confound caveat unchanged — artifact-only
+  control still the key pending check), straight 0.63, diagonal 0.61. The
+  confound-free straight-vs-diagonal recall (~0.62) is the honest core signal.
+- Cohort now COMPLETE (32/32). Report regenerated to n=32:
+  `outputs/reports/state_3class_2026-06-26/EEG_State_Report.html`.
