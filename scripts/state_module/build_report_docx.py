@@ -176,8 +176,9 @@ def build():
     r = title.add_run("Reading Motor State"); r.bold = True; r.font.size = Pt(30); r.font.color.rgb = RGBColor.from_string(BLUE)
     r.add_break(); r2 = title.add_run("from Brain Activity"); r2.bold = True; r2.font.size = Pt(30); r2.font.color.rgb = RGBColor.from_string(BLUE)
     sub = doc.add_paragraph(); sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    rs = sub.add_run("Telling apart three states - standing, stepping straight, and stepping diagonally - "
-                     "from EEG, with one model per person. A companion to the straight-vs-diagonal step-type project.")
+    rs = sub.add_run("Single-trial classification of three motor states - quiet stance, straight stepping, "
+                     "and diagonal stepping - from 64-channel scalp EEG, with a per-participant model and "
+                     "nested cross-validation. A companion to the straight-vs-diagonal step-type project.")
     rs.font.size = Pt(13); rs.font.color.rgb = RGBColor.from_string(MUTED); rs.italic = True
     for _ in range(2): doc.add_paragraph()
     for lab, val in [("Prepared by:", "[your name]"), ("For:", "[supervisor name]"),
@@ -193,9 +194,9 @@ def build():
     # ----- 1 -----
     heading(doc, "1   The short version", 1)
     para(doc, "This is the three-way sibling of the step-type project. Instead of asking *straight or "
-         "diagonal?*, it asks a broader question: **from a two-second window of EEG, can we tell whether a "
-         "person is standing still, stepping straight, or stepping diagonally?** Each person gets their own "
-         "model, tested only on their own held-out data.")
+         "diagonal?*, it poses a broader decoding question: **from a single two-second epoch of 64-channel "
+         "EEG, can we recover the participant's motor state - quiet stance, straight stepping, or diagonal "
+         "stepping?** Each participant is modelled separately and scored only on their own held-out epochs.")
     metric_cards(doc, [("0.88", "average score (macro-AUC), where 0.50 = chance"),
                        ("73%", "three-way accuracy (chance = 33%)"),
                        ("32", "participants (full cohort), each with their own model")])
@@ -211,38 +212,45 @@ def build():
 
     # ----- 2 -----
     heading(doc, "2   What the project is trying to do", 1)
-    para(doc, "The step-type project showed that the brain's **preparation signal** carries a faint trace of "
-         "*which way* a person is about to step. This project widens the lens from two step-types to **three "
-         "motor states**: standing still, stepping straight, and stepping diagonally. The motivation is the "
-         "same - to read movement-related information directly from brain activity - but the three-way "
-         "version is a stepping stone toward decoding a richer set of states.")
-    para(doc, "Because there are now **three** possible answers, a model that guessed randomly would be right "
-         "only **one third (33%)** of the time. Anything reliably above that means the EEG genuinely "
-         "distinguishes the states. We keep the project's core principle: **one model per person**, each "
-         "judged only on data it has never seen.")
+    para(doc, "The step-type project showed that the pre-movement **contingent negative variation (CNV)** - "
+         "the slow anticipatory potential of the warning-imperative foreperiod - carries a faint trace of "
+         "*which way* a participant is about to step. This project widens the scope from two step-types to "
+         "**three motor states**: quiet stance, straight stepping, and diagonal stepping, decoded from the "
+         "ongoing sensorimotor EEG rather than only the preparatory window. It is a step toward decoding a "
+         "richer state repertoire from a single montage.")
+    para(doc, "With **three** classes, a naive model would reach only **one third (33%)** accuracy; anything "
+         "reliably above that indicates the EEG genuinely separates the states. We retain the project's core "
+         "design: **one model per participant**, each evaluated only on epochs it never saw during training "
+         "or tuning.")
 
     # ----- 3 -----
     heading(doc, "3   The three states and where the data come from", 1)
-    para(doc, "The data come from two separate EEG recordings per participant, which between them supply the "
-         "three states. Throughout, a single **two-second slice** of the 64-sensor recording is called an "
-         "**epoch** - one example the model learns from.")
-    figure(doc, "fig_paradigm.png", "How the three states are defined. Stepping (top, from the Stim "
-           "recording): after a cue tells the person which way to step, we lock a 2-second window to their "
-           "response; straight and diagonal come from two different cues. Standing (bottom, from the "
-           "Standing recording): there are no cues, so we cut random 2-second windows from the continuous "
-           "recording. In both recordings the sole of the foot is gently electrically stimulated every "
-           "half-second (orange ticks), which evokes a tiny brain response (inset) used as an optional "
-           "extra feature.", 1)
-    bullet(doc, "**Stepping straight / diagonal** - from the *Stim* recording. A cue tells the person the "
-           "direction; ~2 s later they step. We take the 2-second window locked to their response, exactly "
-           "as in the step-type project (~40 of each per person).")
-    bullet(doc, "**Standing** - from the *Standing* recording. The person simply stands; with no cues, we "
-           "cut non-overlapping 2-second windows from the continuous recording and balance their number to "
-           "the stepping trials, so the three states are evenly represented.")
-    para(doc, "One quirk of this study is that throughout *both* recordings, the sole of the foot receives a "
-         "gentle electrical pulse roughly twice a second. Each pulse evokes a small, brief response in the "
-         "brain's sensory areas - a **somatosensory evoked potential (SEP)** - which we explored as an extra "
-         "source of information (Section 5).")
+    para(doc, "Each participant contributes two continuous 64-channel recordings (BioSemi, 1024 or 2048 Hz) "
+         "that between them supply the three states. Throughout, a single **2 s epoch** of the 64-channel "
+         "montage is one exemplar for the classifier.")
+    figure(doc, "fig_paradigm.png", "The three-state paradigm and epoching. Stepping (top, Stim recording): "
+           "a warning-imperative structure in which an S1 direction cue (event code 256 = straight, 512 = "
+           "diagonal) precedes the response / gait onset (code 96); the analysis epoch is response-locked "
+           "over [-0.1, +2.0] s. Standing (bottom, Standing recording): no cue structure, so non-overlapping "
+           "2 s windows are tiled from the continuous record and count-balanced to the stepping trials. A "
+           "continuous foot-sole electrical-stimulation train (gold ticks; ~2 Hz, 0.52 s ISI) runs through "
+           "both recordings; each pulse evokes a low-amplitude vertex somatosensory evoked potential (inset; "
+           "P50/N90), with the stimulator trigger offset from the true cutaneous pulse by a calibrated "
+           "273 ms.", 1)
+    bullet(doc, "**Straight / diagonal stepping** - from the *Stim* recording. The S1 cue signals the "
+           "direction; the participant steps ~2 s later. Epochs are locked to the paired response (code 96) "
+           "over [-0.1, +2.0] s, exactly as in the step-type project (~40 trials per direction).")
+    bullet(doc, "**Quiet stance** - from the *Standing* recording. With no cue structure, non-overlapping "
+           "2 s windows are tiled from the continuous record and down-sampled to the stepping count, giving "
+           "a balanced ~40/40/40 three-class problem per participant.")
+    para(doc, "A methodological feature of this dataset is that a foot-sole electrical stimulator runs "
+         "*continuously* - at ~2 Hz (0.52 s ISI) - across *both* the stepping and standing recordings. "
+         "Because the stimulation train is present and matched in every state, it is not a between-state cue "
+         "in itself; rather, each pulse evokes a small cortical **somatosensory evoked potential (SEP)** at "
+         "the vertex, which we exploited as an additional per-epoch feature family (Section 5). The "
+         "stimulator trigger is offset from the true cutaneous pulse by a fixed **273 ms** (calibrated "
+         "cohort-wide; 95% CI [271.6, 276.1] ms), applied per recording as round(0.273 x sfreq) samples to "
+         "accommodate the mixed 1024/2048 Hz sampling.")
 
     # ----- 4 -----
     heading(doc, "4   The prediction engine: a 3-way XGBoost model", 1)
@@ -263,33 +271,53 @@ def build():
 
     # ----- 5 -----
     heading(doc, "5   What the model looks at: the features", 1)
-    para(doc, "Each 2-second epoch is summarised into a long list of **features** - interpretable numbers "
-         "describing the brain signal. We reuse the four families from the step-type project, computed by "
-         "chopping the window into short **time bins** (each ~1/16 s):")
-    for t in ["**Amplitude** - how high or low the signal sits at each sensor and time-slice.",
-              "**Slopes** - whether the signal is rising or falling, and how steeply.",
-              "**Power (frequency bands)** - the strength of the brain's rhythms (delta ... gamma).",
-              "**Source localisation** - an estimate (via eLORETA) of *where* in the brain the activity "
-              "arises, across ~150 regions."]:
+    para(doc, "Each 2 s epoch is reduced to a large feature vector of interpretable single-trial measures. "
+         "We reuse the four families from the step-type pipeline, each computed per channel and per "
+         "**62.5 ms (1/16 s) time bin**:")
+    for t in ["**Amplitude** - the mean potential within each bin: the binned single-trial ERP.",
+              "**Slopes** - the within-bin temporal gradient (first derivative), indexing the *rate* of "
+              "change rather than the absolute level.",
+              "**Spectral power** - single-trial band power from a Morlet-wavelet time-frequency "
+              "decomposition, summarised in the canonical bands (delta, theta, alpha, beta, gamma).",
+              "**Source estimates** - a distributed inverse solution (eLORETA) projected onto the fsaverage "
+              "template cortex and parcellated with the Destrieux atlas (aparc.a2009s, ~150 ROIs)."]:
         bullet(doc, t)
-    figure(doc, "fig_binning.png", "Turning a continuous wave into numbers. The window is chopped into short "
-           "equal time-slices and the signal in each is summarised - every bar becomes one feature. Repeated "
-           "over every sensor, band and brain region, this yields roughly 19,500 candidate features per "
-           "epoch.", 4)
-    para(doc, "**The new ingredient - a foot-stimulation feature (“SEP”).** Because the foot is "
-         "being stimulated throughout, we added a fifth, novel feature family unique to this project: for "
-         "each epoch we average the tiny brain responses to the ~4 foot-pulses that fall inside it, and "
-         "measure the size and timing of the two characteristic peaks (around 50 and 90 ms after the pulse) "
-         "over the vertex sensors. Critically, each epoch's SEP is built *only from its own pulses* - never "
-         "shared across trials - so it cannot secretly leak the answer.")
-    figure(doc, "fig_condition_erp.png", "The average brain signal over the 2-second window at the top of "
-           "the head, for each state, across the thirty-two participants. Standing (grey) sits apart from "
-           "the two stepping states; straight (blue) and diagonal (orange) overlap heavily - a first visual "
-           "hint that standing is easy to spot but the two step types are hard to tell apart.", 5)
-    figure(doc, "fig_sep.png", "The foot-stimulation response (SEP) at the vertex, averaged across "
-           "participants, for each state. The traces differ only modestly between states - consistent with "
-           "the result (Section 7) that this feature adds little once the ordinary scalp features are "
-           "present.", 6)
+    figure(doc, "fig_binning.png", "Turning a continuous waveform into features. Each 2 s epoch is divided "
+           "into non-overlapping 62.5 ms bins and summarised per bin; across channels, bins, bands and "
+           "source ROIs this yields ~19,500 candidate features per epoch.", 4)
+    callout(doc, "A note on referencing - CSD (surface Laplacian)",
+            ["The scalp-electrode features (amplitude, slopes, power) are computed not on the raw "
+             "average-referenced potentials but on their **current source density (CSD)** transform - the "
+             "surface Laplacian of the scalp field. CSD is a reference-free spatial high-pass filter that "
+             "sharpens the topography of superficial radial generators and suppresses volume-conducted and "
+             "far-field activity; it is expressed here in arbitrary units. The trade-off is that, as a "
+             "spatial second derivative, CSD also amplifies high-spatial-frequency and broadband noise - "
+             "which is why the grand-average display below (Figure 5) is drawn from the average-reference "
+             "(uV) epochs rather than the CSD ones, even though the classifier's window features use CSD."])
+    para(doc, "**The novel block - a per-epoch foot-SEP.** Because the sole is stimulated throughout, we "
+         "added a fifth feature family unique to this project, read from the *average-reference* (non-CSD) "
+         "epochs - the vertex foot-SEP is a deep, largely tangential paracentral generator that the surface "
+         "Laplacian would attenuate. For each analysis epoch we average the SEPs of its own in-epoch pulses "
+         "(~4 per 2 s window), baseline-correct (-50 to 0 ms), and read fixed a-priori vertex components - "
+         "an early positivity (**P50**, 40-50 ms window) and the dominant negativity (**N90**, 75-90 ms "
+         "window; grand-average trough ~65-75 ms), plus peak-to-peak and RMS over 15-130 ms, across the "
+         "vertex montage [Cz, C1, C2, FCz, CPz], with the read window starting >=15 ms to exclude the "
+         "stimulus artifact. (*P50/N90* are latency-defined labels for the vertex foot-SEP peaks, not the "
+         "canonical tibial-nerve P37/N45 nomenclature - plantar cutaneous stimulation evokes a later, sub-uV "
+         "complex.) The block is **leakage-safe by construction**: every epoch's SEP is built only from that "
+         "epoch's own pulses, never a per-condition average broadcast across trials.")
+    figure(doc, "fig_condition_erp.png", "Grand-average vertex window ERP per state (average reference, uV; "
+           "zero-phase 6 Hz low-pass for display), across all thirty-two participants. Standing (blue) stays "
+           "near baseline, whereas both stepping states show a large early positivity (~0.2 s, around "
+           "response / gait onset) followed by a sustained negativity that is deepest for diagonal. The two "
+           "stepping waveforms share a similar early positivity but diverge through the sustained negativity; "
+           "at the single-trial level, though, quiet stance is trivially separable whereas straight vs "
+           "diagonal remains subtle. The classifier's window features are the CSD transform of these "
+           "signals; the display is in uV for legibility.", 5)
+    figure(doc, "fig_sep.png", "Grand-average vertex foot-SEP per state (average reference, uV), time-locked "
+           "to the true (offset-corrected) pulse. The evoked complex is low-amplitude (sub-uV): a weak P50 "
+           "positivity and a dominant N90 trough. The three states are near-identical - consistent with the "
+           "ablation (Section 7), where the SEP block adds nothing beyond the window features.", 6)
 
     # ----- 6 -----
     heading(doc, "6   How the model is built and tested", 1)
@@ -315,8 +343,8 @@ def build():
          "feature set - an **ablation**. This is the most informative result in the report.")
     figure(doc, "fig_ablation.png", "The ablation. Each bar is the cohort macro-AUC for a different feature "
            "set (chance = 0.50, dashed). The full set (combined) and the set without the foot-SEP (window) "
-           "are identical; dropping the brain-source features too (electrode) costs a little. The foot-SEP "
-           "on its own (sep) lands only modestly above chance.", 9)
+           "are identical; dropping the eLORETA source features too (electrode) costs a small but real "
+           "~0.015 macro-AUC. The foot-SEP on its own (sep) lands only modestly above chance.", 9)
     simple_table(doc, ["Feature set", "What's included", "Macro-AUC", "3-way accuracy"], [
         ["**Combined**", "everything (scalp + brain-source + foot-SEP)", "**0.878**", "73%"],
         ["**Window**", "scalp + brain-source (no foot-SEP)", "0.877", "73%"],
@@ -347,63 +375,69 @@ def build():
            "0.50, dashed). Bottom: overall accuracy (chance 0.333, dashed). Every participant is clearly "
            "above chance on both measures, with the usual person-to-person variation.", 11)
     callout(doc, "The honesty check",
-            ["A model that is overfitting scores far higher on its own tuning data than on unseen data. Here "
-             "the gap between the two is only **0.05**, and every participant clears chance on the truly "
-             "held-out epochs. The 0.88 figure is a real, not inflated, estimate for the full cohort."],
+            ["An overfit model scores far higher on its own tuning data than on unseen data. Here the "
+             "inner-vs-outer gap is only **0.05**, and every participant clears chance on the truly held-out "
+             "epochs - so the 0.878 figure is a fair, not inflated, estimate for the full 32-participant "
+             "cohort."],
             accent=GREEN, fill="F1F8F3")
 
     # ----- 8 -----
-    heading(doc, "8   An honest caveat: the stimulation-rhythm confound", 1)
+    heading(doc, "8   An honest caveat: the standing-stepping movement asymmetry", 1)
     callout(doc, "Read this before over-interpreting standing",
-            ["Standing being identified almost perfectly is partly *too* easy. During standing the foot is "
-             "stimulated in a steady half-second rhythm; during stepping the pulses come in a short cluster "
-             "and then stop. That difference in **stimulation rhythm** - not necessarily brain state - can by "
-             "itself separate standing from stepping. We actively blank the electrical-pulse artefacts before "
-             "computing features, but the blanking pattern itself still differs between the states, so some "
-             "of the standing performance may reflect the experiment's structure rather than the brain.",
-             "This is why the **straight-vs-diagonal** comparison is the scientifically clean one: both are "
-             "stepping, with the identical pulse structure, so any separation there is genuine "
-             "movement-related brain signal. A planned stimulation-artefact-only control will quantify how "
-             "much of the standing result is confound versus real motor state."],
+            ["Near-perfect detection of standing should not be read as near-perfect decoding of a *cortical* "
+             "state. Because the foot-stimulation train is continuous and matched across all three states "
+             "(Section 3), it is *not* a between-state confound here - and we additionally blank the "
+             "+/-12 ms stimulus-artifact intervals before extracting the window features. What still "
+             "separates standing from stepping is the obvious factor: **gross movement**. Stepping entails "
+             "whole-body motion, and with it postural EMG, motion and cable artifact, and genuine "
+             "sensorimotor cortical engagement; quiet stance has none of these. Some of the standing-stepping "
+             "separability is therefore **non-neural** (movement-related artifact) rather than a pure "
+             "motor-state readout - an asymmetry no reference scheme fully removes.",
+             "This is precisely why the **straight-vs-diagonal** contrast is the scientifically clean one: "
+             "both are stepping, with matched movement *and* matched stimulation, so any separation there "
+             "reflects genuine direction-related sensorimotor activity - the original step-type signal, now "
+             "embedded in the three-class setting. Partitioning the standing result into movement-related "
+             "artifact versus true motor-state signal (e.g. via EMG / accelerometer regressors or "
+             "artifact-matched controls) is the natural next check."],
             accent=WARN, fill="FDF6EE")
 
     # ----- 9 -----
     heading(doc, "9   Summary and next steps", 1)
-    para(doc, "In plain terms: **a 2-second EEG window distinguishes standing, straight stepping, and "
-         "diagonal stepping well above chance** (macro-AUC 0.88, accuracy 73% versus 33%), with an honest "
-         "test. Standing is easy (with the confound caveat above); separating the two step types is the "
-         "hard, meaningful part. The controlled comparison was decisive: the new foot-SEP feature adds "
-         "nothing beyond the basic scalp measurements, whereas the brain-source features give a small but "
-         "real boost to the hard straight-vs-diagonal distinction.")
+    para(doc, "In summary: **a single 2 s EEG epoch separates quiet stance, straight stepping and diagonal "
+         "stepping well above chance** (macro-AUC 0.878, accuracy 73% vs 33% chance), under an honest nested "
+         "cross-validation estimate. Standing is near-ceiling - subject to the movement-asymmetry caveat "
+         "above - while the meaningful, artifact-matched problem is straight vs diagonal. The ablation was "
+         "decisive: the per-epoch foot-SEP adds nothing beyond the window features, whereas the eLORETA "
+         "source estimates give a small but consistent lift (+0.015 macro-AUC) to the hard "
+         "straight-vs-diagonal distinction.")
     para(doc, "**Where this goes next:**")
-    bullet(doc, "**The full cohort is complete (all 32 participants).** The ablation's guidance for a "
-           "production feature set: **keep the brain-source features** (a small, consistent lift to "
-           "straight-vs-diagonal) and **drop the foot-SEP block** (redundant).")
-    bullet(doc, "**Run the stimulation-artefact control** to pin down how much of the standing result is the "
-           "rhythm confound versus genuine motor state.")
-    bullet(doc, "**Focus on straight-vs-diagonal**, the confound-free core problem, and connect it back to "
-           "the step-type project's findings.")
+    bullet(doc, "**The full 32-participant cohort is complete.** Ablation-guided production feature set: "
+           "**keep the eLORETA source block** (a small, consistent lift to straight-vs-diagonal) and "
+           "**drop the foot-SEP block** (redundant against the window features).")
+    bullet(doc, "**Partition the standing result** into movement-related artifact versus genuine motor-state "
+           "signal - e.g. with EMG / accelerometer regressors or artifact-matched controls - since the "
+           "continuous, matched stimulation already rules out a stimulation-rhythm explanation.")
+    bullet(doc, "**Focus on straight-vs-diagonal**, the artifact-matched core problem, and relate it back to "
+           "the CNV step-type findings.")
 
     # ----- GLOSSARY -----
-    heading(doc, "Plain-language glossary", 1)
+    heading(doc, "Glossary (modelling & statistics)", 1)
     for term, defn in [
-        ("EEG", "Recording the brain's electrical activity with sensors on the scalp."),
-        ("Epoch / trial", "One ~2-second recording across all sensors - one example for the model."),
-        ("Motor state", "Here, one of three: standing, stepping straight, or stepping diagonally."),
-        ("Feature", "A single number summarising one aspect of an epoch."),
-        ("SEP (somatosensory evoked potential)", "The brain's small response to a touch/stimulation of the "
-         "body - here, the electrical pulse to the sole of the foot."),
-        ("Macro-AUC", "The three-class performance score: for each state, how well it is separated from the "
-         "other two, averaged. 0.50 = chance, 1.00 = perfect."),
-        ("Accuracy", "The fraction of epochs whose state the model gets exactly right. Chance here is 1/3."),
-        ("Ablation", "Re-running the analysis with parts of the feature set removed, to see what each "
-         "contributes."),
-        ("Confusion matrix", "A table of true state versus predicted state; the diagonal counts correct calls."),
-        ("Overfitting", "When a model memorises its training data instead of learning a general rule."),
-        ("Cross-validation", "Repeatedly holding out part of the data as an unseen test to estimate "
-         "real-world performance fairly."),
-        ("XGBoost", "The model used here: hundreds of small decision trees added together, each correcting "
-         "the previous ones' mistakes."),
+        ("Feature", "A single number summarising one aspect of an epoch (e.g. band power at one channel in "
+         "one time bin)."),
+        ("Macro-AUC", "Macro-averaged one-vs-rest area under the ROC curve: for each state, how well it "
+         "separates from the other two, then averaged. 0.50 = chance, 1.00 = perfect."),
+        ("Accuracy", "Fraction of epochs assigned the correct state. Chance is 1/3 (33%) for three balanced "
+         "classes."),
+        ("Ablation", "Re-running the analysis with feature blocks removed, to isolate each block's "
+         "contribution."),
+        ("Confusion matrix", "A table of true versus predicted state; the diagonal counts correct calls, the "
+         "off-diagonal the errors."),
+        ("Overfitting", "When a model fits its training data rather than a generalisable rule - high "
+         "internal scores, poor held-out scores."),
+        ("Nested cross-validation", "An outer split scores the finished model; a separate inner split makes "
+         "all tuning and feature-selection choices, so the reported score is not inflated."),
+        ("XGBoost", "The classifier used here: an additive ensemble of gradient-boosted decision trees."),
     ]:
         p = doc.add_paragraph(); p.paragraph_format.space_after = Pt(4)
         rt = p.add_run(term + " - "); rt.bold = True; rt.font.color.rgb = RGBColor.from_string('16324F')

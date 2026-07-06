@@ -21,7 +21,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import mne
 
-from ..io import epochs_path, sep_epochs_path, outputs_root, ensure_dir
+from ..io import (
+    epochs_path,
+    source_epochs_path,
+    sep_epochs_path,
+    outputs_root,
+    ensure_dir,
+)
 from ..logging_utils import get_logger
 from ..models.evaluate import CLASS_NAMES
 
@@ -91,8 +97,14 @@ def per_participant_bars(metrics: pd.DataFrame, out: Path) -> None:
     log.info("wrote %s", out)
 
 
-def _grand_average(cfg: dict, pids: list[str], path_fn, picks) -> tuple | None:
-    """Return (times, {cond: mean_waveform}) averaging vertex channels across pids."""
+def _grand_average(cfg: dict, pids: list[str], path_fn, picks,
+                   reref: bool = False) -> tuple | None:
+    """Return (times, {cond: mean_waveform}) averaging vertex channels across pids.
+
+    ``reref`` re-references each epochs object to the common average before
+    reading — used for the window ERP, which is drawn from the non-CSD
+    (average-reference) analysis epochs so the trace is in interpretable µV.
+    """
     acc: dict[str, list] = {c: [] for c in CLASS_NAMES}
     times = None
     for pid in pids:
@@ -104,6 +116,11 @@ def _grand_average(cfg: dict, pids: list[str], path_fn, picks) -> tuple | None:
                 ep = mne.read_epochs(str(p), preload=True, verbose="ERROR")
             except Exception:
                 continue
+            if reref:
+                try:
+                    ep.set_eeg_reference("average", projection=False, verbose="ERROR")
+                except Exception:
+                    pass
             chans = [c for c in picks if c in ep.ch_names]
             if not chans:
                 continue
@@ -122,18 +139,36 @@ def _grand_average(cfg: dict, pids: list[str], path_fn, picks) -> tuple | None:
 
 
 def condition_erp(cfg: dict, pids: list[str], out: Path) -> None:
-    res = _grand_average(cfg, pids, epochs_path, VERTEX)
+    # Drawn from the non-CSD average-reference analysis epochs (state_source_epochs)
+    # so the trace is in interpretable µV rather than the surface-Laplacian a.u.
+    # the classifier's window features use. The CSD transform is a high-pass
+    # spatial filter that amplifies broadband/high-spatial-frequency noise, which
+    # made the CSD version of this display figure needlessly spiky.
+    res = _grand_average(cfg, pids, source_epochs_path, VERTEX, reref=True)
     if res is None:
         log.warning("condition_erp: no epochs; skipping.")
         return
     times, waves = res
+    # Display low-pass: the slow window ERP lives below ~5 Hz, whereas the
+    # phase-locked foot-stim artifact and residual step-related EMG are sharp/
+    # broadband. A zero-phase 6 Hz low-pass isolates the ERP for display without
+    # touching the features the model actually uses.
+    fc = 6.0
+    try:
+        from scipy.signal import butter, filtfilt
+        fs = 1.0 / float(np.median(np.diff(times)))
+        b, a = butter(4, fc / (fs / 2.0), btype="low")
+        waves = {c: filtfilt(b, a, w) for c, w in waves.items()}
+        lp_note = f"  (zero-phase {fc:.0f} Hz low-pass, display only)"
+    except Exception:
+        lp_note = ""
     fig, ax = plt.subplots(figsize=(8, 4.5))
     for cond, w in waves.items():
-        ax.plot(times, w, label=cond, lw=1.8)
+        ax.plot(times, w, label=cond, lw=2.0)
     ax.axvline(0, color="k", ls=":", lw=0.8)
     ax.set_xlabel("time (s)")
-    ax.set_ylabel("vertex CSD (a.u.)")
-    ax.set_title("Per-condition grand-average vertex window ERP")
+    ax.set_ylabel("vertex µV (average reference)")
+    ax.set_title("Per-condition grand-average vertex window ERP" + lp_note)
     ax.legend()
     fig.tight_layout()
     fig.savefig(out, dpi=120)
