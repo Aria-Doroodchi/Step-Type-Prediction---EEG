@@ -292,4 +292,25 @@ uniform AutoReject-local epoch repair/rejection.
 
 ## License
 
-TBD
+Released under the [MIT License](LICENSE) — free to use, modify, and
+redistribute (including commercially), provided the copyright notice and
+license text are retained.
+
+Copyright (c) 2026 Ali Doroodchi
+
+## Citation
+
+If you use this software, its models, or its results in academic work, please
+cite it. GitHub's **"Cite this repository"** sidebar — generated from
+[`CITATION.cff`](CITATION.cff) — exports ready-made APA and BibTeX entries.
+BibTeX example:
+
+```bibtex
+@software{doroodchi_steptype_eeg_2026,
+  author  = {Doroodchi, Ali},
+  title   = {Step-Type Prediction from EEG Signals},
+  year    = {2026},
+  version = {2.5.0},
+  url     = {https://github.com/Aria-Doroodchi/Step-Type-Prediction---EEG}
+}
+```
