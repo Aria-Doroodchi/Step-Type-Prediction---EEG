@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, its models, or its results, please cite it as below."
+title: "Step-Type Prediction from EEG Signals"
+abstract: >-
+  A per-participant nested cross-validation pipeline that classifies step type
+  (straight vs diagonal) from EEG contingent negative variation (CNV) signals,
+  using classical (XGBoost) and neural (CNN/EEGNet) models. Developed as an MSc
+  thesis project.
+type: software
+authors:
+  - family-names: Doroodchi
+    given-names: Ali
+version: 2.5.0
+date-released: 2026-07-07
+license: MIT
+repository-code: "https://github.com/Aria-Doroodchi/Step-Type-Prediction---EEG"
+url: "https://github.com/Aria-Doroodchi/Step-Type-Prediction---EEG"
+keywords:
+  - EEG
+  - contingent negative variation
+  - motor preparation
+  - gait
+  - machine learning
+  - XGBoost
+  - nested cross-validation
