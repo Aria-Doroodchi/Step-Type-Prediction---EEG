@@ -35,6 +35,9 @@ outputs/figs/
 outputs/*.log
 outputs/*.log.done
 
+# state-module run logs (large, regenerable) — keep figs/qc/runs artifacts tracked
+outputs/state_module/logs/
+
 # perf-loop run logs are large (90 MB+) and regenerable; keep the LEDGER /
 # SUMMARY markdown and the harness scripts (aggregate.py, screen.sh, *.sh) tracked.
 outputs/perf_loop/*.log

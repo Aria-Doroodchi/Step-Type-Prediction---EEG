@@ -1,0 +1,409 @@
+paths:
+  raw_root: C:\Users\Ali D\OneDrive - The University of Western Ontario\MSc\Thesis\Data\Participants
+  data_dir: C:\Users\Ali D\Documents\ML\data
+  outputs_dir: C:\Users\Ali D\Documents\ML\outputs
+  bdf_subdir: ''
+  epochs_subdir: C:\Users\Ali D\Documents\ML\bad_interpolated\Epochs\CNV
+participants:
+- P02
+- P03
+- P04
+- P05
+- P06
+- P07
+- P08
+- P09
+- P10
+- P11
+- P12
+- P13
+- P14
+- P15
+- P16
+- P17
+- P18
+- P19
+- P21
+- P22
+- P23
+- P24
+- P25
+- P27
+- P28
+- P29
+- P30
+- P31
+- P33
+- P35
+- P37
+- P39
+conditions:
+- standing
+- straight
+- diagonal
+resources:
+  n_jobs: -8
+channel_selection:
+  mode: full
+  roi:
+    name: medial_foot_motor
+    channels:
+    - Cz
+    - FCz
+    - CPz
+    - C1
+    - C2
+    - FC1
+    - FC2
+    - CP1
+    - CP2
+    - C3
+    - C4
+    - FC3
+    - FC4
+    - CP3
+    - CP4
+    - Fz
+    - Pz
+participant_overrides:
+  mode: raw_assembly_only
+events:
+  one: 256
+  two: 512
+  response: 96
+preprocessing:
+  filter:
+    bandpass:
+    - 0.1
+    - 40
+    ica_highpass: 1.0
+  line_noise:
+    method: zapline
+    freq: 60
+    nremove: 1
+  reference:
+    csd:
+      lambda2: 1.0e-05
+      stiffness: 4
+  bads:
+    method: auto
+    random_state: 42
+    ransac: true
+    channel_wise: false
+    reject_by_annotation: omit
+  asr:
+    enabled: true
+    k: 20
+  ica:
+    method: picard
+    extended: true
+    n_components: rank_minus_one
+    random_state: 97
+    max_iter: 200
+    iclabel_artifact_prob_threshold: 0.8
+    artifact_labels:
+    - eye blink
+    - muscle artifact
+    - heart beat
+    - line noise
+    - channel noise
+    fit_resample_sfreq: 256
+    fit_max_duration_s: 180
+  epoch:
+    tmin: -0.1
+    tmax: 2.0
+    baseline:
+    - null
+    - 0.0
+  reject:
+    method: autoreject
+    n_interpolate:
+    - 1
+    - 4
+    - 8
+    - 16
+    consensus:
+    - 0.2
+    - 0.4
+    - 0.6
+    - 0.8
+    cv: 10
+    random_state: 42
+    n_jobs: null
+  qc_report: true
+source_localization:
+  subjects_dir: .
+  src_file: fsaverage/bem/fsaverage-ico-5-src.fif
+  bem_file: fsaverage/bem/fsaverage-5120-5120-5120-bem-sol.fif
+  trans_file: fsaverage
+  parcellation: aparc.a2009s
+  method: eLORETA
+  snr: 2.0
+  bin_n: 0.0625
+  min_time: 0.0
+  cache_forward: true
+features:
+  bin_n: 0.0625
+  min_time: 0.0
+  max_time: 2.0
+  freqs:
+    fmin: 0.5
+    fmax: 40.0
+    fstep: 0.5
+  freq_bands:
+    Delta:
+    - 0.5
+    - 4.0
+    Theta:
+    - 4.0
+    - 8.0
+    Alpha:
+    - 8.0
+    - 13.0
+    Beta:
+    - 13.0
+    - 30.0
+    Gamma:
+    - 30.0
+    - 40.0
+  blocks:
+  - amplitude
+  - slopes
+  - psd
+  - src
+  - sep
+  cnv_benchmark:
+    enabled: false
+    bin_n: 0.25
+    channels:
+    - Cz
+    - FCz
+    - CPz
+    - C1
+    - C2
+    - FC1
+    - FC2
+    - CP1
+    - CP2
+  basis:
+    methods:
+    - polynomial
+    - bspline
+    poly_degree: 4
+    poly_kind: legendre
+    bspline_n_knots: 3
+    bspline_degree: 3
+  cache_tag: state_v1
+  sep:
+    vertex_channels:
+    - Cz
+    - C1
+    - C2
+    - FCz
+    - CPz
+    grid_sfreq: 1024.0
+    tmin: -0.1
+    tmax: 0.3
+    baseline:
+    - -0.05
+    - 0.0
+    reject_uv: 150.0
+    p50_ms:
+    - 40
+    - 50
+    n90_ms:
+    - 75
+    - 90
+    window_ms:
+    - 15
+    - 130
+    per_channel: true
+    missing_fill: 0.0
+    blank_window_features: true
+    blank_halfwidth_ms: 12
+prediction_windows:
+  primary:
+    name: full_cnv
+    min_time: 0.0
+    max_time: 2.0
+    cropped_training:
+      enabled: true
+      window_size: 1.0
+      stride: 0.25
+      test_aggregation: mean_proba
+    sliding_auc:
+      enabled: true
+      window_size: 0.25
+      stride: 0.0625
+      min_time: 0.0
+      max_time: 2.0
+  secondary:
+    late_cnv:
+      min_time: 1.0
+      max_time: 2.0
+_prediction_window: full_cnv
+modeling:
+  test_size: 0.3
+  random_state: 1
+  cv:
+    mode: repeated_stratified
+    n_splits: 5
+    n_repeats: 10
+    inner_splits: 3
+    chronological_check: false
+  pooling:
+    mode: per_participant
+  search:
+    method: auto
+    n_jobs: null
+    n_iter: 30
+    halving:
+      resource: n_estimators
+      min_resources: 100
+      max_resources: 400
+      factor: 3
+      aggressive_elimination: false
+  pre_kbest: 2000
+  correlation_threshold: 0.9
+  k_best: 500
+  feature_selection:
+    method: stability
+    stability:
+      n_subsamples: 30
+      sample_fraction: 0.5
+      l1_ratio: 0.5
+      n_lambda: 15
+      threshold: 0.6
+      max_features: 150
+      min_features: 10
+    fpca:
+      enabled: false
+      n_components: 4
+  rfecv:
+    n_iterations: 5
+    step: 0.05
+    min_features_to_select: 200
+    scoring: roc_auc
+  gain_prune:
+    mode: zero
+    percentile: 10
+    absolute: 0.001
+  shap_prune_quantile: 0.2
+  xgb:
+    n_estimators: 400
+    objective: multi:softprob
+    eval_metric: mlogloss
+    tree_method: hist
+    n_jobs: null
+    param_grid:
+      max_depth:
+      - 2
+      - 4
+      - 8
+      - 16
+      min_child_weight:
+      - 1
+      reg_alpha:
+      - 0
+      - 0.1
+      - 0.5
+      gamma:
+      - 0
+      - 0.1
+      - 0.3
+      - 0.5
+      - 1
+      - 2
+      reg_lambda:
+      - 1
+      - 3
+      - 5
+      - 10
+      colsample_bytree:
+      - 0.6
+      - 0.7
+      colsample_bylevel:
+      - 0.6
+      - 0.8
+      learning_rate:
+      - 0.01
+      - 0.03
+      - 0.05
+      subsample:
+      - 0.6
+      - 0.8
+      - 1.0
+    num_class: 3
+  svm:
+    param_grid:
+      C:
+      - 0.1
+      - 1.0
+      - 10.0
+      - 100.0
+      gamma:
+      - scale
+      - auto
+      - 0.001
+      - 0.01
+      - 0.1
+      - 1.0
+      kernel:
+      - rbf
+      - linear
+      - poly
+      degree:
+      - 2
+      - 3
+      - 4
+  lstm:
+    epochs: 50
+    batch_size: 32
+    units_grid:
+    - 32
+    - 64
+    - 128
+    dropout_grid:
+    - 0.2
+    - 0.4
+  riemannian:
+    estimator: xdawn_covariances
+    covariance_estimator: oas
+    xdawn:
+      nfilter: 4
+    fbcsp_bands:
+      Mu:
+      - 8.0
+      - 13.0
+      Beta:
+      - 13.0
+      - 30.0
+  cnn:
+    standardize:
+      factor_new: 0.001
+      init_block_size: 1000
+      eps: 0.0001
+  scoring: roc_auc_ovr
+  shap_prune:
+    enabled: false
+  parallel:
+    participants: -8
+  ablation: combined
+logging:
+  level: INFO
+  stamp_runs: true
+state_events:
+  one: 256
+  two: 512
+  response: 96
+  stim: 1024
+  max_stims_per_prompt: 4
+  trigger_offset_s: 0.273
+  apply_uniform_offset: true
+standing:
+  window_s: 2.0
+  method: tiled
+  balance: per_class_max
+  random_state: 42
+  drop_stim_edge_s: 0.3
+  max_windows: 50
