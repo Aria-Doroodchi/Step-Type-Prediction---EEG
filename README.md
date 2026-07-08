@@ -292,9 +292,12 @@ uniform AutoReject-local epoch repair/rejection.
 
 ## License
 
-Released under the [MIT License](LICENSE) — free to use, modify, and
-redistribute (including commercially), provided the copyright notice and
-license text are retained.
+Released under the [PolyForm Noncommercial License 1.0.0](LICENSE): free to
+use, modify, and redistribute **for noncommercial purposes** — including
+research, teaching, personal study, and use by academic, nonprofit,
+public-research, and government organizations (regardless of funding source) —
+provided the copyright and license notices are kept intact. **Commercial use is
+not granted by this license.**
 
 Copyright (c) 2026 Ali Doroodchi
 

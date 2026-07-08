@@ -12,7 +12,7 @@ authors:
     given-names: Ali
 version: 2.5.0
 date-released: 2026-07-07
-license: MIT
+license: PolyForm-Noncommercial-1.0.0
 repository-code: "https://github.com/Aria-Doroodchi/Step-Type-Prediction---EEG"
 url: "https://github.com/Aria-Doroodchi/Step-Type-Prediction---EEG"
 keywords:
