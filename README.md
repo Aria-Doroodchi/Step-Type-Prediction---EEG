@@ -1,11 +1,40 @@
-# Step Type Prediction — EEG
+# Single-Trial Movement-Intent Decoding from EEG
 
-Machine-learning pipeline for predicting **step type** — *straight* (`One`)
-vs *diagonal* (`Two`) — from EEG signals recorded during a stepping task.
-Part of an MSc thesis project.
+A single-trial EEG decoding pipeline that predicts an upcoming movement —
+a *straight* (`One`) vs *diagonal* (`Two`) step — from the pre-movement
+preparation signal (the contingent negative variation, CNV). In
+brain–computer-interface terms this is a **motor-intent decoding** problem:
+read the cortical preparation that precedes a movement and classify what the
+movement will be, one trial at a time.
 
-Features come from electrode-level amplitudes, power spectral density
-(Morlet TFR), and source-space activity reconstructed via eLORETA.
+The repository implements a complete decoding stack — artifact-robust
+preprocessing, cortical source reconstruction, and a model zoo spanning
+classical ML through an attention-based CNN — with per-participant nested
+cross-validation and fully reproducible, stamped runs. Features come from
+electrode-level amplitudes, power spectral density (Morlet TFR), and
+source-space activity reconstructed via eLORETA.
+
+Originally developed as an MSc neuroscience thesis on movement planning.
+
+> **Scope.** This is an *offline* decoder: trained and evaluated on recorded
+> EEG, single-trial and per-participant. It is not a real-time / closed-loop
+> system — it is the same signal-processing and modelling stack a motor BCI
+> relies on, applied retrospectively.
+
+---
+
+## The decoding stack
+
+Mapping the repository onto the stages a motor-BCI decoding team would recognise:
+
+| Decoding stage | What this pipeline does |
+|---|---|
+| **Signal conditioning** | ZapLine line-noise removal, PyPREP bad-channel detection, ASR, common-average → Picard ICA, current-source-density (CSD) referencing, AutoReject epoch repair |
+| **Neural source estimation** | eLORETA cortical source reconstruction (cached forward + inverse operators) |
+| **Feature extraction** | pre-movement amplitudes & slopes, Morlet time-frequency PSD across bands, source-space activity; Riemannian (xDAWN-covariance tangent-space) and FBCSP-style mu/beta log-variance features are scaffolded alongside |
+| **Decoders** | XGBoost, SVM, logistic regression, LSTM, and hybrid attention CNNs (EEGNet / EEGNeXt — multi-scale temporal stem + squeeze-and-excitation channel attention + residual separable blocks) |
+| **Model selection** | corr → KBest → RFECV → gain → SHAP feature pruning, GridSearch, per-participant **nested** cross-validation |
+| **Evaluation** | single-trial AUC / accuracy, a sliding-window AUC time-course, cohort roll-ups, and reproducible git-stamped runs |
 
 ---
 
