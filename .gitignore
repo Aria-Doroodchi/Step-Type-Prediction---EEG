@@ -112,3 +112,11 @@ desktop.ini
 
 # Secondary Python 3.12 venv for TensorFlow-backed neural models (Py3.14 has no TF wheels)
 .venv312/
+
+# =============================================================================
+# codabench/ — EEG/EMG Foundation Challenge 2026 (see codabench/README.md)
+# The official competition repo is a separate git clone; data/venv live in WSL.
+# =============================================================================
+codabench/2026-competition/
+codabench/logs/
+codabench/submissions/

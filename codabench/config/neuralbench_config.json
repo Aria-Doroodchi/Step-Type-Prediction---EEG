@@ -1,0 +1,9 @@
+{
+  "USER": "ali_d",
+  "ENTITY_NAME": "ali_d",
+  "PROJECT_NAME": "neuralbench",
+  "DATA_DIR": "/home/ali_d/neuralbench/data",
+  "CACHE_DIR": "/home/ali_d/neuralbench/cache",
+  "SAVE_DIR": "/home/ali_d/neuralbench/results",
+  "CLUSTER": null
+}

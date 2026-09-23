@@ -1,0 +1,2 @@
+# Shell scripts run inside WSL; CRLF (core.autocrlf=true on this machine) breaks bash.
+*.sh text eol=lf
