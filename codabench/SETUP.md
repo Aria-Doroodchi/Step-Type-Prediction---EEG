@@ -116,9 +116,27 @@ Check: `python -c "import torch; print(torch.__version__)"` should end in `+cpu`
    delete the folder first.
 3. **HTTP/3 warning on downloads** (`MustDowngradeError ... HttpVersion.h3`).
    Harmless: urllib3 retries over HTTP/2 and the download proceeds.
-4. **`benchopt install`** would try to create a conda env. Don't use it here;
+4. **A single failed file breaks a dataset, and retries don't fix it.**
+   On 2026-09-23 OSF returned a transient `500 Server Error` for Dreyer
+   subject 59. moabb logged `Error reading subject 59` and moved on, then
+   NeuralBench refused the dataset: `Dataset Dreyer2023Large is corrupted,
+   expected 520 timelines but found 516`. Re-running `benchopt prepare`
+   does **not** re-download (NeuralBench treats the download step as done). Fix:
+   fetch the missing subject by hand, then prepare again:
+   ```bash
+   D=~/neuralbench/benchopt_data/neural_compet/moabb/Dreyer2023Large/download/MNE-dreyer2023-data
+   cd $D && curl -sSL --retry 5 -o sub-59.zip "<the OSF URL from the 'Error reading subject' line>"
+   python -c "import zipfile; zipfile.ZipFile('sub-59.zip').extractall('.')"
+   bash ~/codabench/scripts/prepare_track2_data.sh dreyer2023
+   ```
+   The URL is printed in the prepare log (`grep "Error reading subject" ~/codabench/logs/prepare_track2_*.log`).
+5. **Disk space is C:'s, not WSL's.** `df` inside WSL shows the virtual disk
+   (~1 TB) but its file lives on C: (~106 GB free after Dreyer). Stieger
+   2021 (399 GB) doesn't fit; `prepare_track2_data.sh` refuses it below
+   450 GB free.
+6. **`benchopt install`** would try to create a conda env. Don't use it here;
    the venv already has everything (install extras with `uv pip install`).
-5. Don't pass `--config` or `NEURALBENCH_CONFIG` pointing at a missing file:
+7. Don't pass `--config` or `NEURALBENCH_CONFIG` pointing at a missing file:
    check the first log lines of any run.
 
 ## Updating the competition code
