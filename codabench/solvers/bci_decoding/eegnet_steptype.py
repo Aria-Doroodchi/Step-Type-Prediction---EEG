@@ -338,9 +338,13 @@ class Solver(CompetSolver):
         "bandpass": ["none"],
         "reference": ["none"],
         "max_batches": [None],
+        # torch seed for init + dropout; sweep e.g. seed=[33,34,35] to measure
+        # run-to-run noise (the data split itself is fixed by NeuralBench).
+        "seed": [33],
     }
 
     def load_model(self, meta):
+        torch.manual_seed(int(self.seed))       # reproducible weight init
         sfreq = float(meta["sfreq"])
         net = EEGNetTorch(
             n_channels=meta["n_chans"], n_times=meta["n_times"],
@@ -362,7 +366,7 @@ class Solver(CompetSolver):
                                    self.patience, self.max_batches)
 
     def fit(self, model, train_loader):
-        torch.manual_seed(33)
+        torch.manual_seed(int(self.seed))
         model.fit(train_loader)
 
     def save_model(self, model, path):

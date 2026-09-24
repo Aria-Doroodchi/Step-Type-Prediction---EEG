@@ -1,0 +1,99 @@
+{
+  "n_windows": 20792,
+  "n_channels": 27,
+  "n_times": 480,
+  "sfreq": 120.0,
+  "windows_per_split": {
+    "train": 12392,
+    "val": 3360,
+    "test": 5040
+  },
+  "subjects_per_split": {
+    "train": 52,
+    "val": 14,
+    "test": 21
+  },
+  "class_counts": [
+    10394,
+    10398
+  ],
+  "max_temporal_d": {
+    "channel": "FC5",
+    "time_s": 1.0,
+    "d": -0.333090215921402,
+    "sign_consistency": 0.7878787878787878
+  },
+  "max_spectral_d": {
+    "channel": "C3",
+    "freq_hz": 11.5,
+    "d": -0.2121579647064209,
+    "sign_consistency": 0.8181818181818182
+  },
+  "mu_d_C3_C4": {
+    "C3": -0.10217394679784775,
+    "C4": 0.11507673561573029
+  },
+  "frontal_vs_central": {
+    "frontal (F3 Fz F4)": {
+      "slow waveform < 4 Hz": 0.6688492063492063,
+      "power 0.5\u20134 Hz": 0.5396825396825397,
+      "power 4\u20138 Hz": 0.5192460317460317,
+      "power 8\u201313 Hz (mu)": 0.5222222222222221,
+      "power 13\u201330 Hz (beta)": 0.5206349206349206
+    },
+    "fronto-central (FC)": {
+      "slow waveform < 4 Hz": 0.7261904761904762,
+      "power 0.5\u20134 Hz": 0.5599206349206349,
+      "power 4\u20138 Hz": 0.5267857142857143,
+      "power 8\u201313 Hz (mu)": 0.5878968253968254,
+      "power 13\u201330 Hz (beta)": 0.5319444444444444
+    },
+    "central (C)": {
+      "slow waveform < 4 Hz": 0.7009920634920634,
+      "power 0.5\u20134 Hz": 0.5273809523809524,
+      "power 4\u20138 Hz": 0.5043650793650793,
+      "power 8\u201313 Hz (mu)": 0.6186507936507937,
+      "power 13\u201330 Hz (beta)": 0.5678571428571428
+    },
+    "centro-parietal / parietal": {
+      "slow waveform < 4 Hz": 0.6587301587301587,
+      "power 0.5\u20134 Hz": 0.523015873015873,
+      "power 4\u20138 Hz": 0.5319444444444444,
+      "power 8\u201313 Hz (mu)": 0.5892857142857143,
+      "power 13\u201330 Hz (beta)": 0.5466269841269841
+    },
+    "all 27": {
+      "slow waveform < 4 Hz": 0.7688492063492063,
+      "power 0.5\u20134 Hz": 0.585515873015873,
+      "power 4\u20138 Hz": 0.5496031746031746,
+      "power 8\u201313 Hz (mu)": 0.6446428571428571,
+      "power 13\u201330 Hz (beta)": 0.6091269841269842
+    }
+  },
+  "within_subject": {
+    "slow_median": 0.7250000000000001,
+    "mubeta_median": 0.6958333333333333,
+    "chance_95pct_upper": 0.5632587279880544,
+    "pct_subjects_above_chance_slow": 91.95402298850574,
+    "pct_subjects_above_chance_mubeta": 85.0574712643678,
+    "corr_slow_vs_mubeta": -0.016740269525680796
+  },
+  "alpha_peak_hz": {
+    "median": 10.5,
+    "p10": 9.0,
+    "p90": 12.200000000000003
+  },
+  "noise": {
+    "median_outlier_pct": 3.3333333333333335,
+    "max_outlier_pct": 8.75,
+    "median_clip_pct": 0.0,
+    "max_clip_pct": 2.1648341049382713,
+    "median_artifact_window_pct_per_channel": 0.8333333333333334,
+    "p95_artifact_window_pct_per_channel": 2.9166666666666665,
+    "hf_power_range_db_p5_p95": [
+      -5.248255729675293,
+      5.837035179138184
+    ]
+  },
+  "runtime_s": 340.7
+}
