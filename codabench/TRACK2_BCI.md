@@ -110,6 +110,33 @@ and re-run inference-only with `COMPET_SUBMISSION_DIR` (what Codabench
 does). Both load and reproduce their scores exactly (Riemann's `joblib`
 unpickles fine). The upload path works end to end locally.
 
+### Per-window preprocessing sweep (2026-09-24)
+
+Both solvers take `bandpass` (`"none"` or e.g. `"8to30"` Hz) and `reference`
+(`"none"` / `"car"` / `"laplacian"`, the thesis CSD settings), applied inside
+the model to each window (`WindowPreproc`), so training and scoring see the
+same transform. Same 40-batch protocol as above; 3 min 38 s for all 12:
+
+| Solver | reference | bandpass none | bandpass 8–30 Hz |
+|---|---|---|---|
+| EEGNet-StepType | none | 0.674 | 0.500 |
+| EEGNet-StepType | **car** | **0.711** | 0.500 |
+| EEGNet-StepType | laplacian | 0.606 | 0.501 |
+| Riemann-StepType | none | 0.696 | 0.596 |
+| Riemann-StepType | **car** | **0.718** | 0.603 |
+| Riemann-StepType | laplacian | 0.704 | 0.619 |
+
+- **CAR helps both** (+0.02 to +0.04). Small, but the same direction for both models.
+- **The 8–30 Hz band-pass hurts.** EEGNet's validation loss stays at ln 2 = 0.693
+  for all 3 epochs and it collapses to one class. Riemann keeps 0.60, so mu/beta
+  holds *some* class information, but most of what separates left from right in these
+  cue-locked windows is **below 8 Hz**. That's 78 % of the power, and it may
+  include cue-evoked or eye-movement activity (hypothesis, not checked). It helps
+  the warm-up score but may not carry over to the sealed MI/CALC/WORD task.
+- Noise at 40 batches is roughly ±0.02 to 0.03; confirm on full runs.
+- benchopt parses a value that starts with a digit as a number: **quote band
+  values** in grids, e.g. `"bandpass=['none','8to30']"`.
+
 ⚠️ The folders now in `tracks/bci_decoding/outputs/{EEGNet,Riemann}-StepType/`
 hold these **test-batch models**. Don't upload them; retrain on the full data
 first (next steps).

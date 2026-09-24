@@ -29,7 +29,16 @@ last. Times are local (WSL `date`), from the run logs in `logs/`.
 | 18:34–18:35 | **test batch** `test_track2_solvers.sh dreyer2023 40` | 5–10 min | 47 s | ✅ Riemann-StepType **0.716**, EEGNet-StepType **0.651** (3 epochs), MeanLogReg 0.681 (full train); chance 0.50 |
 | 18:35–18:36 | platform replay: both exported submissions, read-only, inference-only | ~1 min each | 17 s / 12 s | ✅ scores reproduced exactly |
 
-**State at end of session:** environment, competition code, Track 2 data
+## 2026-09-24 — preprocessing
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 17:11 | inspect Dreyer windows (what the model receives) | <1 min | 13 s | 27 ch × 480 (120 Hz), robust-scaled, 78 % of power < 4 Hz; train/val/test = 12,392 / 3,360 / 5,040 windows |
+| 17:25 | unit check of `WindowPreproc` (CAR, CSD Laplacian, 8–30 Hz) on real windows | <1 min | 13 s | ✅ drift removed (0–4 Hz 84 % → 0 %); Laplacian C3 row sensible |
+| 17:26 | first grid attempt | — | 9 s | ❌ benchopt parsed `8to30` as `8'to30'` → quote values |
+| 17:26–17:29 | 40-batch sweep: 2 solvers × {none, car, laplacian} × {none, 8to30} | ~3 min | 3 min 38 s | CAR best (EEGNet 0.711, Riemann 0.718); band-pass 8–30 hurts (EEGNet chance, Riemann ~0.60) |
+
+**State at end of 2026-09-23 session:** environment, competition code, Track 2 data
 (tangermann2012 + dreyer2023) and two ported thesis solvers are ready and
 tested. Stieger 2021 is deliberately not downloaded (disk). Next: full
 Dreyer training runs, then a first warm-up upload; see

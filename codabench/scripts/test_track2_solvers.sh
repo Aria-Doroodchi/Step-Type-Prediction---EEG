@@ -4,6 +4,11 @@
 #
 #   bash ~/codabench/scripts/test_track2_solvers.sh                  # dreyer2023, 40 batches
 #   bash ~/codabench/scripts/test_track2_solvers.sh tangermann2012 20
+#   bash ~/codabench/scripts/test_track2_solvers.sh dreyer2023 40 \
+#        "bandpass=[none,8to30],reference=[none,car,laplacian]"     # grid
+#
+# The optional 3rd argument is appended to BOTH solvers' parameters, so a
+# value list in it becomes a grid (one run per combination).
 #
 # Trains EEGNet-StepType (3 epochs) and Riemann-StepType on the first
 # MAX_BATCHES training batches (x64 windows), then scores on the FULL test
@@ -13,25 +18,30 @@
 set -u
 STUDY="${1:-dreyer2023}"
 MAX_BATCHES="${2:-40}"
+GRID="${3:+,$3}"
 source "$HOME/codabench/env.sh" >/dev/null
 cd "$HOME/codabench/2026-competition"
 LOG="$HOME/codabench/logs/test_track2_${STUDY}_$(date +%Y-%m-%d_%H%M).log"
 SOLVERS="$HOME/codabench/solvers/bci_decoding"
 
-echo "START $(date +%T) study=$STUDY max_batches=$MAX_BATCHES log=$LOG"
+echo "START $(date +%T) study=$STUDY max_batches=$MAX_BATCHES grid=${3:-none} log=$LOG"
 benchopt run tracks/bci_decoding -d "BCI[study=$STUDY]" \
-    -s "$SOLVERS/eegnet_steptype.py[max_batches=$MAX_BATCHES,n_epochs=3]" \
-    -s "$SOLVERS/riemann_steptype.py[max_batches=$MAX_BATCHES]" \
+    -s "$SOLVERS/eegnet_steptype.py[max_batches=$MAX_BATCHES,n_epochs=3$GRID]" \
+    -s "$SOLVERS/riemann_steptype.py[max_batches=$MAX_BATCHES$GRID]" \
     -s MeanLogReg \
     -o "BCI-decoding[training=True]" --no-plot --no-html >"$LOG" 2>&1
 rc=$?
 echo "END $(date +%T) rc=$rc"
-grep -E "fitting on|epoch [0-9]+/|early stop|Error|Traceback" "$LOG" | tail -12
+grep -E "Error|Traceback" "$LOG" | tail -6
 python - <<'EOF'
-import glob, pandas as pd
+import glob, re, pandas as pd
 f = sorted(glob.glob("tracks/bci_decoding/outputs/benchopt_run_*.parquet"))[-1]
 df = pd.read_parquet(f)
 df["solver"] = df.solver_name.str.split("[").str[0]
-print(df[["solver", "objective_balanced_accuracy", "objective_accuracy",
-          "objective_n_classes", "time"]].to_string(index=False))
+for k in ("reference", "bandpass"):
+    df[k] = df.solver_name.map(
+        lambda s, k=k: (re.search(k + r"=([^,\]]+)", s) or [None, "-"])[1])
+print(df[["solver", "reference", "bandpass", "objective_balanced_accuracy",
+          "objective_accuracy", "time"]]
+      .sort_values(["solver", "reference", "bandpass"]).to_string(index=False))
 EOF
