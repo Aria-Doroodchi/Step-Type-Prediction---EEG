@@ -37,6 +37,11 @@ last. Times are local (WSL `date`), from the run logs in `logs/`.
 | 17:25 | unit check of `WindowPreproc` (CAR, CSD Laplacian, 8–30 Hz) on real windows | <1 min | 13 s | ✅ drift removed (0–4 Hz 84 % → 0 %); Laplacian C3 row sensible |
 | 17:26 | first grid attempt | — | 9 s | ❌ benchopt parsed `8to30` as `8'to30'` → quote values |
 | 17:26–17:29 | 40-batch sweep: 2 solvers × {none, car, laplacian} × {none, 8to30} | ~3 min | 3 min 38 s | CAR best (EEGNet 0.711, Riemann 0.718); band-pass 8–30 hurts (EEGNet chance, Riemann ~0.60) |
+| 17:42–17:53 | Dreyer EDA `analysis/dreyer_eda.py` (inventory, PSD, effect sizes, ERP/TF, cross-subject checks, within-subject CV) | ~10 min | **11 min 23 s** (683 s), on estimate; figs 00–09 + `summary.json` | cross-subject (train+val → test) LDA: slow < 4 Hz waveform, all 27 ch **0.769**; mu power 0.645; beta 0.609; delta/theta power 0.55–0.59. **Within-subject** 5-fold (median over 87 subjects): slow LDA 0.725, mu/beta Riemann 0.696; 92 % / 85 % of subjects above chance (0.563); the two are uncorrelated across subjects (r = −0.02) |
+| 17:55–18:01 | EDA figure fixes + re-render (cached windows) | ~6 min | 5 min 41 s | figure 03 panel replaced (artifact % per channel), label/legend overlaps fixed; `reports/dreyer_eda/README.md` written |
+| 18:03 | smoke test: EEGNet `seed` parameter, `--output`, `summarize_runs.py` | <1 min | 20 s | ✅ seeds differ (SD 0.027 at 5 batches) |
+| 18:03:55–20:23:24 | **overnight phase 1** `scripts/overnight_2026-09-24.sh`: full Dreyer (train 12,392 → test 5,040 windows) | 2–2.5 h (ETA 20:30) | **2 h 20 min**, on estimate. EEGNet ran ~10 min/run (never early-stopped before epoch 40; revised ETA 21:15 mid-run, beat it) | `logs/overnight_2026-09-24/RESULTS.md`. **EEGNet-StepType 0.779–0.790** (car + patience 20: 0.790 ± 0.002, 3 seeds); upstream braindecode EEGNet 0.778 ± 0.013; Riemann-StepType with xDAWN 0.754 (car 0.746), **without xDAWN 0.585–0.592**; Torch-Linear 0.689; MeanLogReg 0.681 |
+| 20:24 → | **overnight phase 2** `scripts/overnight_2026-09-24_phase2.sh`: Riemann xDAWN nfilter 2/4/8 + 1–40 Hz; EEGNet 100 epochs / patience 20; EEGNet z-score; both refs × 3 seeds | ~3.5 h (ETA ~00:15) | *running* | |
 
 **State at end of 2026-09-23 session:** environment, competition code, Track 2 data
 (tangermann2012 + dreyer2023) and two ported thesis solvers are ready and

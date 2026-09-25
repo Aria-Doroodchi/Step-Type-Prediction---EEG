@@ -20,6 +20,13 @@ Warm-up scores are indicative only: public test data, leakage possible.
 | 2026-09-23 | dreyer2023 (2-class, 27 ch) | Riemann-StepType | test batch: 40 batches (2,560 windows) | 0.716 | `logs/test_track2_dreyer2023_2026-09-23_1834.log` |
 | 2026-09-23 | dreyer2023 | EEGNet-StepType | test batch: 40 batches, 3 epochs | 0.651 | same |
 | 2026-09-23 | dreyer2023 | MeanLogReg (upstream floor) | full train split | 0.681 | same |
+| 2026-09-24 | **dreyer2023, full train (12,392 windows)** | **EEGNet-StepType** | reference=car, patience=20, 50 epochs; 3 seeds | **0.790 ± 0.002** | `logs/overnight_2026-09-24/` |
+| 2026-09-24 | dreyer2023 full | EEGNet-StepType | reference=car, patience=10; 3 seeds | 0.786 ± 0.008 | same |
+| 2026-09-24 | dreyer2023 full | EEGNet-StepType | reference=none, patience=10 / 20; 3 seeds | 0.785 / 0.779 | same |
+| 2026-09-24 | dreyer2023 full | EEGNet (upstream braindecode) | 20 epochs; 3 seeds | 0.778 ± 0.013 | same |
+| 2026-09-24 | dreyer2023 full | Riemann-StepType | xDAWN on, reference none / car | 0.754 / 0.746 | same |
+| 2026-09-24 | dreyer2023 full | Riemann-StepType | xDAWN off, reference none / car | 0.592 / 0.585 | same |
+| 2026-09-24 | dreyer2023 full | Torch-Linear / MeanLogReg (upstream floors) | — | 0.689 / 0.681 | same |
 
 Chance: tangermann2012 = 0.25, dreyer2023 = 0.50. Dreyer test = participants
 61–81 (= the Codabench warm-up evaluation subset).
