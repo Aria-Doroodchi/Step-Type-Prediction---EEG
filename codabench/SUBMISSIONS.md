@@ -7,7 +7,7 @@ Warm-up scores are indicative only: public test data, leakage possible.
 
 | Date | Track / phase | Solver + key params | ZIP | Local bal. acc. | Codabench score | Notes |
 |---|---|---|---|---|---|---|
-| *ready* | Track 2 / warm-up | **EEGNet-StepType-WU1** (`solvers/bci_decoding/eegnet_steptype_wu1.py`): 100 epochs, patience 20, ref none, seed 33 | `submissions/eegnet_steptype_wu1_2026-09-24.zip` | 0.820 (config mean 0.806 ± 0.016, 3 seeds) | *not uploaded yet* | replay-verified (read-only, inference-only, identical score) |
+| *ready* | Track 2 / warm-up | **EEGNet-StepType-WU1** (`solvers/bci_decoding/eegnet_steptype_wu1.py`): 100 epochs, patience 20, ref none, seed 33 | `submissions/eegnet_steptype_wu1_2026-09-24.zip` | 0.820 (config mean 0.806 ± 0.016, 3 seeds) | 0.82 (public leaderboard, submitted 2026-09-25 14:51 UTC as adoroodchi; presumably WU1, confirm) | replay-verified (read-only, inference-only, identical score) |
 
 ## Local reference runs
 

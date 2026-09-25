@@ -169,3 +169,96 @@ Dreyer next session, as the gate for an overnight CPU fine-tune.
 > REVE. Do not upload. Expected wall time ≈1.5–2 h: code ≈1 h, 10-batch test
 > ≈3 min, full run ≈15–30 min (17.4k windows × ~20 GFLOPs, to be replaced by
 > the measured rate).
+
+## 2026-09-25 — exploration: narrowing the next step (4 parallel probes)
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| ~16:37–~16:47 | workflow `track2-next-step-exploration`: 4 probes in parallel, CPU split 6/8/6 threads, no downloads | 12–15 min | **9 min 45 s**, under estimate (ensemble 16:38:05–16:44:31, reve 16:38:05–16:44:01, desk 16:38:02–~16:42:30, data 16:38:03–16:47:05) | outputs in `logs/explore_2026-09-25/{ensemble,reve,desk,data}/` |
+| 16:48:54–16:50 | follow-up checks: REVE gating (HF API), test-loader order | <1 min | ~1 min | see below |
+
+**Sanity:** from the EDA cache, WU1 reproduces 0.82004, Riemann with the
+filter bank 0.76964 and the Riemann baseline 0.75377, all exactly.
+
+**Findings.**
+- **Leaderboard (public Codabench API, ~16:41):** 36 entries. The #1 score
+  is 0.93 (fact sheet: "zero test-pool labels"), then 0.91 ×3 and 0.90 ×4.
+  **0.93 is exactly first place**; 8 entries are at or above 0.90. Our 0.82
+  (adoroodchi, 14:51 UTC) has 19 entries above it. The best published
+  cross-subject Dreyer result found is ~0.74 (different split), and the
+  original within-subject online accuracy was 0.63. The #2 entry is a
+  masked-autoencoder model.
+- **Ensemble WU1 + Riemann (filter bank), measured:** with the weight chosen
+  on val only (w_WU1 = 0.85) it scores **0.828 (+0.8 points**; subject
+  bootstrap 95 % CI +0.2 to +1.4). The test-tuned oracle weight gives
+  0.832. An equal-weight average *loses* 0.75 points because the Riemann
+  LDA is overconfident (mean max-prob 0.88 vs accuracy 0.77). The errors
+  overlap: error φ 0.34, per-subject r 0.74, and both fail on the same hard
+  subjects. The Riemann baseline adds nothing.
+- **More participants (Riemann learning curve), measured:** +0.007 per 10
+  participants up to 52. Training on train+val scores **−0.010** (baseline)
+  and **−0.001** (filter bank), both inside the draw-to-draw noise (SD
+  0.008 across different 52-participant draws). More data from the same
+  distribution is not a lever. Treat differences under ~0.01 between
+  candidates as noise.
+- **REVE, offline feasibility (random weights, 8 shared threads):**
+  69.4 M params, 265 MB fp32 / 132 MB fp16 (storage quota 15 GB, no
+  per-ZIP cap). Costs: a frozen embedding pass ≈20–24 min; full fine-tune
+  **45.5 min/epoch** (impractical); last 2 blocks + head on cached layer-20
+  tokens 4.4 min/epoch after a ≈22 min caching pass. bf16 is unusable (no
+  native support on the i7-12700K). **Not gated** (HF API `gated=False`;
+  the braindecode docstring is out of date). It still needs your approval to
+  download the weights plus `positions.json`.
+- **REVE, desk evidence:** in the REVE paper, a frozen or linear-probed
+  REVE-Base trails full fine-tuning by 11–21 points on motor imagery.
+  **Dreyer 2023 is in REVE's pretraining corpus**, including the test
+  participants' unlabelled EEG, so any warm-up gain is inflated. Our 120 Hz
+  input leaves 60–100 Hz empty relative to pretraining. The organisers'
+  REVE 68.0 % may be a probe or a fine-tune (their sources disagree).
+- **Test windows reach `predict` in order.** `benchmark_utils/nb_task.py`
+  shuffles only the train split. In the cache (assumed to be in loader
+  order), the 5,040 test windows form 21 contiguous runs, one per
+  participant, and 81 % of 64-window batches come from one participant.
+  Per-subject re-centring from unlabelled test windows is therefore
+  mechanically possible without a subject id.
+
+**Revised ranking.**
+1. **Unsupervised per-subject alignment** (Euclidean alignment of each
+   subject's windows, or Riemannian re-centring). *Gain:* unmeasured. It is
+   the most plausible explanation for the 0.90–0.93 cluster: those entries
+   beat anything published by far, the #1 fact sheet stresses "zero
+   test-pool labels", and subject shift is large here (±1–2 points just from
+   which participants you train on). *Effort:* 1 session to measure.
+   *Transfer:* the best of any option: the sealed phase is cross-session
+   within subject, which is the textbook case for re-centring (REUSING § 6).
+   *Risk:* it depends on the scorer keeping windows in recording order,
+   19 % of batches straddle two subjects, and whether it's allowed must be
+   checked against the rules.
+2. **Ensemble** as a last-mile add-on: +0.8 points measured. Choose the
+   weight on held-out subjects; never use equal weights.
+3. **REVE**: demoted for the warm-up (probe likely below WU1, fine-tuning
+   costs hours on this CPU, Dreyer is in its pretraining corpus). Revisit
+   when the sealed data arrive (47 ch, 500 Hz), where a montage-agnostic
+   encoder matters.
+Dropped: more participants / train+val (measured, no gain); EEGNeX/ATCNet
+from scratch (the plateau evidence stands; no new evidence for it).
+
+## 2026-09-25 — data folder on Z: (`\192.168.50.157\Beast_PC\Projects\codabench`)
+
+User decision: `Z:\Projects\codabench` is the data folder. Downloaded the
+organisers' Track 2 datasets except Stieger 2021 (held pending questions);
+Graz + BrainHero 2026 is not released yet. Downloads went through
+`neuralset.Study(...).download()` (same call as `benchopt prepare`) into a WSL
+staging folder, then robocopy to `Z:\Projects\codabench\neural_compet\`
+(benchopt's layout). WSL cannot see Z: until it is mounted (needs sudo).
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 17:23:34–17:27:53 | download to `~/neuralbench/stage_z/`: Zyma 2019 (NEMAR), Scherer 2015 = BNCI2015_004, Zhou 2016 (Zenodo) | 5–15 min | 4 min 19 s, under | ✅ Zyma 72 EDF = 36 people × (rest + arithmetic), 176 MB; Scherer 18 recordings = 9 people × 2 sessions; Zhou 24 = 4 people × 3 sessions × 2 runs. MOABB's Zenodo fetch warns `InsecureRequestWarning` (no TLS certificate check: library behaviour) |
+| 17:24:17 | first copy of existing Dreyer + Tangermann data | — | 1 s | ❌ Git Bash collapsed `\wsl.localhost` to `\wsl.localhost`, nothing copied → rerun from PowerShell |
+| 17:24:32–17:31:08 | robocopy existing `benchopt_data/neural_compet` (Dreyer, Tangermann, window cache) → Z: | 5–15 min | 6 min 36 s, on estimate | ✅ 4,453 files, 24.7 GB, 0 failed (≈76 MB/s) |
+| 17:28:16–17:29:41 | robocopy staging → Z: | ~2 min | 1 min 25 s | ✅ 316 files, 3.76 GB, 0 failed (larger than the 2.2 GB staged: links stored as full copies) |
+
+To check before using Scherer 2015: NeuralFetch/MOABB label its classes
+math / letter / rotation / count / baseline, while the paper describes word
+association, mental subtraction, spatial navigation, hand and feet imagery.
