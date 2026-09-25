@@ -7,7 +7,7 @@ Warm-up scores are indicative only: public test data, leakage possible.
 
 | Date | Track / phase | Solver + key params | ZIP | Local bal. acc. | Codabench score | Notes |
 |---|---|---|---|---|---|---|
-| — | — | — | — | — | — | nothing submitted yet |
+| *ready* | Track 2 / warm-up | **EEGNet-StepType-WU1** (`solvers/bci_decoding/eegnet_steptype_wu1.py`): 100 epochs, patience 20, ref none, seed 33 | `submissions/eegnet_steptype_wu1_2026-09-24.zip` | 0.820 (config mean 0.806 ± 0.016, 3 seeds) | *not uploaded yet* | replay-verified (read-only, inference-only, identical score) |
 
 ## Local reference runs
 
@@ -27,6 +27,12 @@ Warm-up scores are indicative only: public test data, leakage possible.
 | 2026-09-24 | dreyer2023 full | Riemann-StepType | xDAWN on, reference none / car | 0.754 / 0.746 | same |
 | 2026-09-24 | dreyer2023 full | Riemann-StepType | xDAWN off, reference none / car | 0.592 / 0.585 | same |
 | 2026-09-24 | dreyer2023 full | Torch-Linear / MeanLogReg (upstream floors) | — | 0.689 / 0.681 | same |
+| 2026-09-24 | dreyer2023 full | **EEGNet-StepType** | **100 epochs, patience 20**, ref none / car; 3 seeds | **0.806 ± 0.016 / 0.803 ± 0.010** | `logs/overnight_2026-09-24_p2/` |
+| 2026-09-24 | dreyer2023 full | EEGNet-StepType | standardize=True, 50 epochs, ref car / none; 3 seeds | 0.780 / 0.777 | same |
+| 2026-09-24 | dreyer2023 full | Riemann-StepType | xDAWN nfilter 8, ref car / none | 0.760 / 0.759 | same |
+| 2026-09-24 | dreyer2023 full | Riemann-StepType | xDAWN nfilter 4 + 1–40 Hz band-pass / nfilter 2 | 0.71–0.72 / 0.66–0.70 | same |
+| 2026-09-25 | dreyer2023 full | EEGNet-StepType | 200 epochs, patience 30, ref none; 3 seeds | 0.810 ± 0.008 | `logs/overnight_2026-09-24_p3/` |
+| 2026-09-25 | dreyer2023 full | EEGNet-StepType-WU1 (candidate) | defaults (100 ep, pat 20, none, seed 33); train run / platform replay | 0.82004 / 0.82004 | same |
 
 Chance: tangermann2012 = 0.25, dreyer2023 = 0.50. Dreyer test = participants
 61–81 (= the Codabench warm-up evaluation subset).
