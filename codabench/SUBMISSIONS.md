@@ -33,6 +33,11 @@ Warm-up scores are indicative only: public test data, leakage possible.
 | 2026-09-24 | dreyer2023 full | Riemann-StepType | xDAWN nfilter 4 + 1–40 Hz band-pass / nfilter 2 | 0.71–0.72 / 0.66–0.70 | same |
 | 2026-09-25 | dreyer2023 full | EEGNet-StepType | 200 epochs, patience 30, ref none; 3 seeds | 0.810 ± 0.008 | `logs/overnight_2026-09-24_p3/` |
 | 2026-09-25 | dreyer2023 full | EEGNet-StepType-WU1 (candidate) | defaults (100 ep, pat 20, none, seed 33); train run / platform replay | 0.82004 / 0.82004 | same |
+| 2026-09-25 | dreyer2023 full | Riemann-StepType | xDAWN on, ref none, blocks off (541 features): baseline re-run | 0.75377 (= phase 1 exactly) | `logs/riemann_blocks_2026-09-25/` |
+| 2026-09-25 | dreyer2023 full | Riemann-StepType | xDAWN on + `slow_block` (919 features) | 0.75635 (+0.003) | same |
+| 2026-09-25 | dreyer2023 full | **Riemann-StepType** | **xDAWN on + `filterbank`** (2,053 features) | **0.76964 (+0.016)**, best Riemann | same |
+| 2026-09-25 | dreyer2023 full | Riemann-StepType | xDAWN on + `slow_block` + `filterbank` (2,431 features) | 0.76865 (+0.015) | same |
+| 2026-09-25 | dreyer2023 full | Riemann-StepType | xDAWN **off** + `slow_block` + `filterbank` (2,295 features) | 0.71825 (−0.036; xDAWN off alone was 0.592) | same |
 
 Chance: tangermann2012 = 0.25, dreyer2023 = 0.50. Dreyer test = participants
 61–81 (= the Codabench warm-up evaluation subset).

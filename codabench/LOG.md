@@ -54,3 +54,118 @@ EEGNet-StepType, 100 epochs, patience 20 (0.806 ± 0.016; frozen candidate WU1
 tested. Stieger 2021 is deliberately not downloaded (disk). Next: full
 Dreyer training runs, then a first warm-up upload; see
 [TRACK2_BCI.md § Next steps](TRACK2_BCI.md#next-steps-suggested).
+
+## 2026-09-25 — Riemann-StepType: slow-waveform and filter-bank blocks
+
+Added two optional blocks to `solvers/bci_decoding/riemann_steptype.py`, both
+off by default: `slow_block` (0.1–4 Hz band-pass, mean in 0.25 s bins over
+0.5–4.0 s = 14 bins × 27 ch) and `filterbank` (4–8, 8–13, 13–30, 30–45 Hz →
+OAS covariance → one tangent space per band). They filter on top of the
+solver's own preprocessing, so blocks 1–3 are unchanged; the saved `parts`
+hold only builtins + pyriemann/sklearn objects (checked by unpickling without
+the solver module). The fit log line now carries the per-block feature count.
+`scripts/test_track2_solvers.sh` fixed: a grid key unknown to one solver made
+benchopt abort the whole run; that solver is now skipped.
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 16:00:29–16:01:36 | smoke test `test_track2_solvers.sh dreyer2023 10 "slow_block=[True],filterbank=[True]"` | 1–2 min | 67 s, on estimate | ✅ rc 0, 2,431 features; 0.662 on 640 training windows (pipeline check only) |
+| 16:02:24–16:15:19 | full-Dreyer grid `scripts/riemann_blocks_2026-09-25.sh` (5 configs, one step each) | 7–8 min (ETA 16:13; revised to 16:16 at 16:08) | **12 min 55 s, ~1.7× over**. Configs without the filter bank ran on estimate (1:12–1:15); each filter-bank config took 3:17–3:36, not ~1.5–2 min: four Riemannian-mean tangent-space fits over 12,392 matrices. Progress steady, no stall | every fit line `X=(12392, 27, 480)`; no tracebacks; `logs/riemann_blocks_2026-09-25/RESULTS.md` |
+
+| Config (ref none, nfilter 4) | Features | Bal. acc. | Δ vs 0.754 | Step wall time |
+|---|---|---|---|---|
+| xDAWN, blocks off | 541 (xdawn 136 + broad 378 + logvar 27) | 0.75377 | 0 (identical to phase 1) | 1:15 |
+| xDAWN + slow | 919 (+ slow 378) | 0.75635 | +0.003 | 1:12 |
+| **xDAWN + filter bank** | 2,053 (+ fb 1,512) | **0.76964** | **+0.016** | 3:34 |
+| xDAWN + slow + filter bank | 2,431 | 0.76865 | +0.015 | 3:36 |
+| no xDAWN + slow + filter bank | 2,295 | 0.71825 | −0.036 (xDAWN off alone: 0.592) | 3:17 |
+
+Sealed-phase caveat: the slow lateralised cue is a left/right asymmetry and
+is unlikely to transfer to MI vs calculation vs word association, so any
+warm-up gain from it is provisional. The one block that did help (the filter
+bank, mu/beta power) is the one more likely to transfer.
+
+## Next step toward 0.93
+
+**a. Scores.**
+
+| Best Riemann (xDAWN + filter bank) | EEGNet-StepType-WU1 | Target | Remaining gap |
+|---|---|---|---|
+| 0.770 | 0.820 | 0.930 | **11.0 points** (16.0 from the best Riemann) |
+
+**b. Hypotheses.**
+- *Slow block on top of xDAWN:* no gain (+0.3 points, 0.754 → 0.756, inside
+  the ±1.2-point binomial 95 % interval on 5,040 windows); xDAWN's prototype
+  block already carries the class-average slow waveform.
+- *Filter bank:* a small gain, +1.6 points (0.754 → 0.770), just outside
+  that interval (windows cluster in 21 people, so treat it as likely, not
+  certain); adding the slow block on top of it: no gain (0.769).
+- *Neither replaces xDAWN:* both blocks without it reach 0.718, 3.6 points
+  below xDAWN alone.
+
+**c. Can hand-feature blocks close 11 points? No.** The simple slow-waveform
+LDA floor is 0.77; the best union reaches 0.770 with 2,053 features, i.e. it
+only matches that floor. The union without xDAWN (0.718) doesn't even
+reach the slow block's standalone 0.77 (the EDA's LDA, trained on
+train + val), so piling blocks into one shrinkage LDA dilutes rather than
+adds. EEGNet is at 0.82 and no Riemann config has beaten it (best: 5 points
+below). **Feature engineering on this path is exhausted for the warm-up.**
+Beyond this path, none of our evidence reaches 0.93: the optimistic sum of
+the steps below lands near 0.885. Dreyer's test participants (61–81) are
+public, so before spending sessions on a leaderboard 0.93, check what the top
+scores rest on. A warm-up score says nothing about the sealed phase.
+
+**d. Candidate next steps, ranked.**
+1. **Pretrained REVE encoder** (braindecode `REVE`, `brain-bzh/reve-base`).
+   *Gain:* +3 to +5 points (≈0.85–0.87). *Evidence:* the organisers' Stieger
+   table, EEGNet 58.6 % → REVE 68.0 %, is a 23 % relative cut in error
+   (41.4 → 32.0 %); the same cut on WU1's 18.0 % error gives ≈0.86. That is
+   an extrapolation across datasets and class counts, and assumes fine-tuning.
+   *Effort:* 2–3 sessions: a frozen-encoder probe, then an overnight CPU
+   fine-tune, then packaging. Blockers: the weights are gated (the user must
+   accept the terms on HuggingFace; no HF token on this machine yet); ~290 MB
+   of fp32 weights plus the position-bank JSON must ship in the ZIP (Codabench
+   size limit not checked); input must be resampled 120 → 200 Hz. *Transfer
+   risk:* lowest of the three. The encoder is pretrained across paradigms
+   rather than tuned to Dreyer's lateralised cue, it takes arbitrary montages
+   (4-D position embedding), and the evidence comes from the organisers' own
+   track. Open question: the sealed EMG/EOG channels have no scalp position.
+2. **Probability-average ensemble, WU1 + Riemann (xDAWN + filter bank).**
+   *Gain:* 0 to +1.5 points. *Evidence:* weaker than it looks. r = −0.02 is
+   between the two EDA *cues* across people, not between these two models'
+   errors. EEGNet sees the < 4 Hz band (78 % of the power) and likely uses the
+   same slow cue xDAWN captures, and the Riemann model is 5 points weaker, so
+   an equal-weight average can also lose. *Effort:* < 1 session (both models
+   exist: LDA `predict_proba` + WU1 softmax in one `submission.py`; measure
+   error overlap on the test split first). *Transfer risk:* low for the
+   mechanism; the gain is provisional to the extent it rides on the slow cue.
+3. **EEGNeX / ATCNet from scratch, WU1 recipe.** *Gain:* 0 to +2 points.
+   *Evidence:* the from-scratch line has plateaued (100 → 200 epochs +0.004;
+   stock braindecode EEGNet 0.778 ≈ our port). *Effort:* 1 session + ~1–2 h
+   CPU per 3-seed config. *Transfer risk:* medium: a from-scratch net on
+   Dreyer learns Dreyer's cues. I would not run it now.
+
+**e. Recommendation.** Build and score a frozen-encoder REVE probe on full
+Dreyer next session, as the gate for an overnight CPU fine-tune.
+
+> *Precondition (user):* accept the data-usage terms for `brain-bzh/reve-base`
+> on HuggingFace, read its licence for competition use, and log in inside WSL
+> (`hf auth login`). *Prompt:* On `feat/codabench-track2`, add a frozen-encoder
+> REVE probe for Track 2. Read the docstring of braindecode's `models/reve.py`
+> (200 Hz input, position bank, `REVE.from_pretrained`) and copy the structure
+> of `2026-competition/tracks/bci_decoding/solvers/eegnet.py` into a new
+> `codabench/solvers/bci_decoding/reve_probe.py`: inside the model, resample
+> each window 120 → 200 Hz, map `meta["ch_names"]` to the position bank, run
+> the frozen `reve-base` encoder (no grad, CPU, batch 64) to pooled embeddings,
+> fit a shrinkage-LDA head, and save head + encoder weights + position-bank
+> JSON so `load_model` never touches the network. Add
+> `codabench/scripts/reve_probe_2026-09-26.sh` with the `step` pattern of
+> `scripts/riemann_blocks_2026-09-25.sh`: first `max_batches=10` (time it,
+> extrapolate, and stop if the full embedding pass extrapolates past 45 min),
+> then the full run `bash ~/codabench/scripts/reve_probe_2026-09-26.sh`;
+> verify `X=(12392, 27, 480)` in the fit log line. Record the score, embedding
+> time per 1k windows and saved size in `LOG.md` and `SUBMISSIONS.md`, then
+> decide: probe ≥ 0.80 → queue an overnight fine-tune; probe < 0.75 → drop
+> REVE. Do not upload. Expected wall time ≈1.5–2 h: code ≈1 h, 10-batch test
+> ≈3 min, full run ≈15–30 min (17.4k windows × ~20 GFLOPs, to be replaced by
+> the measured rate).

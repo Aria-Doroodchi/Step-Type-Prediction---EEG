@@ -7,8 +7,11 @@
 #   bash ~/codabench/scripts/test_track2_solvers.sh dreyer2023 40 \
 #        "bandpass=[none,8to30],reference=[none,car,laplacian]"     # grid
 #
-# The optional 3rd argument is appended to BOTH solvers' parameters, so a
-# value list in it becomes a grid (one run per combination).
+# The optional 3rd argument is appended to the parameters of each solver
+# that defines all of its keys, so a value list in it becomes a grid (one run
+# per combination). A solver lacking a key is skipped (benchopt would abort
+# the whole run on an unknown parameter), e.g. "slow_block=[True]" runs
+# Riemann-StepType only.
 #
 # Trains EEGNet-StepType (3 epochs) and Riemann-StepType on the first
 # MAX_BATCHES training batches (x64 windows), then scores on the FULL test
@@ -24,11 +27,21 @@ cd "$HOME/codabench/2026-competition"
 LOG="$HOME/codabench/logs/test_track2_${STUDY}_$(date +%Y-%m-%d_%H%M).log"
 SOLVERS="$HOME/codabench/solvers/bci_decoding"
 
+KEYS=$(printf '%s' "${3:-}" | grep -oE '[A-Za-z_]+=' | tr -d '=')
+supports() {                   # supports <solver file>: defines every grid key
+  local k; for k in $KEYS; do grep -q "\"$k\"" "$1" || return 1; done
+}
+RUN=()
+if supports "$SOLVERS/eegnet_steptype.py"; then
+  RUN+=(-s "$SOLVERS/eegnet_steptype.py[max_batches=$MAX_BATCHES,n_epochs=3$GRID]")
+else echo "skip EEGNet-StepType (grid keys not among its parameters)"; fi
+if supports "$SOLVERS/riemann_steptype.py"; then
+  RUN+=(-s "$SOLVERS/riemann_steptype.py[max_batches=$MAX_BATCHES$GRID]")
+else echo "skip Riemann-StepType (grid keys not among its parameters)"; fi
+
 echo "START $(date +%T) study=$STUDY max_batches=$MAX_BATCHES grid=${3:-none} log=$LOG"
 benchopt run tracks/bci_decoding -d "BCI[study=$STUDY]" \
-    -s "$SOLVERS/eegnet_steptype.py[max_batches=$MAX_BATCHES,n_epochs=3$GRID]" \
-    -s "$SOLVERS/riemann_steptype.py[max_batches=$MAX_BATCHES$GRID]" \
-    -s MeanLogReg \
+    "${RUN[@]}" -s MeanLogReg \
     -o "BCI-decoding[training=True]" --no-plot --no-html >"$LOG" 2>&1
 rc=$?
 echo "END $(date +%T) rc=$rc"

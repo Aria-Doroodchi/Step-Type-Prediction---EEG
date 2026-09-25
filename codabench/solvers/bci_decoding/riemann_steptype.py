@@ -8,8 +8,22 @@ the feature union of
   2. broadband OAS covariance -> tangent space
   3. per-channel log-variance              (the thesis "FBCSP" placeholder)
 
-piped into shrinkage LDA with uniform class priors. Changes vs the thesis
-model, and why:
+plus two optional blocks (both off by default, so the default config is the
+thesis model unchanged):
+
+  4. ``slow_block``: < 4 Hz waveform. Each window is band-passed 0.1-4 Hz
+     (WindowPreproc's FFT mask), then averaged in 0.25 s bins over 0.5-4.0 s
+     (14 bins x C channels at 4 s windows). Targets the slow lateralised
+     potential from the Dreyer EDA (LDA on it alone: 0.77 cross-subject);
+  5. ``filterbank``: filter-bank tangent space. Band-pass 4-8, 8-13, 13-30,
+     30-45 Hz, OAS covariance, one TangentSpace per band, concatenated.
+     Targets mu/beta power (EDA: 0.64 / 0.61).
+
+Both extra blocks filter on top of the solver's own ``bandpass``/``reference``
+preprocessing; blocks 1-3 see exactly what they saw before.
+
+All blocks are concatenated and piped into shrinkage LDA with uniform class
+priors. Changes vs the thesis model, and why:
 
 - LDA priors are uniform over ``n_classes`` (the thesis hard-codes
   ``[0.5, 0.5]`` for its binary step-type task; Track 2 is 2-class in
@@ -136,25 +150,68 @@ class WindowPreproc(nn.Module):
         return x
 
 
+FB_BANDS = ["4to8", "8to13", "13to30", "30to45"]   # filter-bank block, Hz
+
+
+def _band_chunks(X, sfreq, band, chunk=2048):
+    """Yield (n, C, T) float64 windows band-passed with WindowPreproc's FFT
+    mask (no re-reference), in chunks to bound memory on the full train set."""
+    filt = WindowPreproc([], sfreq, bandpass=band)
+    with torch.no_grad():
+        for i in range(0, len(X), chunk):
+            xb = torch.as_tensor(X[i:i + chunk], dtype=torch.float32)
+            yield filt(xb).numpy().astype(np.float64)
+
+
+def _slow_bins(parts, X):
+    """< 4 Hz waveform, averaged in fixed time bins -> (n, C * n_bins)."""
+    s = parts["slow"]
+    out = []
+    for xb in _band_chunks(X, parts["sfreq"], s["band"]):
+        seg = xb[:, :, s["start"]:s["start"] + s["n_bins"] * s["width"]]
+        out.append(seg.reshape(*seg.shape[:2], s["n_bins"], s["width"])
+                   .mean(axis=-1).reshape(len(seg), -1))
+    return np.concatenate(out)
+
+
+def _band_covs(parts, X, band):
+    cov = Covariances(estimator=parts["estimator"])
+    return np.concatenate([cov.transform(xb)
+                           for xb in _band_chunks(X, parts["sfreq"], band)])
+
+
+def _feature_blocks(parts, X):
+    """Named feature blocks for (n, C, T) float64 windows, in union order."""
+    blocks = {}
+    if parts.get("xdawn") is not None:
+        blocks["xdawn"] = parts["xdawn_ts"].transform(parts["xdawn"].transform(X))
+    covs = Covariances(estimator=parts["estimator"]).transform(X)
+    blocks["broad"] = parts["broad_ts"].transform(covs)
+    blocks["logvar"] = np.log(np.var(X, axis=2) + 1e-12)
+    if parts.get("slow") is not None:
+        blocks["slow"] = _slow_bins(parts, X)
+    if parts.get("fb_ts") is not None:
+        blocks["fb"] = np.concatenate(
+            [ts.transform(_band_covs(parts, X, band))
+             for band, ts in zip(parts["fb_bands"], parts["fb_ts"])], axis=1)
+    return blocks
+
+
 def _features(parts, X):
     """Feature union for (n, C, T) float64 windows -> (n, n_features)."""
-    blocks = []
-    if parts.get("xdawn") is not None:
-        blocks.append(parts["xdawn_ts"].transform(parts["xdawn"].transform(X)))
-    covs = Covariances(estimator=parts["estimator"]).transform(X)
-    blocks.append(parts["broad_ts"].transform(covs))
-    blocks.append(np.log(np.var(X, axis=2) + 1e-12))
-    return np.concatenate(blocks, axis=1)
+    return np.concatenate(list(_feature_blocks(parts, X).values()), axis=1)
 
 
 class RiemannStepTypeModel:
 
     def __init__(self, parts=None, nfilter=4, estimator="oas",
-                 use_xdawn=True, max_batches=None, preproc=None):
+                 use_xdawn=True, max_batches=None, preproc=None,
+                 slow_block=False, filterbank=False):
         self.parts = parts
         self.preproc = preproc          # WindowPreproc or None
         self.nfilter, self.estimator = nfilter, estimator
         self.use_xdawn, self.max_batches = use_xdawn, max_batches
+        self.slow_block, self.filterbank = slow_block, filterbank
 
     def fit(self, train_loader):
         Xs, ys = [], []
@@ -164,10 +221,10 @@ class RiemannStepTypeModel:
             Xs.append(self._prep(X))
             ys.append(to_numpy(y))
         X, y = np.concatenate(Xs), np.concatenate(ys)
-        print(f"[Riemann-StepType] fitting on X={X.shape}, "
-              f"classes={np.unique(y).tolist()}", flush=True)
 
-        parts = {"estimator": self.estimator, "xdawn": None}
+        # Only plain values and pyriemann/sklearn objects go into parts.
+        sfreq = self.preproc.sfreq
+        parts = {"estimator": self.estimator, "xdawn": None, "sfreq": sfreq}
         if self.use_xdawn:
             parts["xdawn"] = XdawnCovariances(
                 nfilter=self.nfilter, estimator=self.estimator,
@@ -176,12 +233,31 @@ class RiemannStepTypeModel:
                 parts["xdawn"].transform(X), y)
         covs = Covariances(estimator=self.estimator).transform(X)
         parts["broad_ts"] = TangentSpace(metric="riemann").fit(covs, y)
+        if self.slow_block:
+            start, width = round(0.5 * sfreq), round(0.25 * sfreq)
+            n_bins = min(14, (X.shape[2] - start) // width)   # 0.5-4.0 s
+            if n_bins < 1:
+                raise ValueError(f"window too short for slow_block: T={X.shape[2]}")
+            parts["slow"] = {"band": "0.1to4", "start": start,
+                             "width": width, "n_bins": n_bins}
+        if self.filterbank:
+            parts["fb_bands"] = list(FB_BANDS)
+            parts["fb_ts"] = [
+                TangentSpace(metric="riemann").fit(_band_covs(parts, X, band), y)
+                for band in FB_BANDS]
+
+        blocks = _feature_blocks(parts, X)
+        sizes = " + ".join(f"{k} {v.shape[1]}" for k, v in blocks.items())
+        feats = np.concatenate(list(blocks.values()), axis=1)
+        print(f"[Riemann-StepType] fitting on X={X.shape}, "
+              f"classes={np.unique(y).tolist()}, "
+              f"features={feats.shape[1]} ({sizes})", flush=True)
 
         n_classes = len(np.unique(y))
         lda = LinearDiscriminantAnalysis(
             solver="lsqr", shrinkage="auto",
             priors=np.full(n_classes, 1.0 / n_classes))
-        parts["lda"] = lda.fit(_features(parts, X), y)
+        parts["lda"] = lda.fit(feats, y)
         self.parts = parts
         return self
 
@@ -206,6 +282,8 @@ class Solver(CompetSolver):
         "nfilter": [4],
         "estimator": ["oas"],
         "use_xdawn": [True],     # xDAWN is ERP-oriented; try False for MI
+        "slow_block": [False],   # + binned < 4 Hz waveform block
+        "filterbank": [False],   # + 4-band filter-bank tangent space
         # Per-window preprocessing (see WindowPreproc): "none" or e.g. "8to30"
         # Hz; reference "none" | "car" | "laplacian".
         "bandpass": ["none"],
@@ -221,7 +299,8 @@ class Solver(CompetSolver):
         preproc = WindowPreproc(meta["ch_names"], meta["sfreq"],
                                 self.bandpass, self.reference)
         return RiemannStepTypeModel(parts, self.nfilter, self.estimator,
-                                    self.use_xdawn, self.max_batches, preproc)
+                                    self.use_xdawn, self.max_batches, preproc,
+                                    self.slow_block, self.filterbank)
 
     def fit(self, model, train_loader):
         model.fit(train_loader)
