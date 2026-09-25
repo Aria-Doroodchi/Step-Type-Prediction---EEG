@@ -262,3 +262,80 @@ staging folder, then robocopy to `Z:\Projects\codabench\neural_compet\`
 To check before using Scherer 2015: NeuralFetch/MOABB label its classes
 math / letter / rotation / count / baseline, while the paper describes word
 association, mental subtraction, spatial navigation, hand and feet imagery.
+
+## 2026-09-25 (evening) — sealed-phase prep, Phase 0: cross-session harness
+
+Weekend plan: `prompts/` weekend prompt (commit d3019b7). Goal: an evidence-ranked
+sealed-phase recipe (`SEALED_RECIPE.md`) from within-subject cross-session proxies.
+
+**Machine prep.** `powercfg` read-only check at 18:06: sleep-after and
+hibernate-after are already **0 (never) on AC and DC**, so nothing was changed
+(previous values = current values = 0).
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 18:06:53–18:06:57 | rsync `stage_z/neural_compet/*` → `benchopt_data/neural_compet/` | 1–2 min | 4 s | ✅ Scherer 3.4 GB, Zhou 273 MB, Zyma 176 MB now under one `BENCHOPT_DATA_HOME` |
+| 18:08:38–18:09:26 | first cache build, Zhou 2016 (smoke) | 1–3 min | 48 s | ✅ but 23 windows had MOABB's `-100` end-of-run code (one per run) counted as a 4th class → dropped, labels re-indexed |
+| 18:09:57–18:12:13 | caches: Zhou, Tangermann, Scherer, Zyma (`scripts/sealed_p0_caches.sh`) | ≈8 min | **2 min 16 s**, under | ✅ see table below |
+| 18:13:42–18:14:56 | harness smoke test on Zhou: 4 model families × 2 modes, 6 alignment conditions | ≈2 min | 1 min 14 s | ✅ all paths run |
+| ~18:18–18:22 | benchopt overlays + load test | — | ~4 min | ✅ after one fix (an empty val split is rejected → 2 % index val slice) |
+
+**Caches** (`~/neuralbench/xsess_cache/<study>/`, rows in recording order):
+
+| Study | X | Subjects × sessions | Classes | Notes |
+|---|---|---|---|---|
+| zhou2016 | (1800, 14, 480) | 4 × 3 | 3: left hand, right hand, feet (600 each) | `-100` markers dropped |
+| tangermann2012 | (5184, 22, 480) | 9 × 2 (`0train`, `1test`, different days) | 4 (1296 each) | 288 / subject / session |
+| scherer2015 | (3550, 30, 480) | 9 × 2 | 5 (710 each) | window 3–7 s (task default); two sessions have 175 trials, the rest 200 |
+| zyma2019 | (1659, 20, 600) | 35 × 1 | arithmetic 420 / rest 1239 | 5-s windows; one channel is `A2-A1` (dropped by the harness); 35 of 36 people |
+
+**Scherer 2015 label mapping, resolved.** The BNCI `.mat` files carry their own
+`classes` field: `['WORD' 'SUB' 'NAV' 'HAND' 'FEET']` for codes 1–5 (checked in
+`download/MNE-bnci-data/~bci/database/004-2015/A.mat`, both sessions). The NEMAR
+README and MOABB's event names (`math=1, letter=2, rotation=3, count=4,
+baseline=5`) come from a docstring for a different dataset and are wrong:
+**"math" is word association, "letter" is mental subtraction, "count" is right-hand
+MI.** In the cache, label 0 = code 1 WORD, 1 = SUB, 2 = NAV, 3 = HAND, 4 = FEET.
+Sealed-like 3-class subset: labels 0, 1, 3 (WORD, SUB, HAND).
+
+**Harness** (`analysis/xsess_lib.py`, `analysis/sealed_run.py`,
+`analysis/sealed_summarize.py`): test = each subject's last session; cell-averaged
+balanced accuracy over (subject, session) cells (the proxies have no "context")
+plus pooled balanced accuracy and a per-subject table. Models reuse the solver code
+(Riemann-StepType feature union, EEGNet-StepType network) plus MeanLogReg and the
+upstream braindecode EEGNet (20 epochs). EEGNet-StepType early-stops on the val
+session where a subject has 3 sessions (Zhou), else on 2 held-out subjects
+(pooled) or a stratified 20 % (per-subject), then refits on all training windows
+for the best epoch count. Alignment = per-group whitening X ← R^-1/2 X (Euclidean
+mean = EA, He & Wu 2020; Riemannian mean = re-centring), applied at the signal
+level so every covariance block and EEGNet see it. Conditions: none, oracle,
+train-only, router (per window, training statistics only), routerb (64-window
+batch vote), batch (64-window batch statistics).
+
+**benchopt overlays** (`config/nb_overlays/motor_imagery/`, installed into the
+venv + registered in the untracked `bci_studies.py` by
+`scripts/install_xsess_overlays.sh`): `tangermann2012_xsess` (2539 / 53 / 2592
+train/val/test), `zhou2016_xsess` (1176 / 24 / 600, 3 classes, `-100` filtered),
+`scherer2015_xsess` (1763 / 37 / 1750, 5 classes), `scherer2015_xsess3` (1055 / 25 /
+1050: WORD, SUB, HAND). Val is a 2 % index slice because neuralset rejects an empty
+split, and a solver only ever sees the train loader. Session-based validation lives
+in the harness instead.
+
+**Rules check (batch-level alignment).** `codabench/pages/terms.md` does not mention
+test-time adaptation; Rules 4 and 6 forbid training on or accessing the sealed test
+split and modifying the scoring harness. The track page says the split isolates
+drift "without additional calibration". Verdict: using the statistics of the batch
+that `predict` receives is **not explicitly prohibited but rule-dependent**
+(transductive, and it depends on the scorer's batching and ordering). Report it, do
+not adopt it without asking the organisers. The per-window router uses training
+statistics only and is clean.
+
+**Incident, Phase 1 first launch (18:16–18:22).** Both lanes stalled on their first
+Riemann fit (> 150 s silent where a smoke fit took 9 s): 49 threads per process,
+OpenBLAS defaulting to 20 threads in each of two processes on 20 cores (spinning
+BLAS threads). Cause: `XS_THREADS` only capped torch. Fix: `sealed_lib.sh` exports
+`OMP/OPENBLAS/MKL_NUM_THREADS=$XS_THREADS`. Relaunched 18:22; the same fit then
+took 14 s. Also: two lanes appending to one file on `/mnt/c` lost a STATUS row,
+so results now go to one `results_<study>.jsonl` per study and the reader skips
+malformed lines. On the Windows side, `python3` is the Store alias and hangs, so
+edit with the Edit tool, not Python.

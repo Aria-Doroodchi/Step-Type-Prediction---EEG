@@ -141,22 +141,31 @@ same transform. Same 40-batch protocol as above; 3 min 38 s for all 12:
 hold these **test-batch models**. Don't upload them; retrain on the full data
 first (next steps).
 
-## Next steps (suggested)
+## Next steps
 
-1. **Full Dreyer runs** of Riemann-StepType and EEGNet-StepType (no
-   `max_batches`) to get real warm-up-proxy numbers. Riemann holds all
-   training windows in memory as float64: 27 × 480 × 8 B ≈ 0.1 MB per window,
-   so 100 k windows ≈ 10 GB against WSL's 31 GB. Check the window count first
-   and watch RAM. EEGNet trained at ~2.7 s per epoch per 2,560 windows on
-   this CPU; scale by the real window count to estimate. Then submit the
-   better one to the warm-up leaderboard to validate the upload path end to end.
-2. **Close the EEGNet gap** (ours 0.45 vs upstream 0.58 on tangermann). Likely
-   causes to test: (a) held-out-subject early stopping fires too early on a
-   9-subject dataset, so try `patience=[20]` or a larger `n_epochs`; (b) the
-   kernel conversion via `sfreq`; (c) `standardize=True`.
-3. **Riemann:** sweep `use_xdawn=[True,False]` (xDAWN targets ERPs, not MI).
-   Add band-pass filter banks (mu 8–13 Hz, beta 13–30 Hz): the classic MI win.
-4. **Cross-session drift** (sealed phase): per-subject re-centring / Euclidean
-   alignment, which needs a way to group windows at predict time (only `X`
-   is given). Design question for later.
-5. Register for Track 2 on Codabench (3-step approval; **closes Oct 24**).
+The reasoning, effort estimates and the adapt-vs-ecosystem verdict are in
+[REUSING_MY_MODELS.md § 4-5](REUSING_MY_MODELS.md#4-adapt-the-thesis-code-or-build-on-the-ecosystem).
+Short form (2026-09-24):
+
+1. **Full Dreyer runs** of Riemann-StepType (`reference=car`, `use_xdawn` on/off)
+   and the upstream EEGNet, then the first warm-up upload. Train split = 12,392
+   windows: Riemann holds ~1.3 GB in RAM and fits in minutes; EEGNet ran at
+   ~2.7 s/epoch per 2,560 windows, so ~13 s/epoch here and 20-50 epochs =
+   5-11 min. Minutes, not hours. Register (closes Oct 24).
+2. **Filter-bank tangent space** in Riemann-StepType (one tangent space per
+   band plus broadband, xDAWN off). The field-standard MI method; the thesis's
+   FBCSP block was a placeholder that never filtered.
+3. **braindecode models through the upstream `eegnet.py` template** (EEGNet
+   with early stopping, EEGNeX, ATCNet, ShallowFBCSPNet) instead of porting
+   EEGNeXt/CNN from Keras.
+4. **Local cross-session proxy**: tangermann2012 split by session (2 sessions
+   per subject) and zhou2016 (3 classes, 3 sessions, session hold-out already
+   configured in NeuralBench). Dreyer is cross-subject and cannot predict the
+   sealed phase.
+5. **Per-subject alignment without a subject id** (nearest training-subject
+   fingerprint from the window covariance, then Riemannian re-centring),
+   validated on the step-4 proxies.
+6. **REVE frozen-encoder probe** (weights shipped in the ZIP, licence declared).
+7. When the Graz/BrainHero training data is released: rerun the EDA on it,
+   ablate the EMG/EOG channels, add a local cell-averaged metric, retrain the
+   top lines. One submission per day in the sealed phase.

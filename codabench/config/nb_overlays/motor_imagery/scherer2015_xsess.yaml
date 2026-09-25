@@ -1,0 +1,25 @@
+# Cross-session proxy (sealed-phase prep, 2026-09-25): BNCI2015_004 (Scherer
+# 2015), 9 subjects x 2 sessions (different days), 5 mental tasks. Codes (from
+# the .mat files' own `classes` field): 1 WORD (word association), 2 SUB
+# (mental subtraction), 3 NAV (spatial navigation), 4 HAND (right-hand MI),
+# 5 FEET (feet MI). MOABB's names math/letter/rotation/count/baseline are wrong.
+# Window = the eeg/mental_imagery task default: 3.0-7.0 s after trial start
+# (the cue appears at 3 s). Session '1' -> test. Installed by
+# scripts/install_xsess_overlays.sh.
+data:
+  study:
+    source:
+      name: Scherer2015Individually
+    split:
+      =replace=: true
+      name: PredefinedSplit
+      test_split_query: "session == '1'"
+      col_name: split
+      valid_split_by: _index
+      valid_split_ratio: 0.02
+      valid_random_state: 33
+  start: 3.0
+  duration: 4.0
+brain_model_output_size: &brain_model_output_size 5
+metrics: !!python/object/apply:neuralbench.defaults.metrics.get_classification_metric_configs
+  - *brain_model_output_size

@@ -1,0 +1,23 @@
+# Cross-session proxy (sealed-phase prep, 2026-09-25): Zhou 2016, 4 subjects x
+# 3 sessions, 3-class MI (left hand, right hand, feet). Last session ('2') ->
+# test; sessions 0 and 1 -> train (minus a 2 % random val slice; the stock zhou2016 overlay gives one of them
+# to val, which a solver never sees). MOABB's end-of-run '-100' markers are
+# dropped so the task is 3-class. Installed by scripts/install_xsess_overlays.sh.
+data:
+  study:
+    source:
+      name: Zhou2016Fully
+    split:
+      =replace=: true
+      name: PredefinedSplit
+      test_split_query: "session == '2'"
+      col_name: split
+      valid_split_by: _index
+      valid_split_ratio: 0.02
+      valid_random_state: 33
+    filter_stimuli:
+      name: QueryEvents
+      query: "type != 'Stimulus' or (code != -100 and code != '-100')"
+brain_model_output_size: &brain_model_output_size 3
+metrics: !!python/object/apply:neuralbench.defaults.metrics.get_classification_metric_configs
+  - *brain_model_output_size
