@@ -32,6 +32,7 @@ def main():
     rows = []
     for t in args.tag:
         rows += L.read_results(Path.home() / f"codabench/logs/sealed_{t}/results.jsonl")
+    rows = list({r["key"]: r for r in rows}.values())   # same config in two phases: once
     cell = defaultdict(list)
     racc = defaultdict(list)
     for r in rows:

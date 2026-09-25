@@ -389,3 +389,48 @@ Per-window cross-session subject accuracy (window / 64-window batch vote):
   (accuracy-based) fell back on 96 % of Zhou windows and was replaced. Routing
   accuracy on the fallback windows is only 43–57 %, so the fallback catches real
   failures.
+
+## 2026-09-25 (evening) — Phase 1: cross-session baselines
+
+`scripts/sealed_p1.sh`, two lanes × 10 threads. Results: `logs/sealed_p1/RESULTS.md`.
+
+| Time | Step | Estimate | Actual |
+|---|---|---|---|
+| 18:16:46–18:22:17 | first launch | — | ❌ thrashed (OpenBLAS 20 threads × 2 processes), killed; see Phase 0 incident |
+| 18:22:19–19:03:29 | lane B: Scherer fast / braindecode EEGNet / EEGNet-StepType | 53 min | **41 min**, under |
+| 18:22:19–19:36:56 | lane A: Tangermann + Zhou | 69 min (revised to ~100 at 18:46) | **75 min**, 1.1× the first estimate |
+
+The Tangermann EEGNet-StepType step took 48 min against 40: pooled runs early-stop
+at 70–96 epochs and refit, ~9–11 min each. The watchdog's "idle" column is
+misleading for these runs (the runner logs only per config), so a heartbeat line
+every 10 epochs was added for later phases.
+
+Cell-averaged balanced accuracy on each subject's last session (seed-mean ± SD,
+3 seeds for the neural models; the Riemann and MeanLogReg fits are deterministic):
+
+| Model | Tangermann pooled / per-subj. (4-cl., chance .25) | Scherer pooled / per-subj. (5-cl., .20) | Zhou pooled / per-subj. (3-cl., .33) |
+|---|---|---|---|
+| MeanLogReg | 0.258 / 0.270 | 0.218 / 0.193 | 0.435 / 0.457 |
+| Riemann xDAWN, no FB | 0.663 / 0.679 | 0.252 / 0.315 | 0.635 / 0.622 |
+| Riemann xDAWN + FB | 0.639 / **0.775** | 0.259 / **0.320** | **0.772** / 0.708 |
+| Riemann no xDAWN, FB | 0.544 / 0.726 | 0.277 / 0.301 | 0.728 / 0.667 |
+| Riemann no xDAWN, no FB | 0.501 / 0.599 | 0.264 / 0.294 | 0.555 / 0.478 |
+| braindecode EEGNet (20 ep) | 0.622 ± 0.026 / 0.395 ± 0.008 | 0.295 ± 0.014 / 0.213 ± 0.016 | 0.592 ± 0.073 / 0.477 ± 0.017 |
+| EEGNet-StepType (ES + refit) | 0.644 ± 0.037 / 0.546 ± 0.065 | 0.281 ± 0.010 / 0.261 ± 0.015 | 0.754 ± 0.063 / 0.561 ± 0.003 |
+
+**Decisions.**
+- **Base family = Riemann-StepType with xDAWN + filter bank**: best on all three
+  (Tangermann +13 points over the best EEGNet, Scherer +2.5 over braindecode
+  EEGNet, Zhou +1.8 over EEGNet-StepType, which is within its seed SD of 0.063).
+  EEGNet stays in Phases 2–3 as the deep control.
+- **Pooled vs per-subject: carry both.** Riemann per-subject beats pooled on 2 of
+  3 (Tangermann +13.6, Scherer +6.1; Zhou pooled +6.4). This is the opposite of
+  the thesis pooling result: with a same-subject calibration session, a
+  subject's own covariance model beats a pooled one unless the data is very
+  small (Zhou: 4 subjects, 300 training windows each). EEGNet prefers pooled on
+  all three (too few windows per subject to train a network).
+- The filter bank helps most per-subject (Tangermann +9.6 points with xDAWN).
+  xDAWN, an ERP method, still adds on MI cross-session (Tangermann per-subject
+  +4.9, Zhou pooled +4.4); dropping it is not supported by Phase 1.
+- Scherer 5-class is weak everywhere (best 0.32; no subject above 0.43). The
+  sealed-like 3-class subset is Phase 4.
