@@ -78,18 +78,21 @@ def xsess_split(d):
 # ---------------------------------------------------------------------------
 # metric
 # ---------------------------------------------------------------------------
-def score(y, yhat, subj, sess):
-    """Cell-averaged balanced accuracy over (subject, session) cells, pooled
-    balanced accuracy, and per-subject balanced accuracy (its cells averaged)."""
+def score(y, yhat, subj, sess, ctx=None):
+    """Cell-averaged balanced accuracy over (subject, session[, context])
+    cells (the sealed metric; the proxies have no context), pooled balanced
+    accuracy, and per-subject balanced accuracy (its cells averaged)."""
     import warnings
+    ctx = np.zeros(len(y), int) if ctx is None else np.asarray(ctx)
     cells, per_subj = [], {}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         for s in np.unique(subj):
-            vals = []
-            for v in np.unique(sess[subj == s]):
-                m = (subj == s) & (sess == v)
-                vals.append(balanced_accuracy_score(y[m], yhat[m]))
+            ms = subj == s
+            cell_ids = sorted({(v, c) for v, c in zip(sess[ms], ctx[ms])})
+            vals = [balanced_accuracy_score(y[ms & (sess == v) & (ctx == c)],
+                                            yhat[ms & (sess == v) & (ctx == c)])
+                    for v, c in cell_ids]
             cells += vals
             per_subj[int(s)] = float(np.mean(vals))
         pooled = balanced_accuracy_score(y, yhat)
@@ -135,6 +138,104 @@ def align_groups(X, groups, kind="euclid", covs=None):
         Ws[g] = inv_sqrtm(mean_cov(covs[m], kind))
         Xa[m] = apply_W(X[m], Ws[g])
     return Xa, Ws
+
+
+# ---------------------------------------------------------------------------
+# subject routing without ids (fingerprints)
+# ---------------------------------------------------------------------------
+FP_BANDS = {
+    "ts": [None],                                            # broadband TS
+    "fbts": [None, "1to4", "4to8", "8to13", "13to30", "30to45"],  # filter-bank TS
+    "lv": [None, "1to4", "4to8", "8to13", "13to30", "30to45"],    # log-var per band
+    "psd": [None],                    # log Welch PSD per channel, 1-Hz bins 1-45 Hz
+    "psdf": [None],                   # same, 0.5-Hz bins (2-s Welch segments)
+}
+
+
+def _band_filter(X, sfreq, band):
+    if band is None:
+        return X
+    import riemann_steptype as RS
+    f = RS.WindowPreproc([], sfreq, bandpass=band)
+    out = []
+    with torch.no_grad():
+        for i in range(0, len(X), 1024):
+            out.append(f(torch.from_numpy(X[i:i + 1024])).numpy())
+    return np.concatenate(out)
+
+
+class SubjectRouter:
+    """Predict the training subject of an unlabelled window (no ids at test).
+
+    fp = "ts" | "fbts" | "lv": features = tangent space of OAS covariances
+    (per band for fbts) at the training mean, or per-band per-channel
+    log-variance (lv); classifier = shrinkage LDA over training subjects.
+    The fallback threshold on the max posterior is set on training data only:
+    out-of-fold (leave-one-session-out when every subject has >= 2 training
+    sessions, else 5-fold) max posteriors; t = their 1st percentile, i.e. a
+    window less confident than 99 % of training windows is treated as an
+    outlier and whitened with the global reference (the same semantics as the
+    distance router's 99th-percentile distance)."""
+
+    def __init__(self, fp, sfreq):
+        self.fp, self.sfreq = fp, float(sfreq)
+
+    def _feats(self, X, fit=False):
+        from pyriemann.estimation import Covariances
+        from pyriemann.tangentspace import TangentSpace
+        if "+" in self.fp:      # concatenation, e.g. "lv+fbts"
+            if fit:
+                self.parts = [SubjectRouter(p, self.sfreq) for p in self.fp.split("+")]
+            return np.concatenate([p._feats(X, fit) for p in self.parts], 1)
+        if self.fp in ("psd", "psdf"):
+            from scipy.signal import welch
+            seg = int(self.sfreq) * (2 if self.fp == "psdf" else 1)
+            f, P = welch(X, fs=self.sfreq, nperseg=seg, axis=-1)
+            m = (f >= 1) & (f <= 45)
+            return np.log(P[..., m] + 1e-12).reshape(len(X), -1)
+        blocks = []
+        if fit:
+            self.ts = []
+        for k, band in enumerate(FP_BANDS[self.fp]):
+            Xb = _band_filter(X, self.sfreq, band).astype(np.float64)
+            if self.fp == "lv":
+                blocks.append(np.log(Xb.var(-1) + 1e-12))
+                continue
+            C = Covariances("oas").transform(Xb)
+            if fit:
+                self.ts.append(TangentSpace(metric="riemann").fit(C))
+            blocks.append(self.ts[k].transform(C))
+        return np.concatenate(blocks, 1)
+
+    @staticmethod
+    def _lda():
+        from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+        return LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")
+
+    def fit(self, X, subj, sess):
+        F = self._feats(X, fit=True)
+        self.clf = self._lda().fit(F, subj)
+        self.subjects = self.clf.classes_
+        # OOF threshold (features reuse the full-train tangent point: a mild
+        # optimism, only used to place the fallback threshold)
+        from sklearn.model_selection import StratifiedKFold
+        n_sess = min(len(np.unique(sess[subj == s])) for s in self.subjects)
+        oof = np.zeros((len(subj), len(self.subjects)))
+        if n_sess >= 2:
+            folds = [(np.where(sess != v)[0], np.where(sess == v)[0])
+                     for v in np.unique(sess)]
+        else:
+            folds = list(StratifiedKFold(5, shuffle=True, random_state=0).split(F, subj))
+        for tr, va in folds:
+            clf = self._lda().fit(F[tr], subj[tr])
+            oof[np.ix_(va, np.searchsorted(self.subjects, clf.classes_))] = clf.predict_proba(F[va])
+        mp, ok = oof.max(1), self.subjects[oof.argmax(1)] == subj
+        self.thr = float(np.percentile(mp, 1))
+        self.oof_acc = float(ok.mean())
+        return self
+
+    def predict_proba(self, X):
+        return self.clf.predict_proba(self._feats(X))
 
 
 # ---------------------------------------------------------------------------
@@ -215,18 +316,25 @@ class EEGNetSTModel:
     name = "EEGNet-ST"
 
     def __init__(self, meta, seed=33, n_epochs=100, patience=20, lr=1e-3,
-                 batch_size=64, refit=True, verbose=False):
+                 batch_size=64, refit=True, verbose=False, init_state=None):
         self.meta, self.seed = meta, seed
         self.n_epochs, self.patience, self.lr = n_epochs, patience, lr
         self.bs, self.refit, self.verbose = batch_size, refit, verbose
+        self.init_state = init_state    # pretrained trunk weights (Phase 5)
 
     def _new_net(self, C, T, K):
         import eegnet_steptype as ES
         torch.manual_seed(self.seed)
         sf = float(self.meta["sfreq"])
-        return ES.EEGNetTorch(n_channels=C, n_times=T, n_classes=K,
-                              kernel_length=round(0.5 * sf),
-                              separable_kernel_length=round(0.125 * sf))
+        net = ES.EEGNetTorch(n_channels=C, n_times=T, n_classes=K,
+                             kernel_length=round(0.5 * sf),
+                             separable_kernel_length=round(0.125 * sf))
+        if self.init_state is not None:   # everything but the classifier head
+            trunk = {k: v for k, v in self.init_state.items()
+                     if not k.startswith("classifier.")}
+            missing, unexpected = net.load_state_dict(trunk, strict=False)
+            assert all(k.startswith("classifier.") for k in missing), missing
+        return net
 
     def _train(self, X, y, K, epochs, Xv=None, yv=None):
         import eegnet_steptype as ES
@@ -245,6 +353,9 @@ class EEGNetSTModel:
                 loss.backward()
                 opt.step()
                 net.apply_max_norm()
+            if (ep + 1) % 10 == 0:      # heartbeat for the watchdog (log growth)
+                log(f"    [EEGNet-ST] epoch {ep + 1}/{epochs} n={len(y)}"
+                    + ("" if Xv is None else f" best_val={best:.4f}@{best_ep}"))
             if Xv is None:
                 continue
             vl = self._loss(net, Xv, yv)

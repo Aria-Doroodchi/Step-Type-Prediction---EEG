@@ -162,8 +162,16 @@ def build(study):
         "default_split_counts": np.bincount(split, minlength=3).tolist(),
         "built": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
-    for k, v in dict(X=X, y=y, subj=subj, session=session, run=run,
-                     split=split, onset=onset, code=code).items():
+    arrays = dict(X=X, y=y, subj=subj, session=session, run=run,
+                  split=split, onset=onset, code=code)
+    # The sealed metric averages over subject x session x *context* cells:
+    # keep any context-like column the study provides (none in the proxies).
+    for col in ("context", "condition", "paradigm"):
+        if col in df.columns:
+            arrays["context"] = df[col].astype(str).to_numpy()[order]
+            meta["context_column"] = col
+            break
+    for k, v in arrays.items():
         np.save(out / f"{k}.npy", v)
     (out / "meta.json").write_text(json.dumps(meta, indent=1))
     log(f"{study}: X={X.shape} subjects={len(subjects)} "
@@ -181,5 +189,16 @@ def load(study):
 
 
 if __name__ == "__main__":
-    for s in sys.argv[1:] or ["zhou2016"]:
+    # New study without editing STUDIES (e.g. the Graz + BrainHero release):
+    #   python xsess_cache.py graz2026 --task eeg/<task> [--overlay <name>]
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("studies", nargs="*", default=["zhou2016"])
+    ap.add_argument("--task", default=None, help="modality/task, e.g. eeg/motor_imagery")
+    ap.add_argument("--overlay", default=None, help="dataset overlay in the task's datasets/")
+    a = ap.parse_args()
+    for s in a.studies:
+        if a.task is not None:
+            mod, task = a.task.split("/")
+            STUDIES[s] = (mod, task, a.overlay)
         build(s)

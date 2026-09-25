@@ -85,7 +85,7 @@ def aligned_data(d, tr, te, align, cache):
     info = {}
     if how in ("oracle", "trainonly", "batch"):
         Xa[tr], _ = L.align_groups(X[tr], ss[tr], kind, covs[tr])
-    elif how in ("router", "routerb"):
+    elif how.split("-")[0] in ("router", "routerb"):
         Xa[tr], Ws = L.align_groups(X[tr], subj[tr], kind, covs[tr])
     else:
         raise ValueError(align)
@@ -101,10 +101,20 @@ def aligned_data(d, tr, te, align, cache):
             Xa[i] = L.apply_W(X[i], L.inv_sqrtm(L.mean_cov(covs[i], kind)))
         info["batch_single_subject"] = float(np.mean(
             [len(np.unique(subj[te_idx[b]])) == 1 for b in contiguous_batches(len(te_idx))]))
-    else:   # router / routerb
-        subjects, refs, D, thr = fingerprint_dist(covs[tr], subj[tr], covs[te], kind)
+    else:   # router[-fp] / routerb[-fp]
+        base, _, fp = how.partition("-")
         W_glob = L.inv_sqrtm(L.mean_cov(covs[tr], kind))
-        if how == "router":
+        if fp:      # subject classifier on a fingerprint; cost = -log posterior
+            rkey = f"router_{fp}"
+            if rkey not in cache:
+                r = L.SubjectRouter(fp, d["meta"]["sfreq"]).fit(X[tr], subj[tr], sess[tr])
+                cache[rkey] = (r, r.predict_proba(X[te]))
+            r, Pr = cache[rkey]
+            subjects, D, thr = r.subjects, -np.log(Pr + 1e-12), -np.log(max(r.thr, 1e-12))
+            info["router_oof_acc"] = r.oof_acc
+        else:       # Riemannian distance to each subject's mean covariance
+            subjects, refs, D, thr = fingerprint_dist(covs[tr], subj[tr], covs[te], kind)
+        if base == "router":
             a = subjects[D.argmin(1)]
             fallback = D.min(1) > thr
         else:
@@ -119,8 +129,8 @@ def aligned_data(d, tr, te, align, cache):
             Xa[i] = L.apply_W(X[i:i + 1], W)[0]
         info.update(router_acc=float(np.mean(a == subj[te_idx])),
                     router_fallback=float(fallback.mean()),
-                    router_thr=thr,
-                    router_acc_nofb=float(np.mean(subjects[D.argmin(1)] == subj[te_idx])))
+                    router_thr=float(thr),
+                    router_acc_window=float(np.mean(subjects[D.argmin(1)] == subj[te_idx])))
         info["router_assign"] = a.tolist()
     return Xa, info
 

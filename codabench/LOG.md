@@ -339,3 +339,53 @@ took 14 s. Also: two lanes appending to one file on `/mnt/c` lost a STATUS row,
 so results now go to one `results_<study>.jsonl` per study and the reader skips
 malformed lines. On the Windows side, `python3` is the Store alias and hangs, so
 edit with the Edit tool, not Python.
+
+**Data-release check (18:53, Fri):** tracks page still says Graz + BrainHero is
+"coming soon". Recorded from the page (not in our docs before): **20 participants
+× 6 sessions, 80 h, 47 ch at 500 Hz. Ten *training* participants have all six
+sessions labelled; the ten *evaluation* participants have sessions 1–3 labelled
+(calibration) and 4–6 hidden.** The contexts are "varied Graz and BrainHero
+contexts"; the drift sources named are time of day, electrode replacement,
+physiology and mental strategy. Consequences: (1) the ten training participants
+give an exact internal replica of the sealed split (calibrate on 1–3, test on 4–6)
+for validating the recipe; (2) hidden windows come only from the ten evaluation
+participants, each with three calibration sessions: the Zhou-like regime (3
+sessions), where the subject router is at 100 %, not the one-calibration-session
+regime of Tangermann/Scherer.
+
+## 2026-09-25 (evening) — Phase 2 prep: subject routing without ids
+
+Router-only study (`analysis/router_eval.py`, no decoder): train on each subject's
+training sessions, route every last-session window to a training subject.
+2 threads, alongside the Phase 1 lanes. Tables: `logs/sealed_p2/router_eval*.md`.
+
+| Time | Step | Estimate | Actual |
+|---|---|---|---|
+| 18:27:47–18:31:24 | iteration 1: distance to subject mean (Euclid / Riemann), TS, per-band log-var, filter-bank TS | 2–4 min | 3 min 37 s |
+| 18:32:01–18:36:47 | iteration 2: log-PSD, combinations; fallback threshold changed to outlier semantics | 3–5 min | 4 min 46 s |
+| 18:37–18:41:40 | iteration 3: 0.5 Hz PSD; accuracy on fallback windows | 3–5 min | ~4 min |
+
+Per-window cross-session subject accuracy (window / 64-window batch vote):
+
+| Fingerprint | Zhou (4 subj, 2 train sessions) | Tangermann (9, 1) | Scherer (9, 1) |
+|---|---|---|---|
+| distance to mean, Riemannian | 0.577 / 0.603 | 0.652 / 0.667 | 0.676 / 0.737 |
+| tangent space (LDA) | 0.710 | 0.754 | 0.577 |
+| filter-bank TS (LDA) | 0.995 | 0.878 | 0.809 |
+| per-band log-variance (LDA) | 0.980 | 0.945 | 0.831 |
+| **log-PSD 1–45 Hz, 1 Hz bins (LDA)** | **1.000** / 0.927 | **0.965** / 0.951 | **0.866** / 0.926 |
+| log-PSD 0.5 Hz bins | 0.990 | 0.942 | 0.865 |
+
+- **Chosen router: log-PSD + shrinkage LDA** (`SubjectRouter("psd")`). ≥ 90 % on
+  2 of 3 proxies; Scherer (patients, 1 calibration session, 5 very different
+  mental tasks) stays at 0.87 after three iterations. The sealed regime (3
+  calibration sessions per evaluation participant) resembles Zhou, where two
+  training sessions already give 100 %.
+- Batch voting over contiguous 64-window batches is often *worse* than per-window
+  routing (batches straddle subjects: only 70 % of Zhou test batches are
+  single-subject) and is rule-dependent anyway. Not adopted.
+- Fallback: a window whose max posterior is below the 1st percentile of the
+  training out-of-fold posteriors gets the global reference. The first rule
+  (accuracy-based) fell back on 96 % of Zhou windows and was replaced. Routing
+  accuracy on the fallback windows is only 43–57 %, so the fallback catches real
+  failures.
