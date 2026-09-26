@@ -282,7 +282,35 @@ class RiemannSealedModel:
         return out
 
     # -- training -------------------------------------------------------------
-    def fit(self, train_loader):
+    def _collect(self, train_loader):
+        """(X, y, subject, session-or-None) from the train loader.
+
+        The competition loader gives ``info["subject_id"]`` only. NeuralBench's
+        dataset underneath keeps a per-window trigger table with ``session``;
+        when it is reachable (local training), read the dataset in index order
+        so session ids line up with the windows. Otherwise iterate the loader
+        (shuffled) and return session=None."""
+        ds = getattr(train_loader, "dataset", None)
+        seg = getattr(ds, "seg_ds", None)
+        trig = None
+        try:
+            trig = seg.triggers if seg is not None else None
+        except Exception:        # no triggers table: fall back to the loader
+            trig = None
+        if trig is not None and "session" in trig.columns and self.max_batches is None:
+            import torch.utils.data as tud
+            dl = tud.DataLoader(ds, batch_size=256, shuffle=False,
+                                collate_fn=getattr(train_loader, "collate_fn", None))
+            Xs, ys, ss = [], [], []
+            for X, y, info in dl:
+                Xs.append(self._prep(X))
+                ys.append(to_numpy(y))
+                ss.append(np.asarray(to_numpy(info["subject_id"])).reshape(-1))
+            sess = trig["session"].astype(str).to_numpy()
+            X, y, subj = np.concatenate(Xs), np.concatenate(ys), np.concatenate(ss)
+            if len(sess) == len(y):
+                return X, y, subj, sess
+            return X, y, subj, None
         Xs, ys, ss = [], [], []
         for i, (X, y, info) in enumerate(train_loader):
             if self.max_batches is not None and i >= self.max_batches:
@@ -290,7 +318,10 @@ class RiemannSealedModel:
             Xs.append(self._prep(X))
             ys.append(to_numpy(y))
             ss.append(np.asarray(to_numpy(info["subject_id"])).reshape(-1))
-        X, y, subj = np.concatenate(Xs), np.concatenate(ys), np.concatenate(ss)
+        return np.concatenate(Xs), np.concatenate(ys), np.concatenate(ss), None
+
+    def fit(self, train_loader):
+        X, y, subj, sess = self._collect(train_loader)
         subjects = np.unique(subj)
         sidx = np.searchsorted(subjects, subj)
         n_classes = len(np.unique(y))
@@ -319,7 +350,21 @@ class RiemannSealedModel:
         else:
             parts["W_global"] = np.eye(X.shape[1])
             parts["W"] = np.stack([np.eye(X.shape[1])] * len(subjects))
-        X = self._whiten(X, sidx, parts)
+        if self.adapt == "online" and self.align == "subject" and sess is not None:
+            # online test windows are centred on their own session's recent
+            # statistics, so centre the training data per (subject, session)
+            # too (the harness's online condition). Without session ids the
+            # training data stays centred per subject, which cost 2.7 points
+            # on Zhou (two training sessions) in the 2026-09-25 check.
+            g = sidx * 1000 + np.unique(sess, return_inverse=True)[1]
+            Xw = np.empty_like(X)
+            for gg in np.unique(g):
+                m = g == gg
+                Xw[m] = np.einsum("ij,njt->nit",
+                                  _inv_sqrtm(_mean_cov(covs[m], self.kind)), X[m])
+            X = Xw
+        else:
+            X = self._whiten(X, sidx, parts)
 
         # Riemann-StepType feature union on the whitened windows
         if self.use_xdawn:
@@ -349,7 +394,8 @@ class RiemannSealedModel:
         print(f"[Riemann-Sealed] fitting on X={X.shape}, subjects={len(subjects)}, "
               f"classes={np.unique(y).tolist()}, features={feats.shape[1]}, "
               f"align={self.align}/{self.kind}, personal={self.personal}, "
-              f"router_thr={parts['router']['thr']:.3f}", flush=True)
+              f"router_thr={parts['router']['thr']:.3f}, "
+              f"session_ids={'yes' if sess is not None else 'no'}", flush=True)
         self.parts = parts
         return self
 

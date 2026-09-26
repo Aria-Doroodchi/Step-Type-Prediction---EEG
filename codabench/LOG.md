@@ -549,3 +549,92 @@ Zhou) and ~1–2 points on Scherer (87 %). Differences between blend,
 blend_calib and calib are mostly under 2 points on single deterministic fits:
 the robust finding is personal > pooled on one-calibration-session data, and
 that a training-chosen blend recovers pooled's advantage when pooling wins.
+
+## 2026-09-25 (night) — Phase 4: the sealed-like 3 classes (Scherer) + Zyma
+
+Scherer 2015 restricted to **WORD (word association), SUB (mental subtraction),
+HAND (right-hand kinesthetic MI)** = cache labels 0, 1, 3; X = (2130, 30, 480),
+1080 train / 1050 test, chance 0.333. `scripts/sealed_p4.sh`.
+
+| Time | Step | Estimate | Actual |
+|---|---|---|---|
+| 21:10:33–~21:33 | Zyma, 21 configs, 3 threads (run early as a light job) | 10–20 min | ~23 min |
+| 21:56:30–22:34:01 | s3_ablate, 48 configs (8 block sets × 2 modes × 3 alignments) | 30 min (revised 50 at 22:26) | 38 min, 1.25× |
+| 22:34–22:54:33 | three personalisation runs (clean, online, no-xDAWN) | 45 min | 20 min, under |
+
+**Block ablation**, Riemann-StepType on the 3 classes, cell score (none / clean
+router / online-64, rule-dependent):
+
+| Blocks | per-subject | pooled |
+|---|---|---|
+| all (xDAWN + FB + broadband + log-var) | **0.493** / 0.499 / **0.573** | **0.443** / 0.452 / 0.485 |
+| no xDAWN (FB + broadband + log-var) | 0.491 / 0.476 / 0.556 | 0.431 / 0.431 / 0.476 |
+| filter bank only | 0.484 / 0.463 / 0.553 | 0.435 / 0.433 / 0.487 |
+| no FB (xDAWN + broadband + log-var) | 0.479 / 0.501 / 0.555 | 0.423 / 0.448 / 0.473 |
+| broadband + log-var | 0.446 / 0.443 / 0.509 | 0.423 / 0.406 / 0.450 |
+| log-var only | 0.432 / — / — | 0.381 / 0.361 / 0.413 |
+| xDAWN only | 0.419 / 0.472 / 0.483 | 0.386 / 0.413 / 0.437 |
+| MeanLogReg | 0.336 | 0.353 |
+
+**Personalisation on the 3 classes** (all blocks, router ids): clean pooled 0.452,
+calib 0.473, per-subject 0.486, blend **0.499**, blend_calib 0.486 (router 0.897
+accurate); online pooled 0.485, calib 0.558, per-subject 0.546, blend 0.544,
+blend_calib **0.561**.
+
+**Zyma 2019** (arithmetic vs rest, 35 people, cross-subject 5-fold, chance 0.5):
+filter bank only 0.734, all blocks 0.723, xDAWN only 0.622, broadband + log-var
+0.627, MeanLogReg 0.512; with each held-out person re-centred on their own
+unlabelled windows: FB only 0.779, all blocks 0.762, xDAWN only 0.778.
+
+**Findings and decision.**
+- **The sealed classes are separable across sessions** with these features:
+  ~0.49–0.50 clean and ~0.56–0.57 with online re-centring against 0.333 chance
+  (per-subject, one calibration session). Mental calculation is detectable at all
+  (Zyma, cross-subject 0.73–0.78).
+- **The filter bank carries most of the 3-class signal** (FB alone 0.484 vs all
+  blocks 0.493). **xDAWN still adds a small, consistent amount**: removing it
+  costs 0.2–2.3 points in 6 of 6 per-subject/pooled × alignment comparisons, and
+  0.9–2.0 in the personalised variants. On the MI proxies it added 4–5 points
+  (Phase 1). By the rule's second branch ("if xDAWN still matters, keep both"):
+  **keep xDAWN + filter bank**. Caveat for the sealed data: xDAWN is an ERP
+  method, and a window that starts at a class-specific visual cue gives it
+  cue-evoked potentials to learn. That is legitimate for the score but not
+  "mental-task" signal. Check it with the EDA on the release.
+- Personal variants are within ~2.5 points of each other here (blend 0.499 vs
+  blend_calib 0.486 clean; blend_calib best with online): no reason to change
+  the Phase 3 choice.
+
+**Phase 4, lane B** (22:54:40–23:17:12, 23 min vs 50 estimated): EEGNet-StepType
+on the 3 classes, 30 ch, 3 seeds: pooled **0.476 ± 0.010** (above pooled Riemann,
+0.443, below the Riemann recipe, 0.486–0.499), per-subject 0.363 ± 0.012;
+pooled with oracle Euclidean alignment 0.469 ± 0.036, online-64 0.459 ± 0.033
+(alignment does not help pooled EEGNet here). Phase 4 ALL DONE 23:17:15.
+
+## 2026-09-25 (night) — Phase 6 checks: the release-day pipeline end to end
+
+`scripts/train_sealed.sh <data_home> <study> <task> [overlay]` on the
+`zhou2016_xsess` overlay, exactly as it will run on the Graz + BrainHero release:
+cache → harness validation → blend weight on calibration data → candidate solver
+with the chosen settings baked in as **defaults** (Codabench runs defaults) →
+benchopt training → read-only inference replay → zip in the log folder.
+
+| Time | Run | Result |
+|---|---|---|
+| 23:17:22–23:20:09 | clean recipe (router alignment, blend_calib) | ✅ 2 min 47 s; w = 0.75; train **0.770** = replay 0.770 (harness 0.778; the loader withholds the 2 % val slice) |
+| ~23:21 | solver `adapt=online` on Zhou via benchopt | ❌ 0.743 < 0.770 without it (harness 0.797) |
+| ~23:23 | same on Tangermann | ✅ 0.841 vs 0.805 (harness 0.837 vs 0.802): faithful with one training session |
+| 23:24 | fix + Zhou re-check | ✅ 0.792 |
+| 23:26:32–23:29:19 | `ADAPT=online` end to end | ✅ w = 0.5; train **0.792** = replay 0.792 |
+
+**Incident (solver online mode on multi-session data).** Symptom: the online
+variant scored below the clean one on Zhou. Cause: the harness centres *training*
+windows per (subject, session), matching the session-local centring of online
+test windows. The solver's `fit` saw only `subject_id` and centred each subject's
+sessions pooled, a train/test mismatch that costs nothing with one training
+session (Tangermann) and 2.7 points with two (Zhou). Fix: `fit` reads session ids
+from the NeuralBench trigger table under the loader when present (logged as
+`session_ids=yes`) and centres per (subject, session) in online mode.
+Also found and fixed in `train_sealed.sh`: the blend weight was read from the
+wrong folder, must be chosen under the same alignment the solver uses (w = 0.75
+under the router vs 0.5 under online on Zhou; the wrong one cost 3 points), and
+online runs now get their own tag and output folder.

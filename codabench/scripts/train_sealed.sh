@@ -22,7 +22,9 @@
 # Never uploads (the user's action) and never writes codabench/submissions/.
 set -u
 DATA_HOME=${1:?data_home}; STUDY=${2:?study}; TASK=${3:?modality/task}; OVERLAY=${4:-}
-TAG=train_sealed_$STUDY
+ADAPT=${ADAPT:-none}   # "online" only once the organisers allow test-time statistics
+SUFFIX=$([ "$ADAPT" = online ] && echo _online)
+TAG=train_sealed_$STUDY$SUFFIX
 source "$HOME/codabench/env.sh" >/dev/null
 export BENCHOPT_DATA_HOME="$DATA_HOME" PYTHONUTF8=1
 export XS_THREADS=${XS_THREADS:-10}
@@ -47,19 +49,46 @@ step cache 60m python "$A/xsess_cache.py" "$STUDY" --task "$TASK" ${OVERLAY:+--o
 # 3. recipe validation, cross-session (last session per subject = test).
 #    RECIPE_* defaults = SEALED_RECIPE.md section 1; override from the env.
 RECIPE_SPEC=${RECIPE_SPEC:-riemann:xd=1,fb=1}
-RECIPE_ALIGN=${RECIPE_ALIGN:-router-psd:riemann}
+# the blend weight must be chosen under the alignment the solver will use
+# (Zhou: w=0.75 under the router, 0.5 under online; the wrong one cost 3 points)
+if [ "$ADAPT" = online ]; then DEF_ALIGN=online-64:riemann; else DEF_ALIGN=router-psd:riemann; fi
+RECIPE_ALIGN=${RECIPE_ALIGN:-$DEF_ALIGN}
 step validate 120m python "$A/sealed_run.py" --tag "$TAG" --study "$STUDY" \
     --models meanlr "$RECIPE_SPEC" --modes pooled persubject --aligns none "$RECIPE_ALIGN"
-step personal 120m python "$A/sealed_personal.py" --tag "$TAG" --study "$STUDY" \
+step personal_$ADAPT 120m python "$A/sealed_personal.py" --tag "$TAG" --study "$STUDY" \
     --family "$RECIPE_SPEC" --align "$RECIPE_ALIGN"
 
 # 4. benchopt training of the solver (needs the overlay registered in
-#    bci_studies _OVERLAYS: see scripts/install_xsess_overlays.sh)
+#    bci_studies _OVERLAYS: see scripts/install_xsess_overlays.sh).
+#    blend_calib weight: the benchopt train loader is shuffled and has no
+#    session ids, so the solver cannot choose it; take the one sealed_personal
+#    chose on training data (held-out calibration session / halves).
+#    (the harness writes to logs/sealed_<tag>/, not to this script's LOGDIR)
+W=$(python - "$HOME/codabench/logs/sealed_$TAG" "$STUDY" "$RECIPE_ALIGN" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / f"results_{sys.argv[2]}.jsonl"
+rows = [r for r in (json.loads(l) for l in p.read_text().splitlines()) if "blend_calib_w" in r
+        and r["align"] == sys.argv[3]] if p.exists() else []
+if not rows:
+    sys.exit(f"no blend_calib_w for align={sys.argv[3]} in {p}")
+print(rows[-1]["blend_calib_w"])
+PY
+) || { echo "| $(date +%T) | ERROR: blend weight not found |" >> "$STATUS"; exit 1; }
+# Codabench instantiates the solver with its DEFAULT parameters: bake the chosen
+# settings into a candidate copy as defaults (the frozen-WU1 practice) and train
+# that copy with no overrides.
+CAND="$LOGDIR/riemann_sealed_cand.py"
+sed -e 's/"personal": \["pooled"\]/"personal": ["blend"]/' \
+    -e "s/\"blend_w\": \[0.5\]/\"blend_w\": [$W]/" \
+    -e "s/\"adapt\": \[\"none\"\]/\"adapt\": [\"$ADAPT\"]/" \
+    -e "s/name = \"Riemann-Sealed\"/name = \"Riemann-Sealed-Cand$SUFFIX\"/" \
+    "$HOME/codabench/solvers/bci_decoding/riemann_sealed.py" > "$CAND"
+grep -q "\"blend_w\": \[$W\]" "$CAND" || { echo "candidate defaults not set" >> "$STATUS"; exit 1; }
+echo "| $(date +%T) | candidate $CAND: personal=blend blend_w=$W adapt=$ADAPT |" >> "$STATUS"
 cd "$HOME/codabench/2026-competition"
-OUT=tracks/bci_decoding/outputs/Riemann-Sealed
-step train 180m benchopt run tracks/bci_decoding -d "BCI[study=$STUDY]" \
-    -s ../solvers/bci_decoding/riemann_sealed.py -o "BCI-decoding[training=True]" \
-    --no-plot --no-html --output "${TAG}_train" || exit 1
+OUT=tracks/bci_decoding/outputs/Riemann-Sealed-Cand$SUFFIX
+step train 180m benchopt run tracks/bci_decoding -d "BCI[study=$STUDY]" -s "$CAND" \
+    -o "BCI-decoding[training=True]" --no-plot --no-html --output "${TAG}_train" || exit 1
 
 # 5. replay read-only, inference only; then zip (files at the zip root)
 R=/tmp/${TAG}_replay; rm -rf "$R"; cp -r "$OUT" "$R"; chmod -R a-w "$R"

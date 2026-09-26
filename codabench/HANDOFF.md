@@ -4,23 +4,22 @@ Resume from this file alone. The plan is the weekend prompt (commit d3019b7,
 pasted in the session); phases 0–6, decision rules, launch/watchdog pattern.
 Branch `feat/codabench-track2`, push to `personal` after every commit.
 
-## State (updated 2026-09-25 20:15)
+## State (updated 2026-09-25 22:25)
 
 | Phase | Status | Where |
 |---|---|---|
 | 0 harness | ✅ done (caches, harness, overlays, watchdog, smoke) | LOG.md 2026-09-25 evening entry |
 | 1 baselines | ✅ done 19:37 (commit 18af79d): Riemann xDAWN+FB is the base family; per-subject > pooled on 2/3 | `logs/sealed_p1/RESULTS.md` |
-| 2 alignment | ⏳ lane B done 20:06; lane A (z_eeg, t_eeg) until ~21:35; **p2b online re-centring** (`scripts/sealed_p2b.sh`) running since 20:07, ~21:00 | `logs/sealed_p2/` |
-| 3 pooling / personalisation | script ready (`scripts/sealed_p3.sh`, clean router + rule-dependent online variants); launch `LANES=B` when p2b ends, `LANES=A` when p2 lane A ends | |
+| 2 alignment | ✅ done 21:07 (08ea8c3): clean router recovers little; online re-centring (rule-dep.) ≥ oracle | `logs/sealed_p2/RESULTS.md` |
+| 3 pooling / personalisation | ✅ done 22:14 (c22c19c): **blend_calib** best/tied on all 3 | `logs/sealed_p3/RESULTS.md` |
+| 4 Scherer 3-class | ⏳ lane A (ablation + personal) since 21:56, ~23:15; zyma already done (`logs/sealed_p4/zyma_early.log`); lane B (EEGNet 3-class) still to launch: `LANES=B bash scripts/sealed_p4.sh` | `logs/sealed_p4/` |
+| 5 pre-training | ⏳ lane A (raw pre-train ×3 + fine-tune + Riemann ref) since 22:14, ~23:45; lane B (`LANES=B bash scripts/sealed_p5.sh`) when p4 lane A ends | `logs/sealed_p5/` |
 
-Phase 2 so far: oracle alignment (test-session stats) gains +3 to +9 points; the
-clean router recovers ~55 % for pooled and ~0 % for per-subject models (affine
-invariance); train-only hurts on Tangermann; batch / online (rule-dependent)
-recover ~90-100 %+ of the oracle gain. Online per-subject re-centring on Zhou:
-0.783 vs oracle 0.763 vs none 0.708.
-| 4 Scherer 3-class + Zyma | coded (`scripts/sealed_p4.sh`, `analysis/sealed_zyma.py`); set `ALIGN`/`MODES` from p2/p3 | |
-| 5 cross-dataset pre-training (overnight) | coded + smoke-tested (`scripts/sealed_p5.sh`, `analysis/sealed_pretrain.py`); set `P5_ALIGN` | |
-| 6 SEALED_RECIPE.md | — | |
+Slot plan: 2 heavy jobs max. After p4 lane A → p5 lane B; after p5 lane A →
+p4 lane B; then Phase 6 (end-to-end `train_sealed.sh` test on zhou2016_xsess,
+SEALED_RECIPE.md).
+
+Phase 6 (SEALED_RECIPE.md): draft exists; fill sections 1, 2, 5 from the RESULTS files.
 
 Router (no ids at test): log-PSD LDA (`SubjectRouter("psd")`), per-window
 cross-session subject accuracy Zhou 1.000, Tangermann 0.965, Scherer 0.866
