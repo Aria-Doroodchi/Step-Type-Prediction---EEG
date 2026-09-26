@@ -638,3 +638,55 @@ Also found and fixed in `train_sealed.sh`: the blend weight was read from the
 wrong folder, must be chosen under the same alignment the solver uses (w = 0.75
 under the router vs 0.5 under online on Zhou; the wrong one cost 3 points), and
 online runs now get their own tag and output folder.
+
+## 2026-09-25 (night) — Phase 5: cross-dataset pre-training
+
+`scripts/sealed_p5.sh`, `analysis/sealed_pretrain.py`. Channels: the 11 shared by
+Dreyer, Tangermann and Scherer (Fz FC3 FCz FC4 C3 Cz C4 CP3 CPz CP4 Pz; all four
+datasets share only 9, and Zhou's missing Fz/Pz are spline-interpolated, which
+the weights show is sensible: Fz ≈ 1.08·FCz + 0.3·FC3/FC4 − 0.3·C-row). All
+data already at 120 Hz. Pre-training pool: Dreyer 20,792 + Tangermann 5,184 +
+Zhou 1,800 = 27,776 windows, one EEGNet-StepType trunk with a head per dataset,
+10 % of subjects per dataset held out for early stopping.
+
+| Time | Step | Estimate | Actual |
+|---|---|---|---|
+| 22:14:30–22:40:29 | raw pre-training × 3 seeds | 75 min | 26 min (4.4–15.7 min each; ES at epoch 18–28) |
+| 22:40:29–22:53:18 | fine-tune (raw) + Riemann reference analogue | 30 min | 13 min |
+| 22:53:27–23:21:24 | Euclidean-aligned pre-training × 3 | 75 min | 28 min |
+| 23:21:24–23:37:19 | fine-tune with online-64 and with router alignment | 60 min | 16 min |
+
+Total 83 min against the 3–4 h estimate (this CPU with 10 threads per lane is
+faster on 11-channel windows than the 30-channel estimate assumed).
+
+Held-out-subject accuracy of the pre-trained heads: raw Dreyer 0.77, Tangermann
+0.43, Zhou 0.57; aligned pre-training raises Tangermann's held-out subject to 0.57.
+
+Scherer 3-class (WORD, SUB, HAND) on the 11 channels, cell score, 3 seeds:
+
+| EEGNet-StepType | none | router (EA, clean) | online-64 (EA, rule-dep.) |
+|---|---|---|---|
+| scratch, per-subject | 0.349 ± 0.016 | **0.466 ± 0.032** | 0.438 ± 0.014 |
+| pre-trained, per-subject | 0.410 ± 0.005 | 0.420 ± 0.042 | 0.429 ± 0.046 |
+| scratch, pooled | 0.438 ± 0.028 | 0.414 ± 0.021 | 0.430 ± 0.024 |
+| pre-trained, pooled | 0.364 ± 0.034 | 0.342 ± 0.003 | 0.346 ± 0.016 |
+
+Riemann analogue (filter-bank + broadband tangent space, 11 ch): reference point
+from Scherer training covariances vs from MI + Scherer: pooled 0.436 vs 0.436,
+per-subject 0.436 vs 0.431.
+
+**Decision: no gain from cross-dataset pre-training at this scale.** Pre-training
+helps only the weakest setup (per-subject EEGNet without alignment, +6.1, where
+training from scratch often early-stops at epoch 1). In every other same-condition
+comparison it is level or worse: per-subject with EA −4.6, pooled −7 to −8. Pooled
+fine-tuning early-stops at epoch 1–3 (the new head overfits two held-out subjects'
+validation loss), so a gentler protocol (frozen trunk first, lower LR) might narrow
+the pooled gap. The best pre-trained number (0.429) is below the best from-scratch
+EEGNet (0.466) and far below the 30-channel Riemann recipe (0.486–0.499 clean,
+0.561 online). Adopting the 11-channel harmonised set would itself cost ~6 points.
+The Riemann reference point makes no difference (tangent-space LDA is nearly
+invariant to it). REVE / LaBraM stay the documented, not-run next step: 2026-09-25
+feasibility was a 20–24 min frozen embedding pass for Dreyer and 45 min per epoch
+full fine-tune on this CPU; weights not downloaded (needs the user's approval).
+Side finding: per-subject Euclidean alignment helps EEGNet itself (0.349 → 0.466),
+unlike the affine-invariant Riemann pipeline.
