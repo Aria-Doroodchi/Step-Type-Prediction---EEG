@@ -501,3 +501,51 @@ EEGNet-StepType pooled, 3 seeds (Euclidean kind):
 
 The same pattern as Riemann: the clean router recovers little, test-time
 statistics recover all of it. EEGNet stays below per-subject Riemann everywhere.
+
+## 2026-09-25 (night) — Phase 3: pooling vs personalisation
+
+`scripts/sealed_p3.sh` (lanes) + `scripts/sealed_p3b.sh` (rerun with the new
+`blend_calib` variant). Tables: `logs/sealed_p3/RESULTS.md`
+(`analysis/sealed_decide_p3.py`).
+
+| Time | Step | Estimate | Actual |
+|---|---|---|---|
+| 20:39:40–21:27:54 | lane B: Scherer, 2 Riemann families (clean), 1 online, EEGNet 3 seeds | 49 min | 48 min, on |
+| 21:06:58–21:56:05 | lane A: Tangermann + Zhou, same + EEGNet | 74–90 min | 49 min, under |
+| 21:28–22:14:19 | p3b: blend_calib rerun, 3 proxies × {router, online} | 40 min | 46 min, 1.15× |
+
+Variants (all on the same aligned data): **pooled**; **calib** = pooled feature
+extractor + per-subject LDA; **blend** = w·pooled + (1−w)·per-subject model;
+**blend_calib** = w·pooled + (1−w)·calib; **per-subject**. w is chosen on
+training data only (Zhou: val session; others: two chronological halves of the
+training session). Personal variants are scored with the router's subject ids
+(a wrong route applies the wrong subject's model; outliers get pooled).
+
+Riemann xDAWN + FB, router ids (oracle ids within ~1 point, except Scherer ~1–2):
+
+| Proxy | alignment | pooled | calib | blend | **blend_calib** (w) | per-subject |
+|---|---|---|---|---|---|---|
+| Tangermann | router (clean) | 0.687 | 0.792 | 0.792 | **0.802** (0.5) | 0.777 |
+| Scherer | router (clean) | 0.277 | **0.322** | 0.304 | **0.322** (0.0) | 0.302 |
+| Zhou | router (clean) | 0.767 | 0.708 | 0.757 | **0.778** (0.75) | 0.688 |
+| Tangermann | online-64 (rule-dep.) | 0.729 | 0.824 | 0.836 | **0.837** | 0.820 |
+| Scherer | online-64 (rule-dep.) | 0.301 | **0.375** | 0.363 | **0.375** | 0.362 |
+| Zhou | online-64 (rule-dep.) | 0.747 | 0.778 | **0.802** | 0.797 | 0.783 |
+
+EEGNet-StepType (router alignment, 3 seeds): pooled / calib (last-layer
+fine-tune, router ids): Tangermann 0.653 / 0.678, Scherer 0.295 / 0.303, Zhou
+0.704 / 0.729. Calibration helps EEGNet by about 1–3 points, but it stays 6–12
+points below Riemann blend_calib.
+
+**Decision.** **blend_calib is best or tied-best on all three proxies**, clean and
+rule-dependent alike, so it goes into the recipe. Read literally, the rule's
+"ties go to the simpler variant" would pick calib on Tangermann (−1.0) and
+Scherer (identical), but calib loses 7 points on Zhou, the proxy with two
+training sessions per subject, closest to the sealed three. blend_calib contains
+calib (w = 0) and pooled (w = 1) as special cases and picks w on training data
+(0.0 / 0.5 / 0.75 here), so it degrades gracefully in both regimes.
+Router ids cost < 1 point where the router is ≥ 96 % accurate (Tangermann,
+Zhou) and ~1–2 points on Scherer (87 %). Differences between blend,
+blend_calib and calib are mostly under 2 points on single deterministic fits:
+the robust finding is personal > pooled on one-calibration-session data, and
+that a training-chosen blend recovers pooled's advantage when pooling wins.

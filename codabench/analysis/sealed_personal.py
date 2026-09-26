@@ -16,6 +16,7 @@ Variants (all on the same aligned data; the alignment is the Phase 2 winner):
               >= 2 training sessions (Zhou), else two chronological halves of
               each subject's training session (fit one, score the other, both
               ways). Riemann only
+  blend_calib as blend, with the calib model as the personal part (own weight)
   persubject  one model per subject on its own training sessions (Riemann only
               here; EEGNet per-subject comes from Phases 1-2)
 Personalised variants need a subject id at test time. Every subject's
@@ -102,19 +103,26 @@ def blend_cv_folds(d, tr_idx):
 
 
 def choose_w(d, meta, spec, Xa, tr_idx):
+    """Pooled weight for blending pooled with each personal stack
+    ("persubject" -> blend, "calib" -> blend_calib), chosen on training CV."""
     y, subj, sess = d["y"], d["subj"], d["sess"]
     folds = blend_cv_folds(d, tr_idx)
-    scores = np.zeros(len(W_GRID))
+    scores = {"persubject": np.zeros(len(W_GRID)), "calib": np.zeros(len(W_GRID))}
     for fit_idx, val_idx in folds:
         subjects, P_pool, st = riemann_all(meta, spec, Xa, y, subj, fit_idx, val_idx,
                                            own_rows_only=True)
-        P_ps = select(st["persubject"], subjects, subj[val_idx], P_pool)
-        for k, w in enumerate(W_GRID):
-            Pb = w * P_pool + (1 - w) * P_ps
-            scores[k] += L.score(y[val_idx], Pb.argmax(1), subj[val_idx], sess[val_idx])["cell"]
-    scores /= len(folds)
-    k = max(range(len(W_GRID)), key=lambda i: (round(scores[i], 6), W_GRID[i]))  # ties -> pooled
-    return W_GRID[k], scores.tolist()
+        for name in scores:
+            P_p = select(st[name], subjects, subj[val_idx], P_pool)
+            for k, w in enumerate(W_GRID):
+                Pb = w * P_pool + (1 - w) * P_p
+                scores[name][k] += L.score(y[val_idx], Pb.argmax(1), subj[val_idx],
+                                           sess[val_idx])["cell"]
+    out = {}
+    for name, sc in scores.items():
+        sc = sc / len(folds)
+        k = max(range(len(W_GRID)), key=lambda i: (round(sc[i], 6), W_GRID[i]))  # ties -> pooled
+        out[name] = (W_GRID[k], sc.tolist())
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -215,11 +223,15 @@ def main():
             extra["epochs"] = [int(ep)]
         else:
             subjects, P_pool, stacks = riemann_all(meta, args.family, Xa, y, subj, tr_idx, te_idx)
-            w, cv = choose_w(d, meta, args.family, Xa, tr_idx)
+            ws = choose_w(d, meta, args.family, Xa, tr_idx)
+            (w, cv), (wc, cvc) = ws["persubject"], ws["calib"]
             stacks["blend"] = w * P_pool[None] + (1 - w) * stacks["persubject"]
-            extra.update(blend_w=w, blend_cv=[round(v, 4) for v in cv])
+            stacks["blend_calib"] = wc * P_pool[None] + (1 - wc) * stacks["calib"]
+            extra.update(blend_w=w, blend_cv=[round(v, 4) for v in cv],
+                         blend_calib_w=wc, blend_calib_cv=[round(v, 4) for v in cvc])
             L.log(f"  blend: w_pooled={w} chosen on training CV (cell scores "
                   f"{np.round(cv, 3).tolist()} for w={W_GRID})")
+            L.log(f"  blend_calib: w_pooled={wc} (training CV {np.round(cvc, 3).tolist()})")
         dt = time.time() - t0
         rows = [("pooled", "none", P_pool)]
         for v, st in stacks.items():
