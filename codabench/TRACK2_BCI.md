@@ -49,6 +49,7 @@ Keep ≥ 30 GB free on C: for Windows itself.
 |---|---|---|
 | `eegnet_steptype.py` → **EEGNet-StepType** | thesis `eegnet_torch.py` | Keras-faithful EEGNet, K-class, early stopping on held-out subjects |
 | `riemann_steptype.py` → **Riemann-StepType** | thesis `riemannian.py` | xDAWN-TS + broadband-TS + log-var → shrinkage LDA |
+| `riemann_sealed.py` → **Riemann-Sealed** | 2026-09-25 weekend | the sealed-phase recipe: Riemann-StepType + filter bank + log-PSD subject router + per-subject whitening + blend_calib personalisation; optional `adapt="online"` (rule-dependent). See [SEALED_RECIPE.md](SEALED_RECIPE.md) |
 
 Upstream baselines (in `2026-competition/tracks/bci_decoding/solvers/`):
 `Constant`, `MeanLogReg`, `Torch-Linear`, `EEGNet` (braindecode).
@@ -141,7 +142,15 @@ same transform. Same 40-batch protocol as above; 3 min 38 s for all 12:
 hold these **test-batch models**. Don't upload them; retrain on the full data
 first (next steps).
 
-## Next steps
+## Sealed-phase recipe (2026-09-25)
+
+The evidence-ranked recipe for the sealed phase, its proxy evidence (Tangermann,
+Scherer, Zhou cross-session; Zyma), what stays untested until Graz + BrainHero
+is released, and the one-command retraining path
+(`scripts/train_sealed.sh`) are in **[SEALED_RECIPE.md](SEALED_RECIPE.md)**.
+Its first next step is a question to the organisers about test-time statistics.
+
+## Next steps (warm-up era, 2026-09-24)
 
 The reasoning, effort estimates and the adapt-vs-ecosystem verdict are in
 [REUSING_MY_MODELS.md § 4-5](REUSING_MY_MODELS.md#4-adapt-the-thesis-code-or-build-on-the-ecosystem).

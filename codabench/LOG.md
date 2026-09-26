@@ -690,3 +690,19 @@ feasibility was a 20–24 min frozen embedding pass for Dreyer and 45 min per ep
 full fine-tune on this CPU; weights not downloaded (needs the user's approval).
 Side finding: per-subject Euclidean alignment helps EEGNet itself (0.349 → 0.466),
 unlike the affine-invariant Riemann pipeline.
+
+## 2026-09-25 (night) — Phase 6: deliverable
+
+- `SEALED_RECIPE.md` complete: recipe (§ 1), evidence tables for every phase plus a
+  paired subject-level bootstrap of the key claims (§ 2,
+  `analysis/sealed_bootstrap.py`), what stays untested until Graz + BrainHero
+  with an ablation plan (§ 3), the one-command path (§ 4), ranked next steps
+  and a drafted organiser question (§ 5).
+- `Riemann-Sealed` defaults now match the recipe (`personal="blend"`,
+  `adapt="none"`); `train_sealed.sh` sets `blend_w` from calibration data and
+  checks the baked-in defaults before training.
+- Bootstrap honesty note: xDAWN's contribution on the 3 sealed-like classes is
+  +0.2 points (95 % CI −2.4 to +3.1), not measurable. It stays for its MI gains,
+  and it is the first block to drop if the release data disagrees.
+- Whole weekend plan (Phases 0–6) done by ~23:55 Friday, well ahead of the
+  8–12 h compute budget (~5.5 h wall, two lanes). Nothing uploaded.

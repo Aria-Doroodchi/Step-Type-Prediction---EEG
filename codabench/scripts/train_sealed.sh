@@ -83,7 +83,9 @@ sed -e 's/"personal": \["pooled"\]/"personal": ["blend"]/' \
     -e "s/\"adapt\": \[\"none\"\]/\"adapt\": [\"$ADAPT\"]/" \
     -e "s/name = \"Riemann-Sealed\"/name = \"Riemann-Sealed-Cand$SUFFIX\"/" \
     "$HOME/codabench/solvers/bci_decoding/riemann_sealed.py" > "$CAND"
-grep -q "\"blend_w\": \[$W\]" "$CAND" || { echo "candidate defaults not set" >> "$STATUS"; exit 1; }
+grep -q "\"blend_w\": \[$W\]" "$CAND" && grep -q '"personal": \["blend"\]' "$CAND" \
+    && grep -q "\"adapt\": \[\"$ADAPT\"\]" "$CAND" \
+    || { echo "| $(date +%T) | ERROR: candidate defaults not set |" >> "$STATUS"; exit 1; }
 echo "| $(date +%T) | candidate $CAND: personal=blend blend_w=$W adapt=$ADAPT |" >> "$STATUS"
 cd "$HOME/codabench/2026-competition"
 OUT=tracks/bci_decoding/outputs/Riemann-Sealed-Cand$SUFFIX

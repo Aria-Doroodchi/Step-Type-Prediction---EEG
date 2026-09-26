@@ -96,13 +96,50 @@ arithmetic vs rest, cross-subject: FB only 0.734, all 0.723, MeanLogReg 0.512;
 Tangermann + Zhou, 27,776 windows, 11 shared channels; fine-tuned on Scherer
 3-class; 3 seeds):
 
-| | per-subject | pooled |
+| EEGNet-StepType, 11 ch | per-subject: none / router / online | pooled: none / router / online |
 |---|---|---|
-| from scratch, 11 ch | 0.349 ± 0.017 | 0.438 ± 0.028 |
-| pre-trained, 11 ch | 0.410 ± 0.005 | 0.364 ± 0.033 |
-| pre-trained (aligned), online / router | _pending_ | _pending_ |
-| Riemann FB TS, 11 ch, reference Scherer vs MI + Scherer | 0.436 vs 0.432 | 0.436 vs 0.436 |
-| *reference: Riemann-Sealed recipe, 30 ch (clean)* | *0.486 (blend_calib)* | *0.452* |
+| from scratch | 0.349 / **0.466** / 0.438 | 0.438 / 0.414 / 0.430 |
+| pre-trained (raw, then EA-aligned for router/online) | 0.410 / 0.420 / 0.429 | 0.364 / 0.342 / 0.346 |
+| Riemann FB TS, 11 ch: reference Scherer vs MI + Scherer | 0.436 vs 0.431 | 0.436 vs 0.436 |
+| *reference: Riemann-Sealed recipe, 30 ch* | *0.486 clean, 0.561 online (blend_calib)* | *0.452* |
+
+Pre-training helps only unaligned per-subject training (+6.1). Everywhere else it
+is level or worse (pooled −7 to −8; pooled fine-tunes early-stop at epoch 1–3),
+so: **no gain from cross-dataset pre-training at this scale.** The 11-channel set
+shared by the MI datasets would itself cost ~6 points against Scherer's 30
+channels. REVE / LaBraM remain the documented, not-run next step (2026-09-25
+feasibility on this CPU: 20–24 min frozen embedding pass for Dreyer, 45 min per
+epoch full fine-tune; weights not downloaded, needs the user's approval).
+
+**How sure are we? Paired bootstrap over subjects** (95 % CI of the mean
+per-subject difference, 10,000 resamples; `analysis/sealed_bootstrap.py`):
+
+| Proxy | Claim | A − B | Subjects A > B |
+|---|---|---|---|
+| Tangermann | per-subject vs pooled (no alignment) | +0.135 (+0.110, +0.160) | 9/9 |
+| Scherer | per-subject vs pooled (no alignment) | +0.060 (+0.017, +0.106) | 7/9 |
+| Zhou | per-subject vs pooled (no alignment) | −0.063 (−0.130, −0.000) | 1/4 |
+| Tangermann | blend_calib vs pooled (clean) | +0.115 (+0.096, +0.134) | 9/9 |
+| Scherer | blend_calib vs pooled (clean) | +0.045 (+0.012, +0.081) | 6/9 |
+| Zhou | blend_calib vs pooled (clean) | +0.012 (+0.000, +0.023) | 2/4 |
+| Scherer 3-cl. | blend_calib vs pooled (clean) | +0.034 (+0.001, +0.065) | 6/9 |
+| Tangermann | blend_calib (clean) vs per-subject, no alignment | +0.027 (−0.018, +0.073) | 5/9 |
+| Scherer | blend_calib (clean) vs per-subject, no alignment | +0.003 (−0.011, +0.015) | 6/9 |
+| Zhou | blend_calib (clean) vs per-subject, no alignment | +0.070 (+0.015, +0.118) | 3/4 |
+| Tangermann | online-64 vs clean (blend_calib) | +0.035 (+0.016, +0.054) | 8/9 |
+| Scherer | online-64 vs clean (blend_calib) | +0.052 (+0.025, +0.082) | 8/9 |
+| Zhou | online-64 vs clean (blend_calib) | +0.018 (−0.030, +0.048) | 3/4 |
+| Scherer 3-cl. | online-64 vs clean (blend_calib) | +0.075 (+0.044, +0.110) | 9/9 |
+| Scherer 3-cl. | xDAWN: all blocks vs no xDAWN (per-subject) | +0.002 (−0.024, +0.031) | 5/9 |
+
+Read: personalisation beats pooling where each subject has one calibration
+session, and pooling beats it with few subjects and two sessions (Zhou).
+blend_calib is never significantly worse than either, and its training-chosen
+weight is what makes it safe in both regimes. Online re-centring is a
+significant gain on 3 of 4 proxies. **xDAWN's contribution on the 3 sealed-like
+classes is not measurable** (+0.2, CI −2.4 to +3.1); it stays in the recipe for
+its +4–5 points on the motor-imagery proxies (Phase 1) and costs ~nothing, but it
+is the first block to drop if the release data disagrees.
 
 ## 3. Untested until the Graz + BrainHero data arrives
 
@@ -138,6 +175,27 @@ training on the study overlay → read-only inference replay (must reproduce the
 score) → zip into the log folder. It never uploads and never writes
 `codabench/submissions/`. `ADAPT=online` switches on the conditional upgrade.
 
-## 5. Next steps
+**Verified end to end** (2026-09-25 23:17–23:29, `zhou2016_xsess`): clean recipe
+w = 0.75, train 0.770 = read-only replay 0.770 (harness 0.778); `ADAPT=online`
+w = 0.5, train 0.792 = replay 0.792 (harness 0.797). Tangermann through benchopt:
+0.805 clean, 0.841 online (harness 0.802 / 0.837). Each run takes under 3 minutes.
 
-_(filled in after Phase 5 and the end-to-end check)_
+## 5. Next steps (ranked)
+
+| # | Step | Expected gain | Effort | Risk |
+|---|---|---|---|---|
+| 1 | **Ask the organisers** whether `predict()` may use statistics of the unlabelled test windows it has already received (online per-subject re-centring; no labels, no training on the sealed split). Suggested wording below. If yes: `ADAPT=online bash scripts/train_sealed.sh ...` | **+3.5 to +7.5 points** on the proxies (significant on 3 of 4); the single largest lever found | one forum post (the user's action); code ready and verified | rule only. If the answer is no, the clean recipe stands unchanged |
+| 2 | **Release day**: run `train_sealed.sh` on Graz + BrainHero using the ten fully labelled participants as a replica split (calibrate on sessions 1–3, test on 4–6). Then: EMG/EOG ablation, context cells, blend weight by leave-one-calibration-session-out, xDAWN ablation (§ 3) | correctness: the proxies are small (4–9 people), so the ranking of close variants can change | ~1 day: the pipeline runs in minutes, the EDA and ablations are the work | loader surprises (47 ch at 500 Hz, contexts, how sessions are labelled) |
+| 3 | **Riemann + pooled-EEGNet probability ensemble** on the 3 classes. Pooled EEGNet reaches 0.476 there, close to the Riemann recipe (0.486–0.499), and its errors may differ. Weight on held-out calibration sessions, never equal weights (the Riemann LDA is overconfident: an equal blend lost 0.75 points in the warm-up) | +1–2 points (the warm-up ensemble gave +0.8) | half a day: both models into one `submission.py`, weight search in the harness | small; adds inference time and a second model to audit |
+
+Not recommended now: more participants (warm-up: no gain), REVE/LaBraM on this
+CPU (hours per epoch; revisit on a GPU or with a frozen probe on the release),
+train-only alignment (hurts), batch-level statistics (superseded by online).
+
+**Suggested question to the organisers** (for the Codabench forum, the user to post):
+> In the sealed phase, may a submission's `predict()` use statistics of the
+> unlabelled windows it has received so far, for example keeping a running mean
+> covariance per inferred user to re-centre later windows? It uses no labels
+> and no sealed data for training, but it is test-time adaptation. Also, will
+> test windows reach `predict()` grouped by subject/session (recording order)
+> as in the Dreyer warm-up?

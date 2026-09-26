@@ -448,7 +448,9 @@ class Solver(CompetSolver):
         "slow_block": [False],
         "align": ["subject"],       # "subject" (router + per-subject W) | "none"
         "kind": ["riemann"],        # reference mean: "riemann" | "euclid"
-        "personal": ["pooled"],     # "pooled" | "calib" | "blend"
+        # the recipe: "blend" = blend_calib (SEALED_RECIPE.md); blend_w is set per
+        # dataset from calibration data by scripts/train_sealed.sh
+        "personal": ["blend"],      # "pooled" | "calib" | "blend"
         "blend_w": [0.5],           # pooled weight when personal="blend"
         # "online" = rule-dependent test-time re-centring (see RiemannSealedModel)
         "adapt": ["none"],
