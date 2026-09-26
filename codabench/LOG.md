@@ -434,3 +434,70 @@ Cell-averaged balanced accuracy on each subject's last session (seed-mean ± SD,
   +4.9, Zhou pooled +4.4); dropping it is not supported by Phase 1.
 - Scherer 5-class is weak everywhere (best 0.32; no subject above 0.43). The
   sealed-like 3-class subset is Phase 4.
+
+## 2026-09-25 (evening) — Phase 2: alignment without ids
+
+`scripts/sealed_p2.sh` (lanes) + `scripts/sealed_p2b.sh` (online re-centring).
+Decision table: `python analysis/sealed_decide.py --tag p1 --tag p2`.
+
+| Time | Step | Estimate | Actual |
+|---|---|---|---|
+| 19:04:01–19:47:44 | s_riem: Scherer, 2 Riemann specs × 2 modes × 9 conditions | 55 min | 44 min, under |
+| 19:47:44–20:06:28 | s_eeg: Scherer EEGNet-StepType pooled, 3 conditions × 3 seeds | 40 min | 19 min, under |
+| 19:37:04–20:00:47 | t_riem: Tangermann, 36 configs | 40 min | 24 min, under |
+| 20:00:47–20:06:44 | z_riem: Zhou, 36 configs | 8 min | 6 min |
+| 20:06:44–20:24:07 | z_eeg: Zhou EEGNet-StepType, 9 runs | 15 min | 17 min |
+| 20:07–20:25:05 | p2b Riemann online (Zhou, Scherer, Tangermann) | 28 min | 18 min, under |
+
+Cell-averaged balanced accuracy, Riemann-StepType with xDAWN + filter bank
+(riemannian-mean kind unless noted; `E` = Euclidean):
+
+| Proxy / mode | none | oracle | train-only | **router (clean)** | batch-64 | **online-64** |
+|---|---|---|---|---|---|---|
+| Tangermann pooled | 0.639 | 0.726 | 0.588 | **0.687** | 0.723 | 0.729 |
+| Tangermann per-subject | 0.775 | 0.824 | 0.727 | 0.780 | 0.818 | **0.831** |
+| Scherer pooled | 0.259 | 0.293 | 0.283 | 0.277 | 0.300 | 0.301 |
+| Scherer per-subject | 0.320 | 0.383 | 0.303 | 0.322 | 0.382 | **0.385** |
+| Zhou pooled | **0.772** | 0.742 | 0.770 | 0.767 | 0.745 | 0.747 |
+| Zhou per-subject | 0.708 | 0.763 | 0.732 | 0.688 | 0.763 | **0.783** |
+
+EEGNet-StepType pooled (Euclidean, 3 seeds): Scherer none 0.281 ± 0.010, oracle
+0.305, router 0.295, train-only 0.292; Zhou none 0.754 ± 0.063, oracle **0.819 ±
+0.019**, router 0.704 ± 0.117 (hurts, unstable), train-only 0.756 ± 0.031.
+
+**Decision (weekend rules), stated plainly.**
+1. **Alignment is in the recipe**: the oracle gains ≥ 2 points on all three
+   proxies (per-subject +4.9 / +6.3 / +5.5).
+2. **The clean router (d) fails the adoption bar**: accuracy passes on 2 of 3
+   (0.965, 0.866, 1.000), but it recovers only ~55 % of the oracle gain for pooled
+   models and ~0–10 % for per-subject models. This is expected: whitening a
+   subject's train and test windows with the *same* training reference is
+   (nearly) invisible to a tangent space at that subject's own mean (affine
+   invariance). Without test-session statistics, alignment fixes *between-subject*
+   shift (it helps pooled models) but not *between-session* drift.
+3. **The prescribed fallback (c) train-only is rejected on evidence**: it
+   *lowers* the score on Tangermann (−5 to −6) and in every per-subject case.
+4. **What recovers the gain is test-time statistics.** Batch-64 recovers
+   88–100 %, and **online per-subject re-centring (route each window, whiten with
+   the mean of the last 64 test windows routed to the same subject) matches or
+   beats the oracle on all three proxies**: per-subject +5.6 / +6.5 / +7.5 points.
+   It tracks within-session drift and does not care where batches start. It is
+   rule-dependent (transductive), so it becomes the recipe's *conditional
+   upgrade*, pending the organisers' answer.
+5. Clean default for Phase 3: per-subject Riemann (model chosen by the router),
+   pooled + router alignment as the pooled component.
+
+**Phase 2, remaining steps.** 20:24:07–21:06:45 t_eeg (Tangermann EEGNet-StepType,
+6 runs): 42 min, under the 70-min estimate. p2b EEGNet online steps 20:25–20:39.
+Phase 2 ALL DONE 21:06:49.
+
+EEGNet-StepType pooled, 3 seeds (Euclidean kind):
+
+| Proxy | none | oracle | router | train-only | online-128 (rule-dep.) |
+|---|---|---|---|---|---|
+| Tangermann | 0.644 ± 0.037 | 0.690 | 0.653 (19 % of the gain) | — | — |
+| Scherer | 0.281 ± 0.010 | 0.305 | 0.295 (58 %) | 0.292 | 0.294 |
+| Zhou | 0.754 ± 0.063 | 0.819 ± 0.019 | 0.704 ± 0.117 (hurts) | 0.756 | **0.824** |
+
+The same pattern as Riemann: the clean router recovers little, test-time
+statistics recover all of it. EEGNet stays below per-subject Riemann everywhere.

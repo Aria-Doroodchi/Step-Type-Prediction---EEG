@@ -4,14 +4,20 @@ Resume from this file alone. The plan is the weekend prompt (commit d3019b7,
 pasted in the session); phases 0–6, decision rules, launch/watchdog pattern.
 Branch `feat/codabench-track2`, push to `personal` after every commit.
 
-## State (updated 2026-09-25 19:00)
+## State (updated 2026-09-25 20:15)
 
 | Phase | Status | Where |
 |---|---|---|
 | 0 harness | ✅ done (caches, harness, overlays, watchdog, smoke) | LOG.md 2026-09-25 evening entry |
-| 1 baselines | ⏳ running since 18:22; lane B (Scherer) ~19:15, lane A (Tangermann + Zhou) ~20:05 | `logs/sealed_p1/` |
-| 2 alignment | coded + smoke-tested; launch lane B (`LANES=B`) when p1 lane B ends, lane A when p1 ends | `scripts/sealed_p2.sh`; router study done: `logs/sealed_p2/router_eval*.md` |
-| 3 pooling / personalisation | coded + smoke-tested (`analysis/sealed_personal.py`); script to write after p2 | |
+| 1 baselines | ✅ done 19:37 (commit 18af79d): Riemann xDAWN+FB is the base family; per-subject > pooled on 2/3 | `logs/sealed_p1/RESULTS.md` |
+| 2 alignment | ⏳ lane B done 20:06; lane A (z_eeg, t_eeg) until ~21:35; **p2b online re-centring** (`scripts/sealed_p2b.sh`) running since 20:07, ~21:00 | `logs/sealed_p2/` |
+| 3 pooling / personalisation | script ready (`scripts/sealed_p3.sh`, clean router + rule-dependent online variants); launch `LANES=B` when p2b ends, `LANES=A` when p2 lane A ends | |
+
+Phase 2 so far: oracle alignment (test-session stats) gains +3 to +9 points; the
+clean router recovers ~55 % for pooled and ~0 % for per-subject models (affine
+invariance); train-only hurts on Tangermann; batch / online (rule-dependent)
+recover ~90-100 %+ of the oracle gain. Online per-subject re-centring on Zhou:
+0.783 vs oracle 0.763 vs none 0.708.
 | 4 Scherer 3-class + Zyma | coded (`scripts/sealed_p4.sh`, `analysis/sealed_zyma.py`); set `ALIGN`/`MODES` from p2/p3 | |
 | 5 cross-dataset pre-training (overnight) | coded + smoke-tested (`scripts/sealed_p5.sh`, `analysis/sealed_pretrain.py`); set `P5_ALIGN` | |
 | 6 SEALED_RECIPE.md | — | |

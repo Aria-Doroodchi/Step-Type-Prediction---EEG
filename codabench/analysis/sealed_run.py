@@ -83,7 +83,7 @@ def aligned_data(d, tr, te, align, cache):
     Xa = np.empty_like(X)
     ss = subj * 1000 + sess
     info = {}
-    if how in ("oracle", "trainonly", "batch"):
+    if how in ("oracle", "trainonly", "batch") or how.startswith("online"):
         Xa[tr], _ = L.align_groups(X[tr], ss[tr], kind, covs[tr])
     elif how.split("-")[0] in ("router", "routerb"):
         Xa[tr], Ws = L.align_groups(X[tr], subj[tr], kind, covs[tr])
@@ -101,6 +101,31 @@ def aligned_data(d, tr, te, align, cache):
             Xa[i] = L.apply_W(X[i], L.inv_sqrtm(L.mean_cov(covs[i], kind)))
         info["batch_single_subject"] = float(np.mean(
             [len(np.unique(subj[te_idx[b]])) == 1 for b in contiguous_batches(len(te_idx))]))
+    elif how.startswith("online"):
+        # online-<N>: causal per-subject re-centring. Test windows arrive in
+        # recording order, 64 per predict() call. Each window is routed (log-PSD
+        # router); every routed subject keeps a buffer of its last N test-window
+        # covariances (current batch included). A subject with < N/4 buffered
+        # windows uses its training reference; otherwise the buffer's mean.
+        # Transductive (uses unlabelled test windows seen so far): rule-dependent.
+        N = int(how.split("-")[1]) if "-" in how else 128
+        if "router_psd" not in cache:
+            r = L.SubjectRouter("psd", d["meta"]["sfreq"]).fit(X[tr], subj[tr], sess[tr])
+            cache["router_psd"] = (r, r.predict_proba(X[te]))
+        r, Pr = cache["router_psd"]
+        a = r.subjects[Pr.argmax(1)]
+        ref_tr = {s: L.mean_cov(covs[tr & (subj == s)], kind) for s in r.subjects}
+        buf = {s: [] for s in r.subjects}
+        for b in contiguous_batches(len(te_idx)):
+            for k in b:
+                buf[a[k]].append(te_idx[k])
+            for s in np.unique(a[b]):
+                buf[s] = buf[s][-N:]
+                ref = (ref_tr[s] if len(buf[s]) < N // 4
+                       else L.mean_cov(covs[np.array(buf[s])], kind))
+                rows = te_idx[b][a[b] == s]
+                Xa[rows] = L.apply_W(X[rows], L.inv_sqrtm(ref))
+        info.update(router_acc=float(np.mean(a == subj[te_idx])), online_buffer=N)
     else:   # router[-fp] / routerb[-fp]
         base, _, fp = how.partition("-")
         W_glob = L.inv_sqrtm(L.mean_cov(covs[tr], kind))

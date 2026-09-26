@@ -25,6 +25,13 @@ Training (``fit``; the train loader supplies ``info["subject_id"]``):
      w * pooled + (1 - w) * per-subject LDA probabilities (``blend_w``).
 Prediction: route each window (argmax posterior; below threshold -> global W
 and pooled LDA), whiten with the routed subject's W, features, LDA(s).
+``adapt="online"`` (RULE-DEPENDENT: uses unlabelled test windows; off by
+default until the organisers confirm it is allowed): the routed subject's W
+comes from the mean covariance of the last ``buffer`` test windows routed to
+that subject, kept across predict() calls (training W until buffer/4 seen).
+On the proxies this recovers the whole session-drift gain (+5.6 to +7.5
+points per-subject); without it, per-subject whitening is ~invisible to a
+tangent space at the subject's own mean (affine invariance).
 
 Everything saved is numpy arrays and sklearn/pyriemann objects (joblib), so it
 unpickles on the scoring worker.
@@ -235,12 +242,18 @@ class RiemannSealedModel:
     def __init__(self, parts=None, preproc=None, nfilter=4, estimator="oas",
                  use_xdawn=True, filterbank=True, slow_block=False,
                  align="subject", kind="riemann", personal="pooled",
-                 blend_w=0.5, max_batches=None):
+                 blend_w=0.5, max_batches=None, adapt="none", buffer=64):
         self.parts, self.preproc = parts, preproc
         self.nfilter, self.estimator = nfilter, estimator
         self.use_xdawn, self.filterbank, self.slow_block = use_xdawn, filterbank, slow_block
         self.align, self.kind, self.personal = align, kind, personal
         self.blend_w, self.max_batches = float(blend_w), max_batches
+        # adapt="online" (RULE-DEPENDENT, transductive): each routed subject's
+        # whitening reference = mean covariance of the last `buffer` test
+        # windows routed to it (training reference until buffer/4 are seen).
+        # State persists across predict() calls, i.e. across test batches.
+        self.adapt, self.buffer = adapt, int(buffer)
+        self._buf = {}
 
     def _prep(self, X):
         X = torch.as_tensor(X, dtype=torch.float32).cpu()
@@ -341,10 +354,26 @@ class RiemannSealedModel:
         return self
 
     # -- prediction -----------------------------------------------------------
+    def _online_whiten(self, X, idx):
+        """Whiten with running per-subject test references (see __init__)."""
+        covs = _window_covs(X)
+        out = self._whiten(X, idx)            # fallback windows: global W
+        for k in np.unique(idx[idx >= 0]):
+            m = idx == k
+            buf = self._buf.setdefault(int(k), [])
+            buf.extend(list(covs[m]))
+            del buf[:-self.buffer]
+            if len(buf) >= self.buffer // 4:
+                W = _inv_sqrtm(_mean_cov(np.stack(buf), self.kind))
+                out[m] = np.einsum("ij,njt->nit", W, X[m])
+        return out
+
     def predict_proba(self, X):
         X = self._prep(X)
         idx = self._route(X)
-        F_ = _features(self.parts, self._whiten(X, idx))
+        Xw = (self._online_whiten(X, idx) if self.adapt == "online"
+              else self._whiten(X, idx))
+        F_ = _features(self.parts, Xw)
         P = self.parts["lda"].predict_proba(F_)
         if self.personal in ("calib", "blend"):
             for k in np.unique(idx[idx >= 0]):
@@ -375,6 +404,9 @@ class Solver(CompetSolver):
         "kind": ["riemann"],        # reference mean: "riemann" | "euclid"
         "personal": ["pooled"],     # "pooled" | "calib" | "blend"
         "blend_w": [0.5],           # pooled weight when personal="blend"
+        # "online" = rule-dependent test-time re-centring (see RiemannSealedModel)
+        "adapt": ["none"],
+        "buffer": [64],
         "bandpass": ["none"],
         "reference": ["none"],
         "max_batches": [None],
@@ -389,7 +421,8 @@ class Solver(CompetSolver):
         return RiemannSealedModel(parts, preproc, self.nfilter, self.estimator,
                                   self.use_xdawn, self.filterbank, self.slow_block,
                                   self.align, self.kind, self.personal,
-                                  self.blend_w, self.max_batches)
+                                  self.blend_w, self.max_batches,
+                                  self.adapt, self.buffer)
 
     def fit(self, model, train_loader):
         model.fit(train_loader)
