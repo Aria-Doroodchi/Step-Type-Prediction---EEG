@@ -1,4 +1,11 @@
-# HANDOFF — sealed-phase prep (weekend 2026-09-25 → 09-27)
+# HANDOFF
+
+> **Active sprint (2026-09-28 16:55 → 09-29 04:55): sealed-release readiness.**
+> Plan of record: [prompts/2026-09-28_release_readiness.md](prompts/2026-09-28_release_readiness.md).
+> This file will be rewritten at the sprint's end; until then the weekend
+> handoff below is still accurate for everything the sprint has not touched.
+
+# (previous) HANDOFF — sealed-phase prep (weekend 2026-09-25 → 09-27)
 
 Resume from this file alone. The plan is the weekend prompt (commit d3019b7,
 pasted in the session); phases 0–6, decision rules, launch/watchdog pattern.
