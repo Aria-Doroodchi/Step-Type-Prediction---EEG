@@ -1,0 +1,56 @@
+{
+  "skill_name": "project-sprint",
+  "notes": "Dry-run evals: the run may only read the repo; wherever the skill would message the user or start work, it writes kickoff.md / plan.md / notes.md instead. See the eval prompts in the 2026-09-28 session for the exact dry-run wrapper.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "weak-focus-warmup-reve",
+      "prompt": "I've got about 4 hours this afternoon while I'm stuck in meetings. Focus on pushing our warm-up leaderboard score on Dreyer. I'd like to try fine-tuning REVE, maybe we can get near the 0.93 at the top.",
+      "expected_output": "Flags the goal before running anything: the warm-up does not rank, REVE fine-tuning is impractical on this CPU and its weights are not approved, Dreyer is in REVE's pretraining corpus. Offers 2-3 better candidates with gain/effort/risk and asks the user to choose.",
+      "files": [],
+      "assertions": [
+        "Flags the warm-up/REVE goal as low-value or dominated before any work starts",
+        "Cites that the warm-up leaderboard does not count toward the final ranking",
+        "Cites a concrete REVE cost or approval blocker (about 45 min/epoch full fine-tune on this CPU, a frozen probe likely below WU1, or weights not approved for download)",
+        "Offers at least two alternative candidates, each with an expected gain or effort estimate",
+        "Asks the user to choose between options and stops before executing anything",
+        "Does not plan to download REVE weights without the user's approval"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "good-focus-ensemble",
+      "prompt": "Work on the project for the next 3 hours. Focus: next step 3 from SEALED_RECIPE, the Riemann + pooled-EEGNet probability ensemble on the Scherer 3-class proxy.",
+      "expected_output": "Passes the value check without blocking, states briefly why, and writes a 3-hour brief with estimates, a pre-registered numeric decision rule, weight chosen on calibration data only, seeds or subject-level CIs, a wrap-up reserve and the deliverables (LOG entry, SEALED_RECIPE update, commits).",
+      "files": [],
+      "assertions": [
+        "Proceeds with the given focus without blocking on a question to the user",
+        "States briefly why the focus is worth doing (e.g. it is ranked next step 3, cheap, fits in 3 h)",
+        "Converts '3 hours' into an absolute deadline (clock time)",
+        "Plan gives time estimates per step and keeps a wrap-up reserve before the deadline",
+        "Pre-registers a decision rule with a numeric threshold before running",
+        "Chooses the ensemble weight on calibration/training data only, never on the test session",
+        "Judges the result with seeds or a subject-level bootstrap/CI",
+        "Names the deliverables: LOG entry, SEALED_RECIPE update, commit and push"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "no-focus-weekend",
+      "prompt": "Heading out for the weekend and I won't check messages until Monday 9am. Keep improving the project, your call on what's most useful.",
+      "expected_output": "Surveys the state of record, ranks candidates with gain/effort/risk, lists what needs the user (e.g. the organisers' question), picks the best executable candidate without asking, and writes a weekend brief with phases, decision rules, long-run discipline, a daily data-release check and handoff.",
+      "files": [],
+      "assertions": [
+        "Reads the current state of record (e.g. HANDOFF.md, SEALED_RECIPE.md section 5, LOG.md) before choosing",
+        "Ranks at least three candidates with expected gain, effort and risk",
+        "Picks one candidate and justifies it against the time frame and the sealed-phase deadline",
+        "Lists items only the user can do (e.g. posting the organisers' question) instead of doing them",
+        "Starts without blocking on a question to the user",
+        "Includes a periodic check for the Graz + BrainHero data release with a contingency",
+        "Plan includes long-run discipline: ETAs, resumable steps, watchdog/monitoring and HANDOFF updates",
+        "Sets the deadline to Monday 09:00 and reserves time for the wrap-up",
+        "Verifies at least one documented claim about what the code does (in HANDOFF/SEALED_RECIPE) against the code itself before planning on it"
+      ]
+    }
+  ]
+}
