@@ -26,7 +26,9 @@ risks losing the whole run — catching it early matters.
 
 ## Key context
 
-- Work happens on `perf/agentic-improvements` (XGB/CNN perf loop) and `feat/stim-module`.
+- The perf loop (`perf/agentic-improvements`) and the stim module (`feat/stim-module`)
+  are merged into `main` and their branches deleted; start new thesis work on a fresh
+  branch off `main`. Codabench Track 2 work lives on `feat/codabench-track2`.
   Source of truth for perf results: `outputs/perf_loop/LEDGER.md`.
 - venvs: `.venv` = Python 3.14 (classical XGB/sklearn); `.venv312` = Python 3.12 + TF
   (neural only). Always run with `PYTHONUTF8=1` (a θ glyph crashes cp1252 console logging).

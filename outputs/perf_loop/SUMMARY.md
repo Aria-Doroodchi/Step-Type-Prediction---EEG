@@ -17,13 +17,21 @@ no-win rounds).
 
 | Model | scope | baseline AUC | baseline gap | FINAL AUC | FINAL gap | Δ AUC |
 |---|---|---|---|---|---|---|
-| **XGB** | 20-subject confirmation (pooled partial) | 0.5674 | +0.166 | **0.5957** | **−0.014** | **+0.028** |
+| **XGB** | 20-subject confirmation (pooled partial), matched arms | 0.5646 | +0.173 | **0.5957** | **−0.014** | **+0.031 paired** |
 | CNN | 8-subject iteration | 0.5644 | +0.070 | 0.5644 | +0.070 | — |
 | CNN | 18-subject confirmation | — | — | 0.5675 | +0.013 | — |
 
 AUC = held-out test AUC (mean over participants of mean outer-fold AUC, repeated_stratified
 only). 0.50 = chance. All XGB numbers on the standard 2.3k "fast" feature set
-(amplitude+slopes, bin 0.25 s, full-CNV 0–2 s), express CV.
+(amplitude+slopes, bin 0.25 s, full-CNV 0–2 s).
+
+**CV design (corrected 2026-09-28).** The XGB confirmation row compares two arms of one
+run, `r1_pool_confirm20` (`scripts/09_pooling_comparison.py`, 4-fold × 1 repeat per its
+`config.yaml`): per-participant 0.5646 (gap +0.173) vs partial 0.5957 (gap −0.014), same
+test folds, paired +0.031 (t = 1.27, 13/20 up). An earlier version of this table used the
+express-CV (5 × 2) baseline `base_xgb_conf` (0.5674, gap +0.166) and reported **+0.028**.
+That compares two CV designs, so only the paired +0.031 is like-for-like. The other pooled
+confirms (`r4_pool_grid_conf20`, `r_rich_conf20`) are also 4 × 1.
 
 ## Every change tried (ranked)
 
@@ -57,7 +65,7 @@ Flip the default if you want it project-wide. Tabular models only; tensor models
 ## What the loop established
 
 - **Pooling's value is mostly honesty.** The gap collapse (+0.17→−0.01) is robust and
-  reproducible (matches the documented demo); the AUC lift (+0.028..0.031) is real but
+  reproducible (matches the documented demo); the AUC lift (+0.031 paired, same folds) is
   modest and not statistically significant (t=1.27). Reported numbers are now trustworthy.
 - **The pooled XGB is at its feature-set ceiling.** Funnel caps, search richness, and shape
   features are all null at cohort scale. Subset (8-subj) screens are badly optimistic — every

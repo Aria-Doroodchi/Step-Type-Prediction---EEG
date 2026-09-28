@@ -374,3 +374,16 @@ branch; NOT the ALL-NULL branch (it clears the gate and collapses the gap). → 
   (~2.6k source cols) requires building eLORETA b0.125 caches for P35/P39 (or an 18-subject src
   run) and §3.1 indicates source/binning move within-window AUC little — a lower-EV follow-up.
   Recommended as a next step, not executed.
+
+---
+
+## Erratum (2026-09-28): CV design of the confirmation runs
+
+The Protocol section says CONFIRM = "full 20-subject cohort, express CV (5×2)". That
+holds only for the baseline `base_xgb_conf` (`config.yaml`: n_splits 5, n_repeats 2). The
+pooled confirms `r1_pool_confirm20`, `r4_pool_grid_conf20` and `r_rich_conf20` ran through
+`scripts/09_pooling_comparison.py` with 4-fold × 1 repeat (their `config.yaml`: n_splits 4,
+n_repeats 1), as the Round 1 methodology note describes. So "0.5674 → 0.5957 (+0.028)"
+compares two CV designs. The like-for-like figure is the paired partial − per_participant
+difference inside `r1_pool_confirm20`: 0.5646 (gap +0.173) → 0.5957 (gap −0.014), **+0.031**
+(t = 1.27, 13/20 up). No verdict changes. SUMMARY.md now reports the matched arms.

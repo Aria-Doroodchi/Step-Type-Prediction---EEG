@@ -333,7 +333,8 @@ number we have**; items 4–6 are about **getting more out of XGB specifically**
    feature cap, align the inner search metric to AUC, and add **probability
    calibration** (`CalibratedClassifierCV` inside the nested CV). **The structural
    fix is cross-subject pooling — now implemented and validated in §3.5: it
-   collapses the gap to ≈0 *and* raises held-out AUC (+0.106 for `partial`).**
+   collapses the gap to ≈0 *and* raises held-out AUC (+0.106 for `partial` on the
+   8-subject demo, shrinking to +0.031 paired at n = 20, not significant).**
    See [`docs/OVERFITTING_GAP_SOLUTIONS.md`](docs/OVERFITTING_GAP_SOLUTIONS.md).
 
 3. **Make the full-window comparison apples-to-apples.** Complete the partial

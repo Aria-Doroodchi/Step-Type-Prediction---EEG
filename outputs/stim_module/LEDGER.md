@@ -237,3 +237,16 @@ order. Alignment = Task-1 uniform 273 ms (stim) / re-measured offset (standing).
   tuned for significance; the one trend's sensitivity to window is flagged above.
 - Paired (within-subject) t-tests, pairwise-complete; Holm within each measure
   family. ROI-mean (Cz,C1,C2,FCz,CPz) available via the script's CHANNEL switch.
+
+---
+
+## Erratum (2026-09-28): two inconsistencies found in a docs pass
+
+- **Second 2048 Hz recording.** The Task-1 verdict ("P02 = 266 ms, and P09/others")
+  names P09. `facts_inventory.csv` lists **P02 and P11** at 2048 Hz, as the
+  "Sampling frequency" section says. P09 is 1024 Hz (73 channels).
+- **Participant count.** The artifact section says the scalp artifact is clean in
+  "18/32" participants; the Task-1 verdict and the fallback section say "18/33" and
+  "15/33". `offsets_per_participant.csv` has 32 rows (`facts_inventory.csv` has 34; P05's
+  Stim file is 40 s long). The denominator is therefore 32 for the offset analysis. The
+  "33" lines are unreconciled; recheck the fallback list before citing 15/33.

@@ -949,10 +949,10 @@ the higher rich operating point; the two levers are largely complementary. Recom
 Ordered by expected payoff (synthesized from the diagnostics above and
 `outputs/screening/SCREENING_SUMMARY_2026-05-29.md`):
 
-1. **Resolve the window question first.** Confirm the full-CNV advantage isn't a
-   leakage/labeling artifact, then consider promoting full CNV (or a wider
-   window) to the primary analysis. This is the single highest-leverage move —
-   it dwarfs tuning.
+1. **Resolve the window question first.** Full CNV (0–2 s) is already the
+   default primary window (`configs/default.yaml`, `prediction_windows.primary`).
+   What remains is to confirm that its advantage isn't a leakage or labelling
+   artifact. This is the single highest-leverage check; it dwarfs tuning.
 2. **Close the inner-vs-outer gap.** The structural fix is now implemented and
    validated: **`partial` pooling** collapses the gap to ≈0 and raises held-out
    AUC (+0.106 on the 8-subject demo; +0.031 fast set and +0.0386 rich set at
@@ -973,8 +973,8 @@ Ordered by expected payoff (synthesized from the diagnostics above and
    **EEGNet starter to the full cohort** given its strong single-subject AUCs.
 7. **Run the shrinkage-LDA CNV benchmark** as a cheap floor — if a 9-channel ERP
    reading matches a tuned XGB, that reframes the whole modelling effort.
-8. **Benchmark the new EEGNeXt model** against the EEGNet starter once
-   TensorFlow is installed — its multi-scale + attention + residual design
+8. **Benchmark the new EEGNeXt model** against the EEGNet starter (it runs in
+   `.venv312`, which has TensorFlow 2.21; not run yet). Its multi-scale + attention + residual design
    targets exactly the EEGNet headroom; confirm it actually converts that
    capacity into held-out AUC rather than overfitting the small trial counts.
 
@@ -1004,7 +1004,7 @@ Ordered by expected payoff (synthesized from the diagnostics above and
 | Models | CNN hybrid (tensor + tabular) | 🟡 starter diagnostics only |
 | Models | EEGNet hybrid | 🟡 starter diagnostics only |
 | Models | EEGNet PyTorch port (`eegnet_torch`) | ✅ implemented + parity-tested · 🟡 one-subject sanity run (P13) |
-| Models | EEGNeXt (multi-scale + SE + residual hybrid) | ✅ implemented + wired · ⚪ not yet run (needs TF) |
+| Models | EEGNeXt (multi-scale + SE + residual hybrid) | ✅ implemented + wired · ⚪ not yet run (runs in `.venv312`, which has TF) |
 | Models | BiLSTM with **true per-timestep windowing** | ⬜ blocked on windowing |
 | Models | Shrinkage-LDA CNV benchmark | ⚪ enabled flag off |
 | Pooling | `models/pooling.py` — per / partial / full workflows | ✅ implemented |
