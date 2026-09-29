@@ -64,7 +64,7 @@ TBD at the end of the sprint (normally nothing).
   committed proxy number is reproduced bit for bit.
 - benchopt caches on parameters, not data: pass `--no-cache` after rebuilding
   any cache under the same study name.
-- WSL `git` in `2026-competition` shows ~82 CRLF-only diffs. Use
+- WSL `git` in `2026-competition` (a Windows checkout; 81 of 93 files are CRLF in the working tree) can list CRLF-only diffs. Use
   `git -c core.autocrlf=true`.
 
 ## What the user needs to do

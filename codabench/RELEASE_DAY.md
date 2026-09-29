@@ -16,7 +16,10 @@ structure (`analysis/mock_sealed.py`, § 8) was used to rehearse:
 
 Since 2026-09-29 the mock also serves the release-day replica through benchopt
 (`split=replica_full`), so § 7 can be rehearsed end to end (block at the end of
-§ 7). Three things can only be exercised on the real release:
+§ 7). On 2026-09-29 an agent followed this runbook literally on the mock, from
+the § 0 regression to the § 7 step 3 zip check. The fixes it led to are in
+place; § 9 has the log and the list of what the mock cannot check. Three things
+can only be exercised on the real release:
 1. the organisers' loader (§ 2): sampling rate, channels, session and context
    columns, whether the hidden sessions are included;
 2. our NeuralBench overlays `<name>_xsess` / `<name>_all` and their registration
@@ -33,10 +36,17 @@ Everything runs in WSL, one Bash-tool call per block:
 
 ```bash
 wsl.exe bash -s <<'EOF'
+exec 2>&1
 source ~/codabench/env.sh >/dev/null; export PYTHONUTF8=1
 # the variable block below, then the block's commands
 EOF
 ```
+
+**`exec 2>&1` comes first.** Through `wsl.exe`, whatever a command writes to
+stderr overwrites as many bytes at the start of the captured stdout. On
+2026-09-29 a 47-byte `command not found` erased a START stamp and half the next
+line (V1, reproduced by F4). `exec 2>&1` merges the two streams in order. A
+`> file` redirect still takes only stdout.
 
 Shell variables do not survive between calls, so paste the **variable block** at
 the top of every call. Fill it in as the day goes on:
@@ -45,7 +55,7 @@ the top of every call. Fill it in as the day goes on:
 S=<name>                        # study key: cache name and overlay prefix, e.g. graz2026
 DH=~/neuralbench/benchopt_data  # benchopt data home (= $BENCHOPT_DATA_HOME, set by env.sh)
 EVAL=<comma list from § 2>      # the 10 evaluation participants' cache indices
-FULL=$(python -c "import json,os; print(','.join(map(str, json.load(open(os.path.expanduser('~/neuralbench/xsess_cache/$S/meta.json')))['full_subjects'])))" 2>/dev/null)  # set once § 3.3 is done
+FULL=$(python -c "import json,os,sys; r=os.environ.get('XSESS_CACHE_ROOT') or os.path.expanduser('~/neuralbench/xsess_cache'); print(','.join(map(str, json.load(open(os.path.join(r, sys.argv[1], 'meta.json')))['full_subjects'])))" "$S" 2>/dev/null)  # set once § 3.3 is done
 DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1 RECIPE_ALIGN=router-psd:riemann WCV=loso"; BW=auto  # § 6 decisions (recipe defaults until then)
 ```
 
@@ -55,8 +65,22 @@ DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1 RECIPE_ALIGN=router-psd:riemann WCV
 - **Watching.** Use the Monitor tool on
   `bash ~/codabench/scripts/monitor_loop.sh <log dir> 300` and read the step
   logs in that folder.
+  - It prints each step's END row, the `gate:` / `blend weight:` / `zipped`
+    rows and every row that ends a run.
+  - It exits on those end rows:
+    - exit 0: `ALL DONE`, a STEPS subset's `lanes … finished; <step> not done`
+      (§ 5), or `stopped after <step> (STOP_AFTER, rc=0)`;
+    - exit 1: an `ERROR:` or `STOPPED` row (a failed step, a blocked zip) or a
+      signal.
+  - Start it right after the launch. A run that stops before the Monitor
+    starts is caught one interval later.
 - **Resuming.** `train_sealed.sh` and `release_ablations.sh` are resumable: the
   same command again skips finished steps.
+  - Under a per-call time cap (e.g. 600 s), `STOP_AFTER=<step>` ends a
+    `train_sealed.sh` call after that step: `preflight`, `validate`,
+    `personal_none`, `train` or `replay`. The same command without it goes on.
+    STOP_AFTER is not in config.txt, so it does not trip the settings guard.
+  - `release_ablations.sh` splits by `STEPS`.
 - **Line endings.** Shell scripts must keep LF endings: `grep -c $'\r' <file>`
   must print 0.
 
@@ -68,21 +92,33 @@ and prove that nothing moved.
 
 ```bash
 D=~/codabench/logs/release_$(date +%F); mkdir -p $D
-pip freeze > $D/freeze_before.txt
+uv pip freeze > $D/freeze_before.txt; wc -l < $D/freeze_before.txt   # ~186 lines; 0 means the freeze failed
 cd ~/codabench/2026-competition
 git -c core.autocrlf=true status --short   # expect only tracks/bci_decoding/datasets/bci_studies.py
 git -c core.autocrlf=true checkout -- tracks/bci_decoding/datasets/bci_studies.py   # drops our 4 _OVERLAYS lines
 git -c core.autocrlf=true pull --ff-only
-# pip install -U neuralbench neuralfetch    # only if the release notes ask for it
-pip freeze > $D/freeze_after.txt; diff $D/freeze_before.txt $D/freeze_after.txt
+# uv pip install -U neuralbench neuralfetch    # only if the release notes ask for it
+uv pip freeze > $D/freeze_after.txt; diff $D/freeze_before.txt $D/freeze_after.txt
 bash ~/codabench/scripts/install_xsess_overlays.sh   # re-links our overlays, re-adds our _OVERLAYS entries
 ```
 
+**Why `uv pip`.** The venv was built by uv and has no pip. `pip` gives
+`command not found` and `python -m pip` gives `No module named pip`. A plain
+`pip freeze` therefore writes two empty files, and their diff passes vacuously
+(V1, 2026-09-29). `uv pip` acts on the active venv: it prints
+`Using Python 3.12.14 environment at: /home/ali_d/neuralbench/.venv` to stderr.
+On 2026-09-29 the freeze had 186 lines, including benchopt 1.10.0,
+neuralbench 0.3.1, neuralfetch 0.3.1 and pyriemann 0.12.
+
 Why `-c core.autocrlf=true`:
 - The clone was checked out on Windows with CRLF endings, and WSL's git has no
-  autocrlf. Plain `git status` can therefore list ~82 files that differ only by
-  CR (seen 2026-09-28), and a `git stash` would stash all of them. With the flag,
-  only `bci_studies.py` differs (+4 lines: our `_OVERLAYS` entries).
+  autocrlf. 81 of its 93 tracked files are CRLF in the working tree and LF in
+  the repository (`git ls-files --eol` shows `i/lf w/crlf`; 2026-09-29).
+- Whether plain `git status` lists them depends on git's stat cache. It listed
+  ~82 on 2026-09-28, and 1 on 2026-09-29 after an autocrlf status had refreshed
+  the index. A `git stash` would stash every listed file.
+- With the flag, only `bci_studies.py` differs (+4 lines: our `_OVERLAYS`
+  entries).
 - Upstream changed that file (d49d741, default study → dreyer2023; already
   fetched, `main` is 2 commits behind `origin/main`), so it is checked out before
   the pull.
@@ -95,13 +131,22 @@ Why `-c core.autocrlf=true`:
 
 ```bash
 R=regress_$(date +%F); rm -rf ~/codabench/logs/$R ~/codabench/logs/sealed_$R
-RUN_NAME=$R bash ~/codabench/scripts/train_sealed.sh $DH zhou2016_xsess
+SUBMISSION_DIR=$HOME/codabench/logs/$R/submission RUN_NAME=$R bash ~/codabench/scripts/train_sealed.sh $DH zhou2016_xsess
 grep "gate:" ~/codabench/logs/$R/STATUS.md
 ```
+
+`SUBMISSION_DIR` keeps the run out of the track's
+`outputs/Riemann-Sealed-Cand/`, the frozen 2026-09-25 candidate. Under
+`SPLIT=last` the solver would otherwise save there and overwrite it (V1,
+2026-09-29). Since 2026-09-29 `train_sealed.sh` also defaults to
+`logs/$R/submission` whenever `RUN_NAME` is set. Only the default flow, with no
+RUN_NAME, still writes to `outputs/`.
 
 Expected, as on 2026-09-28 20:06:00–20:08:01
 (`logs/sprint0928_D_zhou_regress/STATUS.md`): `gate: train 0.770000 replay
 0.770000 EQUAL; harness blend_calib pooled 0.778333 (w=0.75), gap 0.0083 OK`.
+The same line came out on 2026-09-29 twice: V1 with this command
+(00:41:21–00:43:19), and F4 with `RUN_NAME` alone (01:30:28–01:32:15).
 
 If you get anything else, stop and find out why before trusting any release
 number. The harness rows come from the cache built before the update, so a
@@ -446,7 +491,9 @@ TAG=rel_${S}_x STUDY=${S}_x SPLIT=calib:3 TEST_SUBJECTS=$FULL XS_THREADS=6 LANES
 - The step logs are in the same folder. The rows go to
   `logs/sealed_<TAG>_A/` and `_B/`.
 - Because `STEPS` is a subset, each run ends with `lanes … finished; <step> not
-  done` instead of `ALL DONE`. That is expected: stop the Monitor there.
+  done` instead of `ALL DONE`. That is expected. `monitor_loop.sh` prints that
+  row and exits 0 on it (since 2026-09-29; before, it filtered the row out and
+  never exited, V1).
 
 When both runs have finished:
 
@@ -486,11 +533,25 @@ These rules were written before any Graz + BrainHero number existed.
    ≥ 2 points with the CI excluding 0.
    - **Deploying it.** Put `RECIPE_ALIGN=router-psdctx:riemann` in DEC.
      `train_sealed.sh` then bakes `align="subject_context"` into the candidate
-     (since 2026-09-28, agent G). On `mock_sealed_s` this gave train = replay =
-     harness = 0.547222.
+     (since 2026-09-28, agent G). On `mock_sealed_s` (with xDAWN, filter bank,
+     w = 0.75) this gave train = replay = harness = 0.547222 on the organisers'
+     split `replica:3` (G). On the release-day replica `calib:3` the same
+     settings give 0.602778 (§ 7 step 1 in § 9). The final run's 0.547222 in
+     § 9 is the organisers' split again: the mock's default benchopt split.
    - **Small pairs.** A (subject, context) pair with fewer than `ctx_min` = 16
      training windows keeps its subject's whitening. Read the fit log's `pairs=`
      line (`train.log`).
+   - **Wrong context column.** On NeuralBench the solver's trigger-table check
+     catches only a table misordered across subjects: its loader carries no
+     record_id / onset. The tell for a within-subject misorder is the end of
+     the same `pairs=` line, `router OOF pair acc`. Compare it with the
+     router-psdctx OOF accuracy and pair acc in `logs/release_eda_$S.md` (§ 4,
+     read from the harness cache). A solver value well below them means the
+     solver saw wrong context ids; do not deploy router-psdctx until that is
+     resolved. On mock_sealed_s the solver gives 1.000 when aligned, 0.500 for
+     a within-subject shuffled table and 0.813 for a table sorted by context.
+     A table whose context names are swapped consistently keeps 1.000, but
+     then the pairs, their whitening and the routing are unchanged.
    - **Not with ADAPT=online:** the solver raises NotImplementedError and
      `train_sealed.sh` refuses the combination. See rule 6.
 3. **xDAWN.** Drop it (`RECIPE_SPEC=riemann:xd=0,fb=1`) if `xd=0` is ≥ 1 point
@@ -501,6 +562,11 @@ These rules were written before any Graz + BrainHero number existed.
      its own training data and stores it in the joblib.
    - Otherwise use `WCV=last` with `BW=harness`: the harness's weight on the
      replica is baked in.
+   - The summarizer applies this rule. With no `wcv_loso` row it prints
+     `wcv = loso`, because nothing measured says LOSO is worse. Its
+     `train_sealed.sh:` line carries `BLEND_W=auto` for loso and
+     `BLEND_W=harness` for last. Before 2026-09-29 it kept `wcv=last` for a
+     missing row and printed no BLEND_W (V1).
 5. **Pooling.** Keep "pooled on everyone" unless test-subjects-only is ≥ 2
    points better with the CI excluding 0.
    - The solver has no option to train on a subset. If the rule says
@@ -640,10 +706,15 @@ python -m zipfile -e "$Z" "$R" && chmod -R a-w "$R" && ls -l "$R"   # WSL has no
 grep -nE '^\s+"(personal|blend_w|adapt|use_xdawn|filterbank|kind|buffer|chans|align|ctx_min)": \[' "$R/submission.py"
 cd ~/codabench/2026-competition
 COMPET_SUBMISSION_DIR="$R" benchopt run tracks/bci_decoding -d "BCI[study=${S}_all]" \
-    -s "$R/submission.py" --no-plot --no-html --no-cache --output zipcheck_$S
-python -c "import glob, os, pandas as pd; p = max(glob.glob('tracks/bci_decoding/outputs/zipcheck_${S}*.parquet'), key=os.path.getmtime); print(os.path.basename(p), pd.read_parquet(p)['objective_balanced_accuracy'].iloc[-1])"
+    -s "$R/submission.py" --no-plot --no-html --no-cache --output zipcheck_$S > ~/codabench/logs/final_$S/zipcheck.log 2>&1
+echo "benchopt rc=$?"; P=$(grep -ao 'Saving result in: [^ ]*\.parquet' ~/codabench/logs/final_$S/zipcheck.log | tail -1 | sed 's/^Saving result in: //')
+python -c "import sys, pandas as pd; print(sys.argv[1], pd.read_parquet(sys.argv[1])['objective_balanced_accuracy'].iloc[-1])" "$P"
 grep "gate:" ~/codabench/logs/final_$S/STATUS.md
 ```
+
+The parquet is the one benchopt reports saving in this run's log. benchopt
+appends `_1`, `_2`, … to a name that exists, so a newest-file glob can pick
+another run's file. `train_sealed.sh` reads its parquets the same way.
 
 Check each of these:
 - **Two files at the zip root:** `riemann_sealed.joblib` and `submission.py`.
@@ -656,8 +727,11 @@ Check each of these:
   - `chans`;
   - `adapt ["none"]`, unless online is allowed.
 - **The replay score equals step 2's `gate: train` score exactly.** This was
-  rehearsed 2026-09-29 00:02:05–00:02:22 on the `mock_sealed_s` zip: 17 s,
-  0.4833333 = `gate: train 0.483333`.
+  rehearsed on `mock_sealed_s` zips three times on 2026-09-29:
+  - 00:02:05–00:02:22 (17 s): 0.4833333 = `gate: train 0.483333`;
+  - by V1 at 01:17:22–01:17:37 (15 s): 0.5472222 = `gate: train 0.547222`;
+  - with this block by F4 at 01:34:50–01:35:09 (19 s): 0.5472222 from
+    `zipcheck_mock_sealed_s_1.parquet` = `gate: train 0.547222` (§ 9).
 
 Then record the candidate in `SUBMISSIONS.md` as "not uploaded": date, DEC, zip
 path, and the step-1 gate numbers. Uploading stays the user's action.
@@ -665,18 +739,32 @@ path, and the step-1 gate numbers. Uploading stays the user's action.
 **Rehearsal on the mock** (for § 9). `split=replica_full` stands in for
 `<name>_xsess`: its test set is the full participants' sessions ≥ 3, with hidden
 rows excluded. The default split, which trains on every labelled window, stands
-in for `<name>_all`. The DEC is the full-size mock's calib:3 DECISIONS (xDAWN
-dropped, router-psdctx adopted; properties of the mock, not evidence) with
-WCV=loso, so the `subject_context` bake and `auto` are exercised together.
+in for `<name>_all`.
+
+The DEC is § 6's DECISIONS for **the cache you rehearse on**. For
+`mock_sealed_s` on calib:3 (§ 5 run by V1, 2026-09-29):
+- EEG only: EEG+EMG −4.2 points;
+- router-psdctx adopted: +5.4, CI +2.6 to +8.2;
+- xDAWN kept: xd0 −0.1;
+- `WCV=loso` / `BW=auto` by rule 4.
+
+So the `subject_context` bake and `auto` are exercised together. The full-size
+`mock_sealed_120` decided to drop xDAWN (+4.1, § 8, LOG Phase 2). That is its
+decision, not `mock_sealed_s`'s, and the block used it until 2026-09-29 (V1).
+All of these are properties of the mock, not evidence.
 
 ```bash
 S=mock_sealed_s; DH=~/neuralbench/benchopt_data; FULL=0,1,2,3,4,5,6,7,8,9
-DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=0,fb=1 RECIPE_ALIGN=router-psdctx:riemann WCV=loso"; BW=auto
+DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1 RECIPE_ALIGN=router-psdctx:riemann WCV=loso"; BW=auto   # § 6 on mock_sealed_s
 env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$BW GATE=replica RUN_NAME=replica_$S XS_THREADS=6 \
     DATASET="../datasets/mock_sealed.py[study=$S,split=replica_full]" bash ~/codabench/scripts/train_sealed.sh $DH $S
 env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$BW GATE=final RUN_NAME=final_$S HARNESS_FROM=replica_$S XS_THREADS=6 \
     DATASET="../datasets/mock_sealed.py[study=$S]" bash ~/codabench/scripts/train_sealed.sh $DH $S
 ```
+
+At 8 threads the first run took 11 min 55 s and the second 7 min 15 s (§ 9).
+Under a 600 s call cap, split them with `STOP_AFTER=validate` and
+`STOP_AFTER=personal_none`.
 
 Then run step 3 with `-d "../datasets/mock_sealed.py[study=$S]"` in place of
 `-d "BCI[study=${S}_all]"`.
@@ -721,7 +809,7 @@ solver fit (~10,800 windows, up to 6 folds) is the size measured here.
 | … validate (`sealed_run`: MeanLogReg + recipe, pooled / per-subject, none / router) | 17 min 14 s | not run |
 | … personal step (`sealed_personal`, WCV=last, `--wvariant calib`) | 15 min 32 s | not run |
 | … benchopt training (solver fit on 10,800 windows: 399 s) | 7 min 31 s | not run |
-| … read-only replay (3,600 test windows) | 48 s | 1:16.67 at 10 threads, 1:05.71 at 2 threads; 2,333,832 kB (2.2 GiB); 18.5–22.9 ms per window |
+| … read-only replay (3,600 test windows) | 48 s | 1:16.67 at 10 threads (2,333,832 kB = 2.2 GiB; 17.8–18.0 ms per window), 1:05.71 at 2 threads (2,336,188 kB = 2.2 GiB; 15.2–15.5 ms per window). The training run's own predict step logged 18.5–22.9 ms per window |
 | **whole default flow** | **41 min 16 s** (22:11:13–22:52:29); peak 6,380,660 kB (6.1 GiB) | — |
 | **`BLEND_W=auto` flow** (validate reused from the default flow) | | |
 | … personal step with `--wcv loso` | 37 min 44 s (22:52:41–23:30:25) | not run |
@@ -767,11 +855,21 @@ much slower than guessed.
 At 500 Hz, add time for serial lanes and larger harness steps (only the solver
 fit and the replay were timed there): plan most of a day.
 
-## 9. Verification log
+## 9. Verification log (2026-09-29)
 
-Filled in by agent V1, who follows this runbook literally on the mock (sprint
-2026-09-29). On the mock, set `S=mock_sealed_s` and `FULL=0,1,2,3,4,5,6,7,8,9`
-(its meta `full_subjects`), and map the sections as follows:
+**Who ran what.**
+- **V1** followed this runbook literally on the mock on 2026-09-29,
+  00:38:43–01:20:13 (≈ 33 min of compute), and changed nothing. It found 4
+  FAILs and 7 ambiguities, all in the doc, the call template or the scripts
+  around the pipeline. Every gate number matched.
+- **F4** then fixed them (the doc, `train_sealed.sh`, `monitor_loop.sh` and
+  `release_summarize.py`; not the solver) and re-ran each affected step
+  (01:24–01:35).
+
+**Mock settings.** Set `S=mock_sealed_s` and `FULL=0,1,2,3,4,5,6,7,8,9` (its
+meta `full_subjects`, read with the variable block's one-liner). All times
+below are 2026-09-29. Nothing was uploaded, and no git state was changed. Map
+the sections as follows:
 
 | Section | On the mock |
 |---|---|
@@ -779,10 +877,81 @@ Filled in by agent V1, who follows this runbook literally on the mock (sprint
 | § 1 | skip: nothing to download |
 | § 2 | run the snippet with `OV=zhou2016_xsess`; the mock is not a NeuralBench study |
 | § 3 | skip: the cache exists (`python ~/codabench/analysis/mock_sealed.py mock_sealed_s` builds it) and already holds 47 channels, so `${S}_x` is `$S` itself |
-| § 4 | both commands on `$S`: `--chans eeg`, then `--chans all` |
-| § 5 | the "§ 2 showed 47 channels" branch: (a) without `STEPS`, no (b) |
+| § 4 | both commands on `$S`: `--chans eeg --out logs/release_eda_$S.md`, then `--chans all --out logs/release_eda_${S}_x.md`. Keep the `_x` in the second `--out`, or the second report overwrites the first |
+| § 5 | the "§ 2 showed 47 channels" branch: (a) with every step, no (b) |
 | § 7 | the rehearsal block at the end of § 7, then step 3 on its zip |
 
-| Step | Command (as run) | Result |
-|---|---|---|
-| | | |
+**How V1's run differed from the doc.**
+- It used XS_THREADS=8 instead of 6.
+- Its brief limited § 5 to `STEPS="base ch_eeg_emg al_ctx xd0"`, run in three
+  chunks.
+- It split § 7's runs with `STOP_AFTER` under a 600 s call cap. The brief's
+  "§ 5 replica recipe with STOP_AFTER" matches no step of § 5. The Resuming
+  bullet now says how to chunk.
+
+**Verdicts.** FAIL / AMBIGUOUS → fixed means F4 changed the doc or a script and
+the re-run passed.
+
+| Step | Command as run (mock substitutions) | Result | Verdict |
+|---|---|---|---|
+| Call template | `wsl.exe bash -s <<'EOF' … EOF` | **V1 (≈01:19):** without `exec 2>&1`, a 47-byte `command not found` on stderr erased `LINE1` and the start of `LINE2`. In V1's first § 0 call it erased the START stamp. **F4 (01:25):** reproduced. With `exec 2>&1` every line survives, in order | FAIL → fixed (template) → PASS |
+| § 0 git status | `cd ~/codabench/2026-competition; git -c core.autocrlf=true status --short` (V1, 00:40) | Only ` M tracks/bci_decoding/datasets/bci_studies.py` (+4 lines), and `main...origin/main [behind 2]`. The installer's anchor `"dreyer2023": "dreyer2023",` is at origin/main line 32. **F4 (01:25, no index write):** `git ls-files --eol` shows 81 of 93 files as `i/lf w/crlf`; plain `git status` lists 1 | PASS. The "~82 files" note reworded: the count depends on git's stat cache |
+| § 0 checkout, pull, install, installer | not run | They change the 2026-competition clone and the venv | not verified |
+| § 0 freeze | **V1:** `pip freeze > $D/freeze_before.txt` (D in its scratch folder). **F4 (01:30:27):** `uv pip freeze` into before / after files, then `diff` | **V1:** `pip: command not found`, two empty files, and diff rc 0, which passes vacuously. **F4:** diff rc 0 on 186 lines each (benchopt 1.10.0, neuralbench 0.3.1, neuralfetch 0.3.1, pyriemann 0.12) | FAIL → fixed (`uv pip`) → PASS |
+| § 0 regression | **V1** 00:41:21–00:43:19 (1 min 58 s): `SUBMISSION_DIR=$HOME/codabench/logs/$R/submission RUN_NAME=$R XS_THREADS=8 bash train_sealed.sh $DH zhou2016_xsess`, with R=regress_2026-09-29. **F4** 01:30:28–01:32:15 (1 min 47 s): `RUN_NAME=regress_2026-09-29_f4 XS_THREADS=6`, without SUBMISSION_DIR (the new default) | Both runs: `gate: train 0.770000 replay 0.770000 EQUAL; harness blend_calib pooled 0.778333 (w=0.75), gap 0.0083 OK`, identical to § 0. Preflight: 4 subjects × 3 sessions, 14 ch. `outputs/Riemann-Sealed-Cand/` is unchanged after both (2026-09-25 23:19:46). F4's submission went to `logs/regress_2026-09-29_f4/submission/` | FAIL → fixed (doc and script) → PASS. The doc's command had no SUBMISSION_DIR and would have overwritten the frozen folder |
+| § 1 | skipped | — | not verified |
+| § 2 snippet | `OV=zhou2016_xsess`, run from `~/codabench/2026-competition`; 00:43:31–00:43:38 (7 s) | sfreq 120, 14 ch, n_times 480. Train 1176 / val 24 / test 600 windows; sessions 0 and 1 train, session 2 tests. No context column; codes `['1','2','3']`. Index map 0..3 → Zhou2016Fully/1..4, the cache meta order. `EVAL guess: none` | PASS |
+| § 3.3 flags (substitute) | `XSESS_CACHE_ROOT=logs/sprint0928_scratch/V1/cache python analysis/xsess_cache.py zhou_v1 --task eeg/motor_imagery --overlay zhou2016_xsess --sealed --eval_subjects 3 --calib_sessions 2 --hidden_labelled`; 00:44:06–00:44:15 (9 s) | `release structure: hidden (split 2) rows=600 eval_subjects=[3] full_subjects=[0, 1, 2] calib_sessions=2`, and `X=(1800, 14, 480) subjects=4 sessions/subject=[3, 3, 3, 3] … ch_types={'eeg': 14} context=None`. The FULL one-liner ignored XSESS_CACHE_ROOT. **F4 (01:34:37):** it now prints `0,1,2` from the scratch root and `0,1,…,9` for `mock_sealed_s` | PASS. One-liner fixed |
+| § 4 EDA | `python analysis/release_eda.py mock_sealed_s --split calib:3 --test_subjects $FULL --chans eeg --out logs/release_eda_mock_sealed_s.md`, then `--chans all --out logs/release_eda_mock_sealed_s_x.md`; 00:44:32–00:45:46 (32 s and 43 s) | `[data]`: train 1440, test 720, 60 cells, hidden_in_train 0, hidden_excluded 720. Router accuracy per test session 0.988 / 0.988 / 0.992; psdctx pair accuracy 0.994. Drift 0.658 … 3.247. Evoked ratio 0.96–1.01 (up to 1.07 on all channels). Peaks 1,777,760 and 1,808,156 kB | PASS. The § 4 mapping above fixed (both `--out` paths on `$S` collided) |
+| § 5 (a) | `TAG=rel_mock_sealed_s STUDY=mock_sealed_s SPLIT=calib:3 TEST_SUBJECTS=$FULL XS_THREADS=8 STEPS=<chunk> bash release_ablations.sh`. Chunks: `base xd0` 00:46:32–00:50:11, `ch_eeg_emg` 00:50:33–00:53:39, `al_ctx` 00:53:50–00:56:26 | All rc 0. The preflight line meets every Watching check, and each chunk ends `lanes AB finished; ch_eeg_eog not done`. **Monitor:** it filtered that row out and never exited (rc 124 at an 8 s cap). **F4 (01:29–01:30), after fixing `monitor_loop.sh`:**<br>– V1's `timeout 8 bash monitor_loop.sh logs/sealed_rel_mock_sealed_s 3` prints the row and exits 0 one interval later;<br>– 11/11 synthetic cases pass (`logs/sprint0928_scratch/F4/t_monitor.sh`);<br>– a live failed `train_sealed.sh` step (TEST_SUBJECTS=99) writes the new `STOPPED: step validate failed (rc=1)` row, and the monitor exits 1 within 1 s | Ablations PASS. Monitor AMBIGUOUS → fixed → PASS |
+| § 5 summarize | `python analysis/release_summarize.py --tag rel_mock_sealed_s --study mock_sealed_s --split calib:3 --test_subjects $FULL \| tee logs/sealed_rel_mock_sealed_s/RESULTS.md`. V1 00:56:34–00:56:37; F4 01:27:59–01:28:02 | Base 0.5486 (60 cells).<br>– EEG+EMG −4.2 (CI −8.3, −0.4; 2/10 up) → keep eeg;<br>– router-psdctx +5.4 (CI +2.6, +8.2; 7/10) → ADOPT;<br>– xd0 −0.1 (CI −2.5, +2.4; 4/10) → keep xDAWN.<br>There was no wcv_loso row. V1's run printed `keep wcv=last` and `WCV=last` with no BLEND_W, against rule 4. F4's run prints `wcv = loso` and `… WCV=loso BLEND_W=auto SPLIT=calib:3 TEST_SUBJECTS=0,…,9`. On `sprint0928_abl_s`, which has the wcv row, the decisions are unchanged and only `BLEND_W=auto` is added | PASS. AMBIGUOUS (wcv) → fixed |
+| § 6 | rules 1–7 read against the DECISIONS | Rule 1: eeg. Rule 2: adopt → `RECIPE_ALIGN=router-psdctx:riemann`. Rule 3: keep xDAWN. Rule 4: loso / auto. Rule 5: pool all (row missing). Rule 6: off. Rule 7: see § 7. The DEC is `CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1 RECIPE_ALIGN=router-psdctx:riemann WCV=loso` with BW=auto. The § 7 rehearsal block had hard-coded mock_sealed_120's xd=0, and rule 2's 0.547222 named no split | PASS. AMBIGUOUS (block DEC, rule 2 split) → fixed |
+| § 7 step 1 | `env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=auto GATE=replica RUN_NAME=replica_mock_sealed_s XS_THREADS=8 DATASET="../datasets/mock_sealed.py[study=mock_sealed_s,split=replica_full]" bash train_sealed.sh $DH mock_sealed_s`, in three chunks (STOP_AFTER=validate, STOP_AFTER=personal_none, then the rest); 00:57:08–01:09:03 (11 min 55 s) | `END replay rc=0`. `gate: train 0.602778 replay 0.602778 EQUAL; harness blend_calib pooled 0.602778 (w=0.75), gap 0.0000 OK`. `blend weight: harness w=0.75 (split=calib:3 wcv=loso) vs solver auto w=0.75: MATCH`: solver folds [0.4819, 0.484, 0.5201, 0.5889, 0.5861] vs harness [0.482, 0.484, 0.52, 0.589, 0.586]. Fit on X=(1440, 43, 480): pairs=40 of 36 windows each, 0 on the subject W, router OOF pair acc 0.999, 229.7 s, maxrss 2.16 GB. Zipped (NOT uploaded) | PASS |
+| § 7 step 2 | `env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=auto GATE=final RUN_NAME=final_mock_sealed_s HARNESS_FROM=replica_mock_sealed_s XS_THREADS=8 DATASET="../datasets/mock_sealed.py[study=mock_sealed_s]" bash train_sealed.sh $DH mock_sealed_s`; chunks 01:09:37–01:10:03 and 01:10:12–01:17:01 (7 min 15 s) | Seeded 13 rows and 13 probs files. Validate skipped all 8 rows (3 s); personal refit its router, then skipped (19 s). Fit on X=(2160, 43, 480) with 6 folds: w 0.75, 381.1 s, maxrss 2.78 GB, 36–72 windows per pair, router OOF 1.000. `gate: train 0.547222 replay 0.547222 EQUAL; … gap 0.0556 FLAG`, informational under GATE=final. MATCH. The candidate line equals DEC. Zipped (NOT uploaded) | PASS |
+| § 7 rehearsal block as now written | **F4** 01:34:42–01:34:50: the block verbatim (XS_THREADS=6), on V1's folders | The config guard accepted it (config.txt identical) and every step skipped. Same gate lines (0.602778 OK with MATCH; 0.547222 EQUAL with FLAG). Both zips were re-written, then ALL DONE | PASS |
+| § 7 step 3 | **V1** 01:17:22–01:17:37 (15 s), with the old newest-file glob. **F4** 01:34:50–01:35:09 (19 s), with the block as now written and `-d "../datasets/mock_sealed.py[study=mock_sealed_s]"` | Two files at the zip root: riemann_sealed.joblib and submission.py. The grepped defaults equal DEC: personal blend, blend_w "auto", use_xdawn True, filterbank True, kind riemann, buffer 64, chans eeg, align subject_context, adapt none, ctx_min CTX_MIN_WINDOWS (16). The name existed, so benchopt wrote `zipcheck_mock_sealed_s_1.parquet` (the `_1` case). Read from the log: 0.5472222222222222 = `gate: train 0.547222` | PASS. The parquet is now read from benchopt's log |
+| § 8 spot checks | V1, against the STATUS.md and log sources | The default and auto flow step times match to the second. The 500 Hz sizing matches: fit 1,825.6 s, the stages, 12,383,172 kB, replays 1:16.67 and 1:05.71. The six ablation durations match to 0.1 min. **Mismatch:** the replay cell's 18.5–22.9 ms per window came from the training run's predict step. The replays logged 17.8–18.0 ms (10 threads) and 15.2–15.5 ms (2 threads, 2,336,188 kB) | FAIL (minor) → cell fixed → PASS |
+
+**Known, not fixed** (cosmetic or guarded elsewhere):
+- **Lost STATUS row.** When both lanes of `release_ablations.sh` start in the
+  same second, a STATUS.md row can be lost on /mnt/c (concurrent appends). V1's
+  `START base` at 00:46:36 became an empty line. `base.start` was written, so
+  `watch_run.sh` was not affected.
+- **Empty test set.** `TEST_SUBJECTS` with no valid index (e.g. 99) passes the
+  preflight with `test_cells=0`. The validate step then fails, and
+  `train_sealed.sh` stops with `STOPPED: step validate failed` (F4, 01:30:11).
+  Check `test_cells=` in the preflight line (§ 5 Watching).
+- **Read-only temp folders.** Step 3 and `train_sealed.sh`'s replays leave
+  read-only folders under `/tmp`. That `/tmp` is a tmpfs, and it was empty again
+  by 01:37, so nothing accumulates. Within one call, remove such a folder with
+  `chmod -R u+w` first, then `rm -rf`.
+
+**Could not be verified on the mock:**
+1. **§ 0 updates.** Checkout, pull, `uv pip install -U` and the overlay
+   installer were not run, because they change the clone and the venv. So it is
+   untested whether the organisers' update moves a score; only the
+   before-update regression ran.
+2. **§ 1.** The download, its size and folder, and the robocopy to Z:.
+3. **§ 2 on the organisers' study.** Sampling rate, channel count and names,
+   session and context column names, class codes, whether the hidden sessions
+   ship, and EVAL. The snippet ran on zhou2016_xsess only.
+4. **§ 3.1–3.2.** The `_xsess` / `_all` overlays, their PredefinedSplit and
+   `filter_stimuli` queries, and the registration `sed` plus installer on a new
+   name.
+5. **§ 3.3–3.4 at release size through NeuralBench.** Build time and memory,
+   the `release structure:` line with 20 subjects, `--picks eeg,emg,eog`, and
+   channel typing from real channel names. Only the flags ran, on zhou2016.
+6. **§ 4 at 500 Hz** (the 10–12 GB estimate).
+7. **The rest of § 5.** Step (b) on a separate `_x` cache, and step (a)'s
+   `wcv_loso`, `pool_test`, `online` and `run` on calib:3. Those four ran on
+   `replica:3` in Phase 1 (`logs/sealed_sprint0928_abl_s/`), not in this run.
+8. **Rule 6's online-N loop.**
+9. **§ 7 through `BCI[study=${S}_xsess]` / `BCI[study=${S}_all]`.** Untested:
+   - the loader's 2 % validation slice (a weight MISMATCH of one grid step can
+     occur without a bug);
+   - its trigger table without record_id / onset (the within-subject context
+     check cannot run);
+   - `train_sealed.sh`'s timings at release size.
+10. **The Monitor tool itself.** `monitor_loop.sh` was tested by script and on
+    a live run, not through a background Monitor call.
+11. **`SUBMISSIONS.md` and the upload.** Both are the user's steps.

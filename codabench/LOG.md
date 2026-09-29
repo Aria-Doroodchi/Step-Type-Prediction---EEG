@@ -919,3 +919,106 @@ log dirs (`sealed_sprint0928_abl120`) instead.
 **Note.** `scripts/summarize_runs.py` prints a hard-coded "Dreyer 2023 test
 split" header on every RESULTS.md, including the mock runs. This is cosmetic;
 the header is to be fixed in Phase 4.
+
+## 2026-09-28/29 (night) — Sprint Phase 4a/4b: deployable context alignment, claims check, EDA script
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 21:57–23:33 | 4a G: `align="subject_context"` in Riemann-Sealed, developed on a scratch copy and swapped in atomically after the running job had frozen its candidate | ~1 h | 1 h 36 min (≈37 min of it waiting for the swap window) | ✅ 4 gates |
+| 23:33–00:10 | 4a R3: adversarial review | ~30 min | 37 min | pass_with_fixes (1 minor) |
+| 00:10–00:43 | 4a F2: fix | ~20 min | 33 min | ✅ bit-identical defaults |
+| 23:40–00:02 | 4b V2 claims check + V3 `analysis/release_eda.py` | ~1 h | 22 min | 96 claims checked, 30 mismatches, 16 gaps; EDA script ✅ |
+
+**4a: context alignment deploys.** The solver option `align="subject_context"` is
+a log-PSD router over (subject, context) pairs, with whitening per pair from
+training data. The personal LDAs stay per subject. Pairs with fewer than
+`ctx_min=16` windows keep the subject's W, and with no context column it falls
+back to `align="subject"`. `adapt="online"` together with it raises
+NotImplementedError. `train_sealed.sh` bakes it for `RECIPE_ALIGN=router-psdctx:<kind>`.
+
+Gates:
+- defaults bit-identical to before (zhou2016, mock);
+- on mock_sealed_s the benchopt train equals the read-only replay, and both
+  equal the harness `router-psdctx` row (0.547222; pair accuracy 0.9944 on both
+  sides);
+- `blend_w="auto"` fold scores are bit-identical to the harness's `choose_w`
+  under psdctx;
+- the joblib holds only numpy/sklearn/pyriemann objects.
+
+R3's one minor finding: the trigger-table row-order check caught only misorder
+*across* subjects. F2 added a record_id/onset consistency check. It is used when
+the loader supplies those fields; NeuralBench's supplies only subject_id, and
+that limitation is documented. The tell is the router OOF pair accuracy
+falling well below `release_eda.py`'s.
+
+**4b: the claims check paid for itself.** RELEASE_DAY.md was drafted before most
+of the code existed, and 30 of its 96 checked claims were wrong or misleading.
+Among them:
+- the loader-inspection snippet failed on today's benchopt API;
+- `replica:3` was not refused on real data;
+- `train_sealed.sh` zipped whatever the gate said;
+- the final run recomputed the harness steps under a new RUN_NAME;
+- in WSL `git stash` would have touched 82 CRLF-only files;
+- the `--eval_subjects` default is inverted under the replica overlay;
+- a timing figure was misread.
+
+All of these went to Phase 4c.
+
+`analysis/release_eda.py` produces:
+- cells and class balance;
+- the context layout;
+- router accuracy **per test session** and per context (it reproduces E's 0.718 → 0.353 on Zhou calib:1 exactly);
+- session drift (it detects the mock's injected drift: 3–5× the calibration baseline);
+- an evoked-response check (positive on Zhou, negative on the mock).
+
+It runs in 2.6 min on the full-size 120 Hz mock.
+
+## 2026-09-29 (night) — Sprint Phase 4c: runbook fixed and verified literally on the mock
+
+The workflow `runbook-fix-and-verify` ran S (scripts) and W (runbook rewrite) in
+parallel. Then V1 followed RELEASE_DAY.md **literally** on the mock, and F4 fixed
+what V1 found and filled RELEASE_DAY § 9.
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 23:54–00:38 | S: scripts; W: RELEASE_DAY.md + SEALED_RECIPE.md from the 30 mismatches / 16 gaps | ~45 min | 44 min | ✅ S 5/5 checks; W all items mapped |
+| 00:38–01:20 | V1: literal run on mock_sealed_s (§§ 0, 2, 3.3 substitute, 4, 5, 6, 7 steps 1–3, 8) | ~75 min | 42 min | 4 FAIL, 7 AMBIGUOUS, rest PASS; every gate number exact |
+| 01:20–01:38 | F4: fixes + § 9 | ~30 min | 18 min | ✅ all FAIL/AMBIGUOUS resolved, each affected step re-run |
+
+**What S changed.**
+- `train_sealed.sh` enforces rule 7:
+  - no zip on a failed replay, on train ≠ replay, or (with `GATE=replica`) on a
+    harness gap or solver/harness weight mismatch;
+  - `FORCE_ZIP=1` overrides only the weight;
+  - the gate reads benchopt's own parquet names.
+- `HARNESS_FROM` reuses harness rows under a new RUN_NAME: 0 fits, 2–16 s
+  instead of minutes.
+- `replica:K` is refused on any non-mock cache, by the harness and both scripts.
+- `datasets/mock_sealed.py split=replica_full` lets the release-day replica run
+  through benchopt on the mock.
+- `summarize_runs.py` no longer prints the Dreyer header on other studies.
+
+**What V1 found** (each would have bitten on release day):
+- § 0's regression would have overwritten the frozen
+  `outputs/Riemann-Sealed-Cand/`. `train_sealed.sh` now writes to
+  `<logdir>/submission` whenever RUN_NAME is set.
+- `pip freeze` silently produced empty files, because the uv venv has no pip:
+  now `uv pip freeze`.
+- Through `wsl.exe`, stderr overwrote the start of stdout in the captured
+  output, which could hide a gate line: the call template now starts with
+  `exec 2>&1`.
+- `monitor_loop.sh` never surfaced ERROR / STOPPED / not-done rows: it now
+  prints them and exits.
+- The summarizer's wcv default contradicted rule 4, and the § 7 block carried
+  another cache's decision.
+
+**Verified end to end on the mock** (RELEASE_DAY § 9): replica step 1
+(calib:3, `split=replica_full`, `align="subject_context"`, `blend_w="auto"`)
+gives train = replay = harness = 0.602778, weight MATCH. The final step 2
+(`HARNESS_FROM`, `GATE=final`) gives train = replay = 0.547222. The zip check
+confirms the baked defaults. The zhou2016_xsess regression still gives
+0.770000 = replay.
+
+**Could not be rehearsed** (stated in RELEASE_DAY): the organisers' loader, real
+NeuralBench overlays (`<name>_xsess` / `<name>_all`) and their registration, and
+a cache build at release size.

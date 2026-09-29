@@ -78,13 +78,16 @@
 #              no results yet, and only from a folder with this cache's
 #              fingerprint (stale rows are refused)
 #   SUBMISSION_DIR  absolute folder training writes the submission to: the
-#              track's outputs/Riemann-Sealed-Cand<suffix>/ (as before), or
-#              (release) <logdir>/submission, so no outputs/ folder is overwritten
+#              track's outputs/Riemann-Sealed-Cand<suffix>/ (as before: SPLIT=last
+#              without RUN_NAME), or <logdir>/submission (release splits, and any
+#              run with RUN_NAME, since 2026-09-29), so no outputs/ folder is
+#              overwritten
 #   STOP_AFTER <step name>: stop after that step (e.g. personal_none, to read
 #              the harness numbers before training); rerun without it to go on
 #   RUN_NAME   log folder / harness tag / benchopt output name instead of
 #              train_sealed_<study><suffix> (e.g. a regression run that must not
-#              touch a committed log folder)
+#              touch a committed log folder); its submission goes to
+#              <logdir>/submission unless SUBMISSION_DIR says otherwise
 #   XS_THREADS threads per job (default 10)
 #
 # Steps (each resumable via <step>.done in logs/train_sealed_<study><suffix>/,
@@ -153,6 +156,8 @@ step() {   # step <name> <timeout> <cmd...>
   if [ "${STOP_AFTER:-}" = "$name" ]; then
     note "stopped after $name (STOP_AFTER, rc=$rc)"; exit $rc
   fi
+  # every caller stops on a failed step: say so (monitor_loop.sh's stop cue)
+  [ $rc -eq 0 ] || note "STOPPED: step $name failed (rc=$rc), see $LOGDIR/$name.log"
   return $rc
 }
 
@@ -406,7 +411,10 @@ fi
 note "candidate $CAND: personal=blend blend_w=$CW adapt=$ADAPT use_xdawn=$XDB" \
      "filterbank=$FBB kind=$KIND buffer=$BUF chans=$CHANS align=$ALIGN_S"
 cd "$HOME/codabench/2026-competition"
-if [ -n "${SUBMISSION_DIR:-}" ] || [ "$SPLIT" != last ]; then
+# RUN_NAME (a regression or rehearsal run) never writes the track's outputs/
+# folder either (RELEASE_DAY section 9, V1: the section-0 regression would have
+# overwritten outputs/Riemann-Sealed-Cand/); the default flow is unchanged
+if [ -n "${SUBMISSION_DIR:-}" ] || [ "$SPLIT" != last ] || [ -n "${RUN_NAME:-}" ]; then
   OUT=${SUBMISSION_DIR:-$LOGDIR/submission}; export COMPET_SUBMISSION_DIR="$OUT"
 else
   OUT=tracks/bci_decoding/outputs/Riemann-Sealed-Cand$SUFFIX

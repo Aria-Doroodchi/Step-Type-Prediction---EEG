@@ -14,3 +14,4 @@
 | 23:53:24 | Phase 2 ALL DONE (21:55-23:53, 1 h 58 min vs ~2 h est, on). t120_auto: MATCH w=0.75, train=replay=harness 0.614722 |
 | 23:55:00 | G's patches applied (train_sealed.sh bakes align=subject_context; summarizer NOTE); R3 review of G still running |
 | 23:55:09 | START Phase 4c workflow runbook-fix-and-verify (wf_7738f1de-e8f): S scripts + W runbook rewrite -> V1 literal run on mock -> F4, ETA ~2.5 h (-> ~02:30) |
+| 00:43:59 | Phase 4a DONE (workflow 21:57-00:43): G subject_context, R3 pass_with_fixes (1 minor), F2 fix; committed |

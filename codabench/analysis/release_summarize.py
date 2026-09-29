@@ -31,8 +31,10 @@ last), and prints:
               and is what SEALED_RECIPE describes);
     pool      all unless test-only is >= 2 points better AND the CI excludes 0;
     online-64 rule-dependent: reported in its own line, never adopted here.
-A missing row keeps the recipe's setting and says so. The last lines give the
-resulting settings as train_sealed.sh environment variables.
+A missing row keeps the recipe's setting and says so (for wcv that is loso:
+nothing measured says it is worse). The last lines give the resulting settings
+as train_sealed.sh environment variables, with BLEND_W=auto for wcv loso and
+BLEND_W=harness for wcv last (RELEASE_DAY rule 4).
 """
 
 import argparse
@@ -246,11 +248,15 @@ def main():
         print(f"xDAWN     xd=0 vs xd=1: {txt} -> "
               f"{'DROP xDAWN' if drop else 'keep xDAWN'} (drop if xd=0 >= +1.0)")
         spec = nx if drop else spec
-    # blend-weight CV
+    # blend-weight CV (rule 4: loso unless measured >= 2 points worse; with no
+    # loso-vs-last pair measured nothing says it is worse, so loso, i.e. the
+    # recipe's BLEND_W=auto; RELEASE_DAY section 9, V1 2026-09-29)
     wcv = args.wcv
     r = find(wcv=wcv_alt)
     if r is None:
-        print(f"wcv       wcv={wcv_alt} row missing -> keep wcv={args.wcv}")
+        wcv = "loso"
+        print(f"wcv       wcv={wcv_alt} row missing -> wcv = loso (rule 4's default: loso "
+              f"unless measured <= -2.0 vs last)")
     else:
         lo_r, la_r = (r, base) if wcv_alt == "loso" else (base, r)
         txt, dlt, lo, hi = fmt_cmp(lo_r, la_r)
@@ -274,8 +280,11 @@ def main():
         txt, dlt, lo, hi = fmt_cmp(online, base)
         print(f"online-64 (RULE-DEPENDENT, report only) vs clean: {txt}")
     print(f"\nresult: spec {spec} / align {align} / chans {chans} / pool {pool} / wcv {wcv}")
-    env = (f"RECIPE_SPEC={spec} RECIPE_ALIGN={align} CHANS={chans} WCV={wcv} SPLIT={split}"
-           + (f" TEST_SUBJECTS={ts}" if ts else ""))
+    # rule 4: loso deploys as the solver's own weight (BLEND_W=auto), last as
+    # the harness's weight baked in (BLEND_W=harness)
+    bw = "auto" if wcv == "loso" else "harness"
+    env = (f"RECIPE_SPEC={spec} RECIPE_ALIGN={align} CHANS={chans} WCV={wcv} BLEND_W={bw} "
+           f"SPLIT={split}" + (f" TEST_SUBJECTS={ts}" if ts else ""))
     print(f"train_sealed.sh: {env} bash ~/codabench/scripts/train_sealed.sh ...")
     print("(each rule compared one change with the recipe; train_sealed.sh's harness steps "
           "score the combined settings)")

@@ -9,7 +9,7 @@ change every sprint. Verify anything here that looks off. It was written 2026-09
 
 | Workstream | Where the work lives | State of record (read these) | Environment | Git |
 |---|---|---|---|---|
-| **Codabench Track 2** (EEG/EMG Foundation Challenge 2026, BCI decoding, cross-session 3-class) | `codabench/` | `codabench/HANDOFF.md`, `codabench/SEALED_RECIPE.md` (§ 5 ranked next steps), tail of `codabench/LOG.md`, `codabench/TRACK2_BCI.md`, `codabench/SUBMISSIONS.md` (upload ledger) | WSL Ubuntu (see below) | branch `feat/codabench-track2`, commit prefix `codabench:` |
+| **Codabench Track 2** (EEG/EMG Foundation Challenge 2026, BCI decoding, cross-session 3-class) | `codabench/` | `codabench/HANDOFF.md`, `codabench/SEALED_RECIPE.md` (§ 5 ranked next steps), `codabench/RELEASE_DAY.md` (release-day runbook), tail of `codabench/LOG.md`, `codabench/TRACK2_BCI.md`, `codabench/SUBMISSIONS.md` (upload ledger) | WSL Ubuntu (see below) | branch `feat/codabench-track2`, commit prefix `codabench:` |
 | **Thesis step-type pipeline** (straight vs diagonal step from CNV, per-participant nested CV; XGB / CNN / EEGNet) | `src/eeg_steptype/`, `scripts/0*_*.py`, `configs/` | `outputs/perf_loop/LEDGER.md` + `SUMMARY.md` (perf loop, complete), `README.md` § Results, `XGB_MODEL_SUMMARY.md`, `MODELS.md`, `SCRIPT_GUIDES.md`, `WORKFLOW.md` | Windows venvs | merged into `main`; new work goes on a fresh feature branch off `main` |
 | **3-class motor-state module** (standing / straight / diagonal) | `src/eeg_statetype/`, `configs/state/`, `scripts/state_module/`, `run_state.py` | `outputs/state_module/LEDGER.md`, reports in `outputs/reports/state_3class_*` | Windows `.venv` | merged into `main` |
 | **Stim / SEP module** (foot-sole e-stim evoked potentials) | `scripts/stim_module/`, `configs/stim.yaml` | `outputs/stim_module/LEDGER.md` (append-only) | Windows `.venv` | merged into `main` |
@@ -80,6 +80,14 @@ console logging. Pipeline entry points: `scripts/00_preflight.py` …
   `sealed_pretrain.py`, `sealed_summarize.py`, `sealed_decide.py`,
   `sealed_decide_p3.py`, `sealed_bootstrap.py` (paired subject-level CIs),
   `router_eval.py`.
+- Release day (sprint 2026-09-28):
+  - runbook `codabench/RELEASE_DAY.md`;
+  - mock of the sealed structure `analysis/mock_sealed.py` (caches `mock_sealed_s` /
+    `_120` / `_500`) + benchopt dataset `datasets/mock_sealed.py` (path form only,
+    `split=organisers|replica_full`);
+  - `scripts/release_ablations.sh`, `analysis/release_summarize.py` (the
+    pre-registered rules), `analysis/release_eda.py`;
+  - `analysis/sealed_stream.py` (online re-centring under test-order variants).
 - Runners: `codabench/scripts/sealed_lib.sh`, `watch_run.sh`, `monitor_loop.sh`,
   `sealed_p*.sh` (examples of lane scripts), `train_sealed.sh` (release-day pipeline).
   This skill bundles generic copies in `scripts/`. Quote their path, which contains a
@@ -147,3 +155,9 @@ console logging. Pipeline entry points: `scripts/00_preflight.py` …
 | A hyper-parameter chosen under one condition, deployed under another (blend weight: router 0.75 vs online 0.5, −3 points) | Choose hyper-parameters under the deployment condition |
 | The same config run in two phases counted as two seeds | Deduplicate result rows by config key |
 | Windows moves idle background work to E-cores overnight (epochs 12 s → 20 s) | Expect ~1.7× slower nights; revise ETAs instead of treating it as a stall |
+| Bash reads a running script from disk as it goes: an agent editing `train_sealed.sh` while a lane ran it would corrupt the job (2026-09-28) | Never edit a `.sh` a running job uses; stage the change as a patch and apply it after the job ends |
+| A lane step that wraps an inner lane script (`/usr/bin/time -v … release_ablations.sh`) logs nothing until it ends, so the watchdog said STALLED at 15 min (2026-09-28) | Watch the inner script's own log dir, or give the wrapper a heartbeat |
+| Two lanes appending to one STATUS.md on `/mnt/c` lost START rows (2026-09-28) | Wait on `.done`/`.start` files, not on STATUS.md rows |
+| benchopt caches results by dataset *parameters*, not data: after rebuilding a cache under the same study name a rerun silently returned the old score | Pass `--no-cache` after any cache rebuild (train_sealed.sh does) |
+| A Workflow script interpolates `${VAR}` inside agent prompt template literals (a runbook's `${S}` crashed a launch) | Write shell variables in prompts as `<S>` or escape them as `\${S}` |
+| WSL `git` in `2026-competition` (a Windows checkout) shows ~82 CRLF-only diffs; `git stash` would take them all | Use `git -c core.autocrlf=true` there |
