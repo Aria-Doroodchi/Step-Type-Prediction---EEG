@@ -200,6 +200,12 @@ paired bootstraps of blend_calib (router ids) vs the baseline's blend_calib.
 
 On a tie between an adopted single block and a union, keep the single block.
 
+**Added 18:10, before any candidate number existed:** a reverse-time replication
+on Scherer 3-class (`--split first`: train on the later session, test on the
+first; tag `f0929r`). It runs the screen configs for the advancing candidates and
+the baseline. If a candidate's reverse-split screen Δ is < 0, an ADOPT verdict is
+downgraded to PROMISING.
+
 ### Phase 4: integrate (estimate 2.5 h) — only for ADOPT / PROMISING
 - Port the block(s) into `riemann_sealed.py` as an opt-in (`xblocks=()`), with
   a chunked path for 500 Hz.

@@ -137,6 +137,8 @@ def _drop_hidden(d, mode, sp):
 def xsess_split(d, mode="last", test_subjects=None):
     """Boolean masks train / test / val, plus the ``test_subjects`` array.
 
+    mode="first" (sprint 2026-09-29, proxies only): the reverse-time
+      replication, test = each subject's first session, train = the rest.
     mode="last" (default; the proxies): test = each subject's last session,
       train = the rest, val = second-to-last session where a subject has
       >= 3. ``test_subjects`` given: only those subjects are tested (the
@@ -172,8 +174,18 @@ def xsess_split(d, mode="last", test_subjects=None):
         return _drop_hidden(d, mode, dict(
             train=~test, test=test, val=val,
             test_subjects=np.unique(np.asarray(test_subjects, dtype=np.int64))))
+    if name == "first":
+        # reverse-time replication (sprint 2026-09-29, proxies only): test =
+        # each subject's FIRST session, train = its later sessions
+        if d["meta"].get("eval_subjects") is not None or "mock" in d["meta"]:
+            raise ValueError(f"split {mode!r} is a proxy-only replication")
+        first = np.array([sess[subj == s].min() for s in range(subj.max() + 1)])
+        test = sess == first[subj]
+        return _drop_hidden(d, mode, dict(train=~test, test=test,
+                                          val=np.zeros(len(subj), bool),
+                                          test_subjects=np.unique(subj)))
     if name not in ("calib", "replica") or not k.isdigit():
-        raise ValueError(f"split {mode!r}: expected last | calib:K | replica:K")
+        raise ValueError(f"split {mode!r}: expected last | first | calib:K | replica:K")
     if name == "replica" and "mock" not in d["meta"]:
         # replica:K = the organisers' own split; only the mock has true labels
         # on its hidden rows. On the released data it would test nothing (the

@@ -96,7 +96,7 @@ def config_key(study, classes, spec, mode, align, seed, **opts):
 # ---------------------------------------------------------------------------
 def add_data_args(ap):
     ap.add_argument("--drop_ch", default="A2-A1", help="comma list of channels to drop")
-    ap.add_argument("--split", default="last", help="last | calib:K | replica:K")
+    ap.add_argument("--split", default="last", help="last | first (reverse-time, proxies) | calib:K | replica:K")
     ap.add_argument("--test_subjects", default=None,
                     help="comma list of subject indices tested under --split")
     ap.add_argument("--chans", default="eeg", choices=sorted(L.CHAN_SETS),
