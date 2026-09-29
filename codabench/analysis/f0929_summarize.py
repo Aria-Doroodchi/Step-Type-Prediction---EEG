@@ -37,6 +37,7 @@ OTHERS = [("tangermann2012", None), ("scherer2015", None), ("zhou2016", None)]
 NAMES = {S3: "Scherer 3-cl.", ("tangermann2012", None): "Tangermann",
          ("scherer2015", None): "Scherer 5-cl.", ("zhou2016", None): "Zhou"}
 FAMILY = {"tseg": "T", "acm": "T", "fb8": "T", "fbd": "T", "bpt": "T", "sl=1": "T",
+          "tcut": "T (EDA)", "fbfrom": "control",
           "fblv": "S", "fbrlv": "S", "reg": "S", "csp": "S", "icoh": "S",
           "ref=": "control"}
 
@@ -52,7 +53,9 @@ def load_rows(tags):
 
 def label(spec):
     s = spec[len(BASE):].lstrip(",") if spec.startswith(BASE) else spec
-    s = s.replace("blocks=xdawn+broad+logvar,x=fb8", "fb8 (replaces FB)")
+    swap = "blocks=xdawn+broad+logvar,x="
+    if s.startswith(swap):
+        s = s[len(swap):] + " (replaces FB)"
     return s.replace("x=", "") or "baseline"
 
 

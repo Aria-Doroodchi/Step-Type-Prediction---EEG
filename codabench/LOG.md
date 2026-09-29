@@ -1081,3 +1081,89 @@ them:
 - CPU-only and 1–4 thread inference, identical;
 - batch size 1;
 - training determinism across thread counts.
+
+## 2026-09-29 (evening) — Sprint: temporal and spatial feature blocks (brief `prompts/2026-09-29_temporal_spatial_features.md`)
+
+The user asked for a 12-hour workflow sprint (17:46 → 05:45) with the focus
+"investigate temporal features and improve spatial features so the differences
+in brain activation can be captured". The value check kept that focus and aimed
+it at the Track 2 sealed recipe:
+- only the sealed phase ranks;
+- the filter bank carries most of the 3-class signal (Phase 4, 2026-09-25);
+- no temporal-structure or spatial-structure variant had been measured, only
+  whole-block ablations;
+- nothing blocks it: the data is not released and no approvals are needed.
+
+Runners-up were the Riemann + EEGNet ensemble and the strict LOSO fix (the
+chained fallback). Every covariance in the recipe spans the whole 4 s window.
+
+### Phase 0/1 — harness hook, build workflow, baseline and controls
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 17:46–17:52 | orient + value check | ≤ 15 min | 6 min | proceed on the user's focus; the tracks page still said "coming soon"; sleep disabled on AC/DC |
+| 17:52–18:05 | brief, `analysis/xfeat.py` hook (`x=` / `sl=` spec keys), `xfeat_selftest.py`, lane scripts, summarizer, `--split first` | 20 min | 13 min | ✅ 8c50541, 7e0d008; spec without `x=` still builds the plain `RiemannModel` |
+| 17:55:10–18:22:02 | f1: baseline reproduction + no-new-code candidates (slow block, CAR, Laplacian), 4 proxies | ~25 min | 27 min, on estimate (s5 1.45× over: the build agents shared the CPU) | ✅ baseline **bit-exact** vs `logs/sealed_p4` (4 configs, per-subject max \|Δ\| = 0.0) |
+| 17:59– | workflow `sprint0929-feature-build` (5 agents: temporal / spatial builders + adversarial verifiers, activation EDA) | 75 min | temporal verified 18:22 | 7 temporal blocks: no code bugs; independent re-implementations match exactly; leakage checks pass |
+
+**Controls (Phase 2 screen metric; Δ in points vs the recipe union, paired over
+subjects, 95 % bootstrap CI):**
+
+| spec | Scherer 3-cl. Δ screen (router) | Scherer 3-cl. Δ none | Tangermann | Scherer 5-cl. | Zhou |
+|---|---|---|---|---|---|
+| slow block (`sl=1`) | −0.4 (−2.5, +1.7) | +1.2 (−0.7, +2.7) | +0.8 (−0.1, +1.6) | +0.2 | +0.1 |
+| CAR | −0.1 (−2.0, +1.9) | −0.7 | **−1.8 (−2.5, −0.9)** | +0.2 | +2.3 (−0.5, +5.0) |
+| Laplacian (CSD) | −1.8 (−4.6, +1.2) | −3.0 (−5.9, +0.2) | **−3.4 (−5.4, −1.6)** | +0.5 | +1.8 |
+
+- **No gain from the slow block or re-referencing.** The brief predicted ≈ 0
+  for re-referencing: TS + shrinkage LDA is affine-invariant in exact
+  arithmetic. The Laplacian in fact *hurts* on the MI proxy. The OAS covariance
+  shrinkage toward μI is not affine-invariant, and the CSD amplifies
+  high-spatial-frequency noise, so the invariance holds only approximately. Fixed
+  spatial filters stay out of the recipe.
+
+**Phase 1 results (workflow `sprint0929-feature-build`, 17:59–18:40, 41 min vs 75
+estimated; 5 agents, 0 errors).**
+- **12 blocks built and adversarially verified:**
+  - temporal (`analysis/xfeat_temporal.py`): tseg2/3, acm3x2, acm2x4, fb8,
+    fbd, bpt4;
+  - spatial (`analysis/xfeat_spatial.py`): fblv, fbrlv, reg, csp8, icoh.
+- **Verification:** no code bugs. Independent re-implementations match
+  exactly, and features do not change when the test batch is split, permuted,
+  transformed one window at a time or mixed with junk windows. Only docstring
+  corrections were made.
+- **Notes from the verifiers:**
+  - fbrlv is an exact linear re-parametrisation of fblv given the base
+    log-var block; count them as one family.
+  - reg's regions are lopsided on Scherer (the merge rule is not
+    left/right symmetric). Kept as built.
+  - Every `x=` config costs ≥ 2× the baseline, because the wrapper refits the
+    base model and the union LDA.
+  - tseg3 at 43 ch makes a 16.4 k-feature union (about 2.2 GB per d × d
+    matrix), which needs the Phase 4 sizing gate.
+- **Activation EDA** (`reports/features_0929/activation_eda.md`, training
+  sessions only, 530 s):
+  - The classes differ strongly **within** subjects but idiosyncratically:
+    ANOVA F up to ~6, while the group t is ≤ 3.6.
+  - Alpha information is posterior-right and emerges after ~1.5 s. Beta is a
+    WORD decrease at F3. 30–45 Hz is near chance, and there is no EMG
+    signature.
+  - Delta/theta information is early (0–2 s) and frontal (F7/F8/AFz): likely
+    eye movements, with indirect evidence only (no EOG on the proxy).
+  - TS beats band power by 5–14 points (4-band TS 0.684 vs power 0.546,
+    within-session CV).
+  - Time-resolved TS (4 × 1 s) beats whole-window TS in delta/theta (+6 to
+    +7) and in alpha (+4.8, n.s.).
+  - A class-specific evoked response exists only in the first second.
+
+**EDA-motivated candidates, registered here at 18:45 before they run (brief
+§ 4 allows 2; same rules as the others):**
+1. `tcut1000`: the FB4 TS over two segments, [0, 1 s) and [1 s, end). The
+   first second is a different regime (cue-evoked burst, early ERD) from the
+   sustained task period where the alpha/beta class information lives. It
+   separates them at 2 blocks' cost instead of tseg's equal cuts.
+2. `fbfrom1000` (spec `blocks=xdawn+broad+logvar,x=fbfrom1000`): a control.
+   The recipe's FB TS computed on 1 s → end only, replacing the full-window FB.
+   It measures how much of the FB's accuracy depends on the cue second. It is
+   information for release-day decisions (the sealed windows' cue content is
+   unknown) and will not be adopted on the screen score alone.
