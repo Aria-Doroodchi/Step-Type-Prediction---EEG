@@ -1,11 +1,26 @@
-# HANDOFF — sprint 2026-09-28/29: sealed-release readiness
+# HANDOFF — sprint 2026-09-29/30: temporal and spatial feature blocks
 
 Resume from this file alone. Plan of record:
-[prompts/2026-09-28_release_readiness.md](prompts/2026-09-28_release_readiness.md).
-Branch `feat/codabench-track2`, pushed to `personal` after every commit. The
-weekend handoff (2026-09-25) it replaces is in git history (a44526a).
+[prompts/2026-09-29_temporal_spatial_features.md](prompts/2026-09-29_temporal_spatial_features.md)
+(17:46 → 05:45). Branch `feat/codabench-track2`, pushed to `personal` after
+every commit. Logs: `~/codabench/logs/sealed_f0929/` (STATUS.md, per-study
+`results_<study>.jsonl`; lanes `scripts/sprint0929_f*.sh` are resumable).
 
-## State (updated 2026-09-29 02:30): sprint complete
+## State of this sprint (updated 2026-09-29 18:05)
+
+| Phase | Status | Result |
+|---|---|---|
+| 0 brief + harness hook | ✅ | `analysis/xfeat.py` (block registry, `RiemannXModel`), spec keys `x=` / `sl=` in `xsess_lib.make_model`; `xfeat_selftest.py` passes |
+| 1 build (workflow) | running | f1 lanes (baseline reproduction + slow/ref controls) started 17:55 |
+| 2 screen | — | |
+| 3 confirm | — | |
+| 4 integrate / fallback | — | |
+| 5 review | — | |
+
+The sections below are the previous sprint's handoff (2026-09-28/29, sealed-release
+readiness); every fact in them still holds.
+
+## State of the previous sprint (updated 2026-09-29 02:30): sprint complete
 
 | Phase | Status | Result (details: LOG.md 2026-09-28/29 entries) |
 |---|---|---|

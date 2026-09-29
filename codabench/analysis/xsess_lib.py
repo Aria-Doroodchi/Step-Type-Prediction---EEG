@@ -508,11 +508,13 @@ class RiemannModel:
     name = "Riemann"
 
     def __init__(self, meta, use_xdawn=True, filterbank=False, reference="none",
-                 blocks=None, estimator="oas"):
+                 blocks=None, estimator="oas", slow_block=False):
         import riemann_steptype as RS
         self.RS = RS
         self.meta = meta
         self.kw = dict(use_xdawn=use_xdawn, filterbank=filterbank)
+        if slow_block:      # the solver's < 4 Hz bins (sprint 2026-09-29 screen)
+            self.kw["slow_block"] = True
         self.reference, self.blocks, self.estimator = reference, blocks, estimator
 
     def _feats(self, X):
@@ -676,16 +678,23 @@ class BraindecodeEEGNetModel:
 
 
 def make_model(spec, meta, seed=33):
-    """spec: 'meanlr' | 'riemann[:xd=1,fb=0]' | 'eegnet_st' | 'eegnet_bd'."""
+    """spec: 'meanlr' | 'riemann[:xd=1,fb=0,blocks=a+b,ref=car,sl=1,x=id1+id2]' |
+    'eegnet_st' | 'eegnet_bd'. ``x=`` adds analysis/xfeat.py blocks; ``sl=1`` the
+    solver's slow block."""
     name, _, opts = spec.partition(":")
     kw = dict(kv.split("=") for kv in opts.split(",") if kv)
     if name == "meanlr":
         return MeanLogRegModel()
     if name == "riemann":
         blocks = tuple(kw["blocks"].split("+")) if "blocks" in kw else None
-        return RiemannModel(meta, use_xdawn=kw.get("xd", "1") == "1",
-                            filterbank=kw.get("fb", "0") == "1",
-                            reference=kw.get("ref", "none"), blocks=blocks)
+        base = dict(use_xdawn=kw.get("xd", "1") == "1",
+                    filterbank=kw.get("fb", "0") == "1",
+                    reference=kw.get("ref", "none"), blocks=blocks,
+                    slow_block=kw.get("sl", "0") == "1")
+        if kw.get("x"):     # extra blocks (analysis/xfeat.py, sprint 2026-09-29)
+            import xfeat
+            return xfeat.RiemannXModel(meta, kw["x"].split("+"), **base)
+        return RiemannModel(meta, **base)
     if name == "eegnet_st":
         return EEGNetSTModel(meta, seed=seed, n_epochs=int(kw.get("ep", 100)),
                              patience=int(kw.get("pat", 20)))
