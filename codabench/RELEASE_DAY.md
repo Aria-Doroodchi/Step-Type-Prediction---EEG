@@ -567,6 +567,25 @@ These rules were written before any Graz + BrainHero number existed.
      `train_sealed.sh:` line carries `BLEND_W=auto` for loso and
      `BLEND_W=harness` for last. Before 2026-09-29 it kept `wcv=last` for a
      missing row and printed no BLEND_W (V1).
+   - **Known bias (final review, 2026-09-29; not yet fixed in code).** In the
+     LOSO folds, harness and solver alike, each held-out session is whitened with
+     its group's reference computed over the *whole* training set, i.e. partly
+     from its own unlabelled windows.
+     - The bias is ~2 points of CV score on Zhou and < 1 on the mock, always
+       against the more pooled weights. It did not change the chosen w in any
+       complete run.
+     - If a (subject, context) pair occurs in **one calibration session only**,
+       that fold is oracle-aligned and inflated by 10–17 points.
+     - **So:** if `release_eda.py` § 3 shows one context per session, or any pair
+       confined to one calibration session, do not use `auto`/`loso` with
+       `router-psdctx`. Use `WCV=last` / `BW=harness`, or bake a number
+       (`BLEND_W=<w>`).
+     - The fix, a strict per-fold reference in both harness and solver, is
+       SEALED_RECIPE § 5's first code step.
+   - **Step 2 bakes step 1's weight** (§ 7). Re-choosing w on all labelled data
+     would add folds 4–6, which validate only the fully labelled participants, on
+     personal LDAs fitted on 5 sessions. That is a regime the replica never
+     validated, and it pulls w towards the personal models.
 5. **Pooling.** Keep "pooled on everyone" unless test-subjects-only is ≥ 2
    points better with the CI excluding 0.
    - The solver has no option to train on a subset. If the rule says
@@ -678,7 +697,9 @@ participants' sessions 4–6.
 **Step 2. Final candidate on all labelled data** (~30 min at 120 Hz):
 
 ```bash
-env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$BW GATE=final RUN_NAME=final_$S HARNESS_FROM=replica_$S \
+# bake the weight that step 1 chose and validated on the replica (rule 4); read it off step 1's STATUS
+W1=$(grep -o "solver auto w=[0-9.]*\|trained with the baked w=[0-9.]*" ~/codabench/logs/replica_$S/STATUS.md | tail -1 | grep -o "[0-9.]*$"); echo "step-1 weight: $W1"
+env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$W1 GATE=final RUN_NAME=final_$S HARNESS_FROM=replica_$S \
     DATASET="BCI[study=${S}_all]" bash ~/codabench/scripts/train_sealed.sh $DH $S
 grep -E "gates blocking|HARNESS_FROM|candidate|END (train|replay)|gate:|blend weight:|NO ZIP|WARNING|zipped|ALL DONE" ~/codabench/logs/final_$S/STATUS.md
 ```
@@ -693,9 +714,12 @@ grep -E "gates blocking|HARNESS_FROM|candidate|END (train|replay)|gate:|blend we
     step 1.
 - **SPLIT and TEST_SUBJECTS** drive only the harness steps; benchopt trains on
   DATASET.
-- **The weight.** With BW=auto the solver chooses w by LOSO over all its training
-  sessions (up to 6 folds) and stores it in the joblib. STATUS's `blend weight:`
-  line shows the value.
+- **The weight** is step 1's, baked as a number (`BLEND_W=$W1`; rule 4). Do not
+  pass `BLEND_W=auto` here: on all labelled data the solver would re-choose w
+  over up to 6 folds, and folds 4–6 validate only the fully labelled
+  participants (final review, 2026-09-29). The mock rehearsal in § 9 still used
+  `auto` here; it chose the same 0.75. If `W1` prints empty, read the weight off
+  step 1's `blend weight:` line by hand.
 - **The zip** goes to `logs/final_$S/`.
 
 **Step 3. Check the zip before the user uploads it** (~2 min):

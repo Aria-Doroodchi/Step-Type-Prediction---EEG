@@ -1022,3 +1022,62 @@ confirms the baked defaults. The zhou2016_xsess regression still gives
 **Could not be rehearsed** (stated in RELEASE_DAY): the organisers' loader, real
 NeuralBench overlays (`<name>_xsess` / `<name>_all`) and their registration, and
 a cache build at release size.
+
+## 2026-09-29 (night) — Sprint Phase 5: final adversarial review + fixes
+
+The optional Phase 5 of the brief (the Riemann + EEGNet ensemble) needed 2.5 h
+and did not fit before the 03:25 reserve. The time went instead to a final
+review of every line changed tonight (a44526a..HEAD, ~5,000 lines), through three
+independent lenses, followed by fixes.
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 01:40–02:26 | review, 3 lenses (ML correctness/leakage, script robustness, Codabench deployment path) | ~45 min | 46 min | 2 + 8 + 3 verified findings (no blocker) |
+| 02:11–02:26 | fixes X1 (solver) + X2 (scripts) | ≤ 45 min | 15 min | ✅ all gates |
+
+**Fixed:**
+- **Solver (major): the channel pick was positional and never checked against
+  channel names.** A different channel order at scoring time would have run
+  silently near chance (0.335 vs 0.475 on the mock). The joblib now stores the
+  training channel names. `load_model` reorders by name, drops extras, and raises
+  on a missing channel. Defaults are bit-identical (max |dP| = 0), and benchopt
+  train = replay = 0.483333 as before.
+- **Solver (minor):** `ch_names=None` no longer crashes.
+- **Scripts (major):**
+  - `release_ablations.sh` exited 0 when a requested step crashed or was
+    mistyped, and the summarizer then silently kept the default. That could
+    have flipped a release-day decision, e.g. a crashed `al_ctx`. It now
+    validates STEPS/LANES and exits 1 on any requested step without `.done`;
+    the summarizer prints `MISSING`.
+  - `train_sealed.sh` could zip a different model than the one that passed the
+    gates. It now hashes the submission folder at the end of training and
+    re-checks the hash before the replay and before zipping.
+- **Scripts (minor):** STOP_AFTER validation, a HARNESS_FROM source-gate check,
+  `monitor_loop.sh` (stale ALL DONE, paths with spaces, the lanes pattern) and
+  two-decimal deltas in the summarizer.
+- zhou2016_xsess regression: train = replay = 0.770000, gap 0.0083 OK.
+
+**Not fixed; documented for the next session:**
+- **LOSO weight-search bias (major).** Each held-out session is whitened with a
+  reference that includes its own unlabelled windows: ~2 points of CV bias on
+  Zhou, < 1 on the mock, never flipping a complete run's weight. If a
+  (subject, context) pair lives in one calibration session, that fold is
+  oracle-aligned (10–17 points).
+  - Interim guard in RELEASE_DAY rule 4.
+  - The strict per-fold fix (harness + solver, bit-identical) is SEALED_RECIPE
+    § 5's first code step.
+- **The final all-data run re-chose w over folds the replica never validated**
+  (minor): RELEASE_DAY § 7 step 2 now bakes step 1's weight.
+- **Deployment risk (major, needs the user):** no sklearn/pyriemann joblib has
+  ever run on the scoring image, and scikit-learn is unpinned. A warm-up upload
+  is the test (SUBMISSIONS.md).
+
+Verified fine: see the reviewers' checked_ok lists in the workflow journal. Among
+them:
+- the fast-LDA degenerate cases, with the correct lstsq fallback;
+- the router-threshold rules, moot under the 0.5 cap;
+- the organisers' own ingestion + scoring programs on tonight's zips, scores
+  exact;
+- CPU-only and 1–4 thread inference, identical;
+- batch size 1;
+- training determinism across thread counts.

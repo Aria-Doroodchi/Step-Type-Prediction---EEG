@@ -9,6 +9,24 @@ Warm-up scores are indicative only: public test data, leakage possible.
 |---|---|---|---|---|---|---|
 | *ready* | Track 2 / warm-up | **EEGNet-StepType-WU1** (`solvers/bci_decoding/eegnet_steptype_wu1.py`): 100 epochs, patience 20, ref none, seed 33 | `submissions/eegnet_steptype_wu1_2026-09-24.zip` | 0.820 (config mean 0.806 ± 0.016, 3 seeds) | 0.82 (public leaderboard, submitted 2026-09-25 14:51 UTC as adoroodchi; presumably WU1, confirm) | replay-verified (read-only, inference-only, identical score) |
 
+### Recommended next upload: a deployment test (not a leaderboard attempt)
+
+Recommended by the final sprint review, 2026-09-29. No sklearn/pyriemann joblib
+has ever run on the Codabench scoring image (`tommoral/neural-compet:v2`). The only
+upload so far is the torch EEGNet above. The image's scikit-learn is unpinned, and
+pyriemann arrives only transitively. Riemann-Sealed ships 22 sklearn LDAs
+(pickled with sklearn 1.9.1) plus pyriemann 0.12 objects. The sealed phase allows 1
+submission per day and hides the logs, so find out **during warm-up** (open until
+2026-10-25, 5/day):
+- train Riemann-Sealed with its **default** parameters (what Codabench runs) on
+  the warm-up study. Dreyer is cross-subject, so the score does not matter and the
+  cross-session harness does not apply; train with benchopt directly:
+  `cd ~/codabench/2026-competition && COMPET_SUBMISSION_DIR=$HOME/codabench/logs/wu_riemann_deploytest/submission benchopt run tracks/bci_decoding -d "BCI[study=dreyer2023]" -s ../solvers/bci_decoding/riemann_sealed.py -o "BCI-decoding[training=True]" --no-plot --no-html --no-cache --output wu_riemann_deploytest`,
+  then zip the two files in that submission folder at the zip root (as
+  `train_sealed.sh` does);
+- upload the zip (the user's action);
+- check that it reaches *Finished*, and read the ingestion log and its duration.
+
 ## Local reference runs
 
 | Date | Dataset | Solver | Setting | Bal. acc. | Log |

@@ -57,7 +57,9 @@
 # TEST_SUBJECTS=<the fully labelled participants>), SPEC (riemann:xd=1,fb=1), ALIGN
 # (router-psd:riemann), WCV (last), CAP (0.5; "none" = uncapped), LANES (AB),
 # STEPS (space-separated step names: run only those, e.g. to keep each call
-# under a time limit), XS_THREADS (10 per lane). ETAs below are minutes for the
+# under a time limit; a name that is no step here, or a requested step, i.e. of
+# STEPS or else of LANES, without its .done marker at the end, is an ERROR row
+# and rc 1, 2026-09-29), XS_THREADS (10 per lane). ETAs below are minutes for the
 # full-size sealed data at 10 threads (mock_sealed_s at 4 threads: ~1/3).
 : "${TAG:?TAG}" "${STUDY:?STUDY}"
 export XS_THREADS=${XS_THREADS:-10}
@@ -98,6 +100,21 @@ KIND=${ALIGN##*:}
 if [ "$WCV" = last ]; then WCV_ALT=loso; else WCV_ALT=last; fi
 case $SPEC in *xd=1*) SPEC_NX=${SPEC/xd=1/xd=0};; *) SPEC_NX=;; esac
 HAS_CTX=$([ -f "$CACHE/context.npy" ] && echo 1)
+# the steps of each lane on this cache / SPEC / WCV; LANES and STEPS must name
+# them (a typo used to end like a finished chunk, and the summary then silently
+# applied the recipe default for the step that never ran)
+STEPS_A="base ch_eeg_eog ch_eeg_emg ch_all${HAS_CTX:+ al_ctx}"
+STEPS_B="${SPEC_NX:+xd0 }wcv_$WCV_ALT pool_test online run"
+LANES=${LANES:-AB}
+if ! [[ $LANES =~ ^[AB]{1,2}$ ]]; then
+  echo "| $(date +%T) | ERROR: LANES=$LANES: expected A, B or AB |" >> "$STATUS"; exit 1
+fi
+for s in ${STEPS:-}; do
+  case " $STEPS_A $STEPS_B " in *" $s "*) ;; *)
+    echo "| $(date +%T) | ERROR: STEPS names $s, not a step here (lane A: $STEPS_A;" \
+         "lane B: $STEPS_B) |" >> "$STATUS"; exit 1;;
+  esac
+done
 COMMON=(--study "$STUDY" --split "$SPLIT")
 [ -n "$TEST_SUBJECTS" ] && COMMON+=(--test_subjects "$TEST_SUBJECTS")
 [ "$CAP" = none ] || COMMON+=(--router_cap "$CAP")
@@ -173,7 +190,6 @@ laneB() {
 }
 [ -n "$HAS_CTX" ] || echo "| $(date +%T) | al_ctx skipped: $STUDY has no context column |" >> "$STATUS"
 [ -n "$SPEC_NX" ] || echo "| $(date +%T) | xd0 skipped: SPEC=$SPEC has no xd=1 |" >> "$STATUS"
-LANES=${LANES:-AB}
 if [ -n "$BIG" ]; then
   echo "| $(date +%T) | large cache: lanes $LANES run one after the other |" >> "$STATUS"
   [[ $LANES == *A* ]] && laneA
@@ -183,8 +199,15 @@ else
   [[ $LANES == *B* ]] && { laneB & }
 fi
 wait
-for s in base ch_eeg_eog ch_eeg_emg ch_all ${HAS_CTX:+al_ctx} ${SPEC_NX:+xd0} \
-         "wcv_$WCV_ALT" pool_test online run; do
+# every requested step (STEPS, else every step of LANES) must be done: a step
+# that crashed (sealed_lib's step returns 0) or never ran is an ERROR, rc 1
+REQ=${STEPS:-$([[ $LANES == *A* ]] && echo "$STEPS_A") $([[ $LANES == *B* ]] && echo "$STEPS_B")}
+for s in $REQ; do
+  [ -f "$LOGDIR/$s.done" ] || {
+    echo "| $(date +%T) | ERROR: step $s requested but not done (see $LOGDIR/$s.log) |" >> "$STATUS"
+    exit 1; }
+done
+for s in $STEPS_A $STEPS_B; do
   [ -f "$LOGDIR/$s.done" ] || { echo "| $(date +%T) | lanes $LANES finished; $s not done |" >> "$STATUS"; exit 0; }
 done
 python "$HOME/codabench/analysis/release_summarize.py" --tag "$TAG" --study "$STUDY" \

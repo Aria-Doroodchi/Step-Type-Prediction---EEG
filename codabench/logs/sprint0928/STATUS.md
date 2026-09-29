@@ -15,3 +15,6 @@
 | 23:55:00 | G's patches applied (train_sealed.sh bakes align=subject_context; summarizer NOTE); R3 review of G still running |
 | 23:55:09 | START Phase 4c workflow runbook-fix-and-verify (wf_7738f1de-e8f): S scripts + W runbook rewrite -> V1 literal run on mock -> F4, ETA ~2.5 h (-> ~02:30) |
 | 00:43:59 | Phase 4a DONE (workflow 21:57-00:43): G subject_context, R3 pass_with_fixes (1 minor), F2 fix; committed |
+| 01:40:20 | Phase 4c DONE (5d39463). START Phase 5 (replaces the optional ensemble, which needs 2.5 h and does not fit): final 3-lens adversarial review wf_078e5193-cae, ETA ~45 min; fixes of blockers only, before the 03:25 reserve |
+| 02:11:25 | Phase 5 review: deploy + scripts lenses done (3 + 8 findings); START Phase 5b fixes wf_07a37cb5-847 (X1 solver channel-name guard, X2 script silent-failure paths), hard limit ~03:00 |
+| 02:27:36 | Phase 5 DONE: review 13 findings, fixes X1/X2 all gates pass; LOSO-bias + deployment test documented. Wrap-up starts (reserve from 03:25; early) |

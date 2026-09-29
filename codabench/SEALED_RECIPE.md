@@ -235,6 +235,23 @@ It is also the release-day regression gate (RELEASE_DAY § 0).
 | 2 | **Release day** ([RELEASE_DAY.md](RELEASE_DAY.md)): use the ten fully labelled participants as a replica split (everyone's sessions 1–3 train, their sessions 4–6 are scored). Then run the EMG/EOG ablation, context cells, blend weight by leave-one-calibration-session-out and the xDAWN ablation (§ 3), and train the candidate | correctness: the proxies are small (4–9 people), so the ranking of close variants can change | ~1 day. At the sealed size one `train_sealed.sh` flow takes 41 min (fixed weight) to 61 min (`auto`) at 120 Hz on the mock, and the ablations 1.5–2 h. RELEASE_DAY § 8 budgets 5.5–6.5 h from download to a checked zip, reading included | loader surprises (47 ch at 500 Hz, contexts, how sessions are labelled) |
 | 3 | **Riemann + pooled-EEGNet probability ensemble** on the 3 classes. Pooled EEGNet reaches 0.476 there, close to the Riemann recipe (0.486–0.499), and its errors may differ. Weight on held-out calibration sessions, never equal weights (the Riemann LDA is overconfident: an equal blend lost 0.75 points in the warm-up) | +1–2 points (the warm-up ensemble gave +0.8) | half a day: both models into one `submission.py`, weight search in the harness | small; adds inference time and a second model to audit |
 
+**Added by the sprint's final review (2026-09-29), ranked with the table above:**
+
+- **Between steps 1 and 2 — a deployment test during warm-up.** This is the
+  user's upload. No sklearn/pyriemann joblib has ever run on the scoring image.
+  Riemann-Sealed ships 22 sklearn LDAs pickled with sklearn 1.9.1 and pyriemann
+  0.12 objects, while the image's scikit-learn is unpinned. The sealed phase
+  hides logs and allows one submission per day. The command is in
+  `SUBMISSIONS.md`. It costs 1 warm-up upload and takes ~30 min of training
+  locally.
+- **Before release day — strict per-fold references in the LOSO weight search**
+  (harness `choose_w` and solver `_choose_blend_w`, kept bit-identical). Today
+  each held-out session is whitened with a reference that includes its own
+  unlabelled windows: ~2 points of CV bias. When a (subject, context) pair lives
+  in one calibration session, that fold is oracle-aligned (10–17 points). It has
+  not changed a chosen weight so far. RELEASE_DAY rule 4 carries the interim
+  guard. Effort: ~2–3 h with the bit-identity gate.
+
 Not recommended now: more participants (warm-up: no gain), REVE/LaBraM on this
 CPU (hours per epoch; revisit on a GPU or with a frozen probe on the release),
 train-only alignment (hurts), batch-level statistics (superseded by online).

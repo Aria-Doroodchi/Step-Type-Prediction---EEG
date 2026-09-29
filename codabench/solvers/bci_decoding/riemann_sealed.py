@@ -13,7 +13,16 @@ Training (``fit``; the train loader supplies ``info["subject_id"]``):
      name (EMG / EOG / ECG anywhere in it); "eeg+eog" / "eeg+emg" keep that type
      too; "all" keeps every channel. The index is stored in the joblib and
      applied identically at prediction (a joblib without one keeps all
-     channels, as it was trained). The proxies are EEG-only: no change there;
+     channels, as it was trained). The proxies are EEG-only: no change there.
+     The joblib also stores the training channel names (``ch_names``, all
+     channels, before the pick); ``load_model`` matches the scoring
+     ``meta["ch_names"]`` to them by name (``_match_channels``): the same
+     list -> nothing changes; another order -> the windows are reordered to
+     the training order before preprocessing and the pick; extra scoring
+     channels are dropped (a printed note); a trained channel missing ->
+     ValueError naming it. A joblib without names (trained before this
+     check) or ``meta["ch_names"]`` None -> by position, as before, with a
+     printed warning;
   1. per-window preprocessing (WindowPreproc, as Riemann-StepType);
   2. subject router: log-PSD (Welch, 1 s segments, 1-45 Hz, every channel)
      -> shrinkage LDA over training subjects. Fallback threshold = min(0.5, 1st
@@ -187,6 +196,9 @@ def _spatial_matrix(ch_names, reference, lambda2=1e-5, stiffness=4):
     """
     if reference in (None, "none"):
         return None
+    if not ch_names:
+        raise ValueError(f"reference={reference!r} needs the channel names "
+                         "(meta['ch_names'] is None or empty)")
     import mne
     montage = mne.channels.make_standard_montage("standard_1005")
     known = {c.lower() for c in montage.ch_names}
@@ -220,7 +232,7 @@ class WindowPreproc(nn.Module):
 
     def __init__(self, ch_names, sfreq, bandpass="none", reference="none"):
         super().__init__()
-        M = _spatial_matrix(list(ch_names), reference)
+        M = _spatial_matrix(list(ch_names or []), reference)   # None: no names
         self.register_buffer(
             "M", None if M is None else torch.as_tensor(M, dtype=torch.float32),
             persistent=False)   # rebuilt from ch_names in load_model
@@ -636,6 +648,60 @@ def _chan_index(types, chans):
     return None if len(idx) == len(types) else idx
 
 
+def _match_channels(train_names, score_names):
+    """(perm, names): how the scoring windows' channels map onto the channels
+    the model was trained on (``parts["ch_names"]``, before the pick).
+
+    perm None: X is used as it comes, by position: the same names in the same
+    order (bit-identical to before), or nothing to compare (a joblib without
+    names, scoring names None, duplicate training names), with a warning.
+    Else ``X[:, perm]`` holds the training channels in the training order
+    (extra scoring channels dropped, with a note). ``names``: the channel
+    names of that X, for WindowPreproc (its re-reference matrix). A trained
+    channel missing, or present twice, at scoring -> ValueError."""
+    tag = "[Riemann-Sealed]"
+    if train_names is None:
+        print(f"{tag} WARNING: the model stores no training channel names (a joblib "
+              "from before the channel check): the scoring channels are used by "
+              "position, unchecked", flush=True)
+        return None, score_names
+    train = [str(c) for c in train_names]
+    if score_names is None:
+        print(f"{tag} WARNING: meta['ch_names'] is None at scoring: the windows' "
+              f"channels are assumed to be the {len(train)} training channels in "
+              "the training order (by position, unchecked)", flush=True)
+        return None, train
+    score = [str(c) for c in score_names]
+    if score == train:
+        return None, score_names
+    if len(set(train)) != len(train):
+        print(f"{tag} WARNING: the training channel names are not unique and the "
+              "scoring ones differ from them: channels used by position, "
+              "unchecked", flush=True)
+        return None, score_names
+    pos = {}
+    for i, c in enumerate(score):
+        pos.setdefault(c, []).append(i)
+    missing = [c for c in train if c not in pos]
+    if missing:
+        raise ValueError(
+            f"{tag} {len(missing)} of the {len(train)} channels the model was trained "
+            f"on are missing from the scoring meta['ch_names'] ({len(score)} "
+            f"channels): {missing}")
+    twice = [c for c in train if len(pos[c]) > 1]
+    if twice:
+        raise ValueError(f"{tag} trained channels found more than once in the "
+                         f"scoring meta['ch_names']: {twice}")
+    keep = set(train)
+    extra = [c for c in score if c not in keep]
+    print(f"{tag} note: the scoring channels ({len(score)}) differ from the "
+          f"{len(train)} training channels in order or number: reordered by name "
+          "to the training order"
+          + (f"; {len(extra)} extra channel(s) dropped: {extra}" if extra else ""),
+          flush=True)
+    return [pos[c][0] for c in train], train
+
+
 # -- blend_w="auto": leave-one-calibration-session-out ---------------------------
 W_GRID = [0.0, 0.25, 0.5, 0.75, 1.0]
 _CTX_COLUMNS = ("context", "condition", "paradigm")   # as analysis/xsess_cache.py
@@ -791,7 +857,7 @@ class RiemannSealedModel:
                  align="subject", kind="riemann", personal="pooled",
                  blend_w=0.5, max_batches=None, adapt="none", buffer=64,
                  chans="eeg", ch_names=None, chs_info=None, ch_types=None,
-                 ctx_min=CTX_MIN_WINDOWS):
+                 ctx_min=CTX_MIN_WINDOWS, ch_perm=None):
         self.parts, self.preproc = parts, preproc
         self.nfilter, self.estimator = nfilter, estimator
         self.use_xdawn, self.filterbank, self.slow_block = use_xdawn, filterbank, slow_block
@@ -817,12 +883,22 @@ class RiemannSealedModel:
             raise ValueError(f"chans must be eeg|eeg+eog|eeg+emg|all, got {chans!r}")
         self.chans = chans
         self.ch_names, self.chs_info, self.ch_types = ch_names, chs_info, ch_types
+        # scoring channel -> training channel order (``_match_channels``; set by
+        # load_model when the scoring names differ from the training ones)
+        self._ch_perm = (None if ch_perm is None else
+                         torch.as_tensor(np.asarray(ch_perm, dtype=np.int64)))
         self._chan_idx = None
         self._pred = {"calls": 0, "windows": 0, "seconds": 0.0}
         self._warned_w = False
 
     def _prep(self, X, chan_idx=None, dtype=np.float64):
         X = torch.as_tensor(X, dtype=torch.float32).cpu()
+        if self._ch_perm is not None:        # scoring order -> training order
+            n_in = len(self.ch_names) if self.ch_names is not None else None
+            if X.shape[1] != n_in:
+                raise ValueError(f"[Riemann-Sealed] windows have {X.shape[1]} channels "
+                                 f"but meta['ch_names'] lists {n_in}")
+            X = X[:, self._ch_perm]
         if self.preproc is not None:
             with torch.no_grad():
                 X = self.preproc(X)
@@ -942,7 +1018,11 @@ class RiemannSealedModel:
         sfreq = self.preproc.sfreq
         parts = {"estimator": self.estimator, "xdawn": None, "sfreq": sfreq,
                  "subjects": subjects, "n_classes": n_classes,
-                 "chan_idx": self._chan_idx}
+                 "chan_idx": self._chan_idx,
+                 # every training channel's name (before the pick): load_model
+                 # matches the scoring meta["ch_names"] to them (_match_channels)
+                 "ch_names": (None if self.ch_names is None
+                              else [str(c) for c in self.ch_names])}
 
         # align="subject_context": (subject, context) pairs, numbered as the
         # harness's subj * n_ctx + ctx (subject-major, contexts sorted)
@@ -1217,7 +1297,8 @@ class RiemannSealedModel:
         t0 = time.time()
         ci = self.parts.get("chan_idx")
         n = len(X)
-        shape = (n, X.shape[1] if ci is None else len(ci), X.shape[-1])
+        c = X.shape[1] if self._ch_perm is None else len(self._ch_perm)
+        shape = (n, c if ci is None else len(ci), X.shape[-1])
         size = n if self.adapt == "online" else _chunk_len(shape)
         chunks = _row_chunks(n, max(size, 1)) or [slice(0, n)]
         Ps = [self._predict_block(self._prep(X[s], ci)) for s in chunks]
@@ -1272,17 +1353,22 @@ class Solver(CompetSolver):
         weights = meta["submission_dir"] / "riemann_sealed.joblib"
         parts = (joblib.load(weights)
                  if weights.exists() and self.train_loader is None else None)
-        preproc = WindowPreproc(meta["ch_names"], meta["sfreq"],
+        # scoring channels vs the trained ones, by name (see _match_channels)
+        ch_names, perm = meta.get("ch_names"), None
+        names = ch_names
+        if parts is not None:
+            perm, names = _match_channels(parts.get("ch_names"), ch_names)
+        preproc = WindowPreproc(names, meta["sfreq"],
                                 self.bandpass, self.reference)
         return RiemannSealedModel(parts, preproc, self.nfilter, self.estimator,
                                   self.use_xdawn, self.filterbank, self.slow_block,
                                   self.align, self.kind, self.personal,
                                   self.blend_w, self.max_batches,
                                   self.adapt, self.buffer, chans=self.chans,
-                                  ch_names=meta.get("ch_names"),
+                                  ch_names=ch_names,
                                   chs_info=meta.get("chs_info"),
                                   ch_types=meta.get("ch_types"),
-                                  ctx_min=self.ctx_min)
+                                  ctx_min=self.ctx_min, ch_perm=perm)
 
     def fit(self, model, train_loader):
         model.fit(train_loader)

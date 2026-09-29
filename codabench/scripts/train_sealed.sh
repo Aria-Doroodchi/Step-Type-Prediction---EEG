@@ -76,14 +76,20 @@
 #              E.g. the release-day final run: RUN_NAME=final_<S>
 #              HARNESS_FROM=train_sealed_<S>. Only into a harness folder that has
 #              no results yet, and only from a folder with this cache's
-#              fingerprint (stale rows are refused)
+#              fingerprint (stale rows are refused), and only from a run whose
+#              gate passed: logs/<tag>/STATUS.md, when it exists, must hold ALL
+#              DONE and no NO ZIP / STOPPED row (HARNESS_FROM_ANY=1: seed anyway)
 #   SUBMISSION_DIR  absolute folder training writes the submission to: the
 #              track's outputs/Riemann-Sealed-Cand<suffix>/ (as before: SPLIT=last
 #              without RUN_NAME), or <logdir>/submission (release splits, and any
 #              run with RUN_NAME, since 2026-09-29), so no outputs/ folder is
-#              overwritten
+#              overwritten. The resolved folder is part of config.txt, and
+#              train.hash (its path + the sha256 of its files, written when
+#              train succeeds) is checked before the replay and the zip: a folder
+#              changed since training stops with an ERROR and no zip
 #   STOP_AFTER <step name>: stop after that step (e.g. personal_none, to read
-#              the harness numbers before training); rerun without it to go on
+#              the harness numbers before training); rerun without it to go on.
+#              A name that is no step of this run is an ERROR
 #   RUN_NAME   log folder / harness tag / benchopt output name instead of
 #              train_sealed_<study><suffix> (e.g. a regression run that must not
 #              touch a committed log folder); its submission goes to
@@ -133,6 +139,13 @@ CACHE="${XSESS_CACHE_ROOT:-$HOME/neuralbench/xsess_cache}/$STUDY"
 
 note() { echo "| $(date +%T) | $* |" >> "$STATUS"; }
 
+# STOP_AFTER must name a step of this run: a typo used to run the whole pipeline
+if [ -n "${STOP_AFTER:-}" ]; then
+  STEP_NAMES="cache preflight validate personal_$ADAPT train replay"; ok=
+  for s in $STEP_NAMES; do [ "$STOP_AFTER" = "$s" ] && ok=1; done
+  [ -n "$ok" ] || { note "ERROR: STOP_AFTER=$STOP_AFTER names no step of this run ($STEP_NAMES)"; exit 1; }
+fi
+
 # Each step runs in the background with its pid in <step>.pid (as sealed_lib.sh),
 # so a TERM / INT to this script (watchdog, outer timeout) also stops the running
 # step instead of leaving it appending harness rows with no .done marker.
@@ -150,7 +163,11 @@ step() {   # step <name> <timeout> <cmd...>
     CHILD=$!; echo "$CHILD" > "$LOGDIR/$name.pid"
     wait "$CHILD"; rc=$?; CHILD=
     echo "| $(date +%T) | END $name rc=$rc |" >> "$STATUS"
-    [ $rc -eq 0 ] && touch "$LOGDIR/$name.done"
+    if [ $rc -eq 0 ]; then
+      # the submission this training wrote (checked before the replay and the zip)
+      [ "$name" = train ] && out_hash > "$LOGDIR/train.hash"
+      touch "$LOGDIR/$name.done"
+    fi
   fi
   # STOP_AFTER stops here whatever the step's rc (a failed step never goes on)
   if [ "${STOP_AFTER:-}" = "$name" ]; then
@@ -266,15 +283,51 @@ case $HOW in
 esac
 XDB=$([ "$XD" = 0 ] && echo False || echo True); FBB=$([ "$FB" = 1 ] && echo True || echo False)
 
+# the submission folder training writes (OUT), resolved here: it is part of the
+# settings, and train.hash ties its files to this run's training.
+# RUN_NAME (a regression or rehearsal run) never writes the track's outputs/
+# folder either (RELEASE_DAY section 9, V1: the section-0 regression would have
+# overwritten outputs/Riemann-Sealed-Cand/); the default flow is unchanged
+if [ -n "${SUBMISSION_DIR:-}" ] || [ "$SPLIT" != last ] || [ -n "${RUN_NAME:-}" ]; then
+  OUT=${SUBMISSION_DIR:-$LOGDIR/submission}; SET_OUT=1
+else
+  OUT=tracks/bci_decoding/outputs/Riemann-Sealed-Cand$SUFFIX; SET_OUT=
+fi
+# (relative paths were, and are, relative to 2026-competition/, where benchopt runs)
+case $OUT in /*) ;; *) OUT="$HOME/codabench/2026-competition/$OUT";; esac
+out_hash() {   # "out=<OUT>" and the sha256 of every file the zip would hold
+  echo "out=$OUT"
+  if [ -d "$OUT" ]; then
+    (cd "$OUT" && find . -type f ! -path '*/__pycache__/*' -print0 | LC_ALL=C sort -z \
+       | xargs -0r sha256sum)
+  else
+    echo "(no folder)"
+  fi
+}
+check_out() {  # check_out <next action>: OUT still holds what this run's training wrote
+  if [ "$(out_hash)" != "$(cat "$LOGDIR/train.hash" 2>/dev/null)" ]; then
+    note "ERROR: submission folder changed since training ($OUT differs from" \
+         "$LOGDIR/train.hash; checked before the $1): NO ZIP. Restore it, or retrain" \
+         "(remove $LOGDIR/train.done)"
+    exit 1
+  fi
+}
+
 CONF="split=$SPLIT test_subjects=${TEST_SUBJECTS:-default} wcv=$WCV chans=$CHANS"
 CONF="$CONF spec=$RECIPE_SPEC align=$RECIPE_ALIGN adapt=$ADAPT"
 CONF="$CONF blend_w=$BLEND_W router_cap=$ROUTER_CAP wvariant=$WVARIANT dataset=$DATASET"
+CONF="$CONF out=$OUT"
 HDIR="$HOME/codabench/logs/sealed_$HTAG"
 if [ -f "$LOGDIR/config.txt" ] && [ "$(cat "$LOGDIR/config.txt")" != "$CONF" ]; then
-  note "ERROR: settings differ from the ones $LOGDIR ran with" \
-       "($(cat "$LOGDIR/config.txt")); move logs/$TAG and its harness rows logs/sealed_$HTAG" \
-       "away, use another RUN_NAME, or rerun with those settings"
-  exit 1
+  if [ "$(cat "$LOGDIR/config.txt")" = "${CONF% out=*}" ]; then
+    # a folder from before 2026-09-29 (no out= in its settings) adopts this OUT
+    note "config.txt from before 2026-09-29 (no out=): adopts out=$OUT"
+  else
+    note "ERROR: settings differ from the ones $LOGDIR ran with" \
+         "($(cat "$LOGDIR/config.txt")); move logs/$TAG and its harness rows logs/sealed_$HTAG" \
+         "away, use another RUN_NAME, or rerun with those settings"
+    exit 1
+  fi
 fi
 # cache fingerprint (meta "built" + X.npy size): a cache rebuilt under the same
 # study name must not reuse this run's steps or harness rows (sealed_run /
@@ -306,6 +359,13 @@ if [ -n "${HARNESS_FROM:-}" ]; then
     note "ERROR: HARNESS_FROM=$HARNESS_FROM: $SRC was computed on another build of the" \
          "$STUDY cache ($(cat "$SRC/cache_fingerprint.txt" 2>/dev/null || echo 'no fingerprint'))," \
          "not this one ($FP): its rows would be stale"
+    exit 1
+  elif [ "${HARNESS_FROM_ANY:-0}" != 1 ] && [ -f "$HOME/codabench/logs/$HARNESS_FROM/STATUS.md" ] \
+       && { ! grep -q "ALL DONE" "$HOME/codabench/logs/$HARNESS_FROM/STATUS.md" \
+            || grep -qE "NO ZIP|STOPPED" "$HOME/codabench/logs/$HARNESS_FROM/STATUS.md"; }; then
+    note "ERROR: HARNESS_FROM=$HARNESS_FROM: its run did not pass its gate (logs/$HARNESS_FROM/" \
+         "STATUS.md needs ALL DONE and no NO ZIP / STOPPED row); check it, then" \
+         "HARNESS_FROM_ANY=1 seeds anyway"
     exit 1
   elif ls "$HDIR"/results*.jsonl >/dev/null 2>&1; then
     note "HARNESS_FROM=$HARNESS_FROM: logs/sealed_$HTAG already holds rows" \
@@ -411,21 +471,21 @@ fi
 note "candidate $CAND: personal=blend blend_w=$CW adapt=$ADAPT use_xdawn=$XDB" \
      "filterbank=$FBB kind=$KIND buffer=$BUF chans=$CHANS align=$ALIGN_S"
 cd "$HOME/codabench/2026-competition"
-# RUN_NAME (a regression or rehearsal run) never writes the track's outputs/
-# folder either (RELEASE_DAY section 9, V1: the section-0 regression would have
-# overwritten outputs/Riemann-Sealed-Cand/); the default flow is unchanged
-if [ -n "${SUBMISSION_DIR:-}" ] || [ "$SPLIT" != last ] || [ -n "${RUN_NAME:-}" ]; then
-  OUT=${SUBMISSION_DIR:-$LOGDIR/submission}; export COMPET_SUBMISSION_DIR="$OUT"
-else
-  OUT=tracks/bci_decoding/outputs/Riemann-Sealed-Cand$SUFFIX
-fi
+# OUT: resolved with the settings above
+[ -n "$SET_OUT" ] && export COMPET_SUBMISSION_DIR="$OUT"
 # --no-cache: benchopt caches on (dataset, solver) parameters, not on the data or
 # the candidate file, so a rerun would silently return the previous score.
-# A (re)training voids an earlier replay: the replay must be of this training.
-[ -f "$LOGDIR/train.done" ] || rm -f "$LOGDIR/replay.done"
+# A (re)training voids an earlier replay and hash: the replay must be of this training.
+[ -f "$LOGDIR/train.done" ] || rm -f "$LOGDIR/replay.done" "$LOGDIR/train.hash"
 step train 180m benchopt run tracks/bci_decoding -d "$DATASET" -s "$CAND" \
     -o "BCI-decoding[training=True]" --no-plot --no-html --no-cache --output "${TAG}_train" || exit 1
 unset COMPET_SUBMISSION_DIR
+if [ ! -f "$LOGDIR/train.hash" ]; then
+  # trained before 2026-09-29 (no hash was recorded): nothing to compare with
+  out_hash > "$LOGDIR/train.hash"
+  note "WARNING: no train.hash (trained before 2026-09-29): recorded the current $OUT" \
+       "as this training's submission"
+fi
 note "solver: $(grep -m1 -o 'fitting on X=.*' "$LOGDIR/train.log")"
 # solver vs harness weight, WV: MATCH | MISMATCH (both chose by loso: a real
 # disagreement) | INCOMPARABLE (harness wcv is not loso) | n/a (weight baked)
@@ -443,6 +503,7 @@ else
 fi
 
 # 5. replay read-only, inference only; a failed replay stops here (no zip)
+check_out replay
 R=/tmp/${TAG}_replay; [ -d "$R" ] && chmod -R u+w "$R"; rm -rf "$R"; cp -r "$OUT" "$R"; chmod -R a-w "$R"
 COMPET_SUBMISSION_DIR="$R" step replay 120m benchopt run tracks/bci_decoding \
     -d "$DATASET" -s "$R/submission.py" --no-plot --no-html --no-cache --output "${TAG}_replay" \
@@ -540,7 +601,9 @@ if [ -n "$FORCED" ]; then
        "Do not upload this zip before the fold scores in train.log and personal_$ADAPT.log" \
        "explain the difference !!!"
 fi
-# zip into the run's log dir (codabench/submissions/ is the user's folder)
+# zip into the run's log dir (codabench/submissions/ is the user's folder), only
+# the model this run trained and replayed
+check_out zip
 Z="$LOGDIR/riemann_sealed_${STUDY}_$(date +%F).zip"
 python - "$OUT" "$Z" <<'PY' || { note "ERROR: zipping $OUT failed"; exit 1; }
 import pathlib, sys, zipfile

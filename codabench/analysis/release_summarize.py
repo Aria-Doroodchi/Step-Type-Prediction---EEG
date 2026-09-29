@@ -31,8 +31,11 @@ last), and prints:
               and is what SEALED_RECIPE describes);
     pool      all unless test-only is >= 2 points better AND the CI excludes 0;
     online-64 rule-dependent: reported in its own line, never adopted here.
-A missing row keeps the recipe's setting and says so (for wcv that is loso:
-nothing measured says it is worse). The last lines give the resulting settings
+A missing row (a step not run, or failed) prints a loud "MISSING: <step> ..."
+line and keeps the recipe's setting (for wcv that is loso: nothing measured
+says it is worse); a summary MISSING line after the result lists every such
+step (2026-09-29). Deltas print with two decimals (the rules test the
+unrounded value). The last lines give the resulting settings
 as train_sealed.sh environment variables, with BLEND_W=auto for wcv loso and
 BLEND_W=harness for wcv last (RELEASE_DAY rule 4).
 """
@@ -109,10 +112,16 @@ def paired(a, b):
 
 
 def fmt_cmp(a, b):
-    """'+x.x pts (CI +x.x, +x.x; k/n subjects up)' for a - b."""
+    """'+x.xx pts (CI +x.xx, +x.xx; k/n subjects up)' for a - b (two decimals:
+    the rules test the unrounded value, so +1.96 must not print as +2.0)."""
     dm, lo, hi, up, n = paired(a, b)
-    return (f"{100 * (a['cell'] - b['cell']):+.1f} pts (95 % CI {100 * lo:+.1f}, "
-            f"{100 * hi:+.1f}; {up}/{n} subjects up)"), a["cell"] - b["cell"], lo, hi
+    return (f"{100 * (a['cell'] - b['cell']):+.2f} pts (95 % CI {100 * lo:+.2f}, "
+            f"{100 * hi:+.2f}; {up}/{n} subjects up)"), a["cell"] - b["cell"], lo, hi
+
+
+def missing(step):
+    """The loud DECISIONS line for an ablation step with no row."""
+    return f"MISSING: {step} has no row (not run or failed): rule not applied"
 
 
 def main():
@@ -181,7 +190,7 @@ def main():
         if r is None:
             print(f"| {label} | not run |  |" + " |" * len(ctx_names) + "  |  |  |  |")
             continue
-        vs = "" if r is base or base is None else f"{100 * (r['cell'] - base['cell']):+.1f}"
+        vs = "" if r is base or base is None else f"{100 * (r['cell'] - base['cell']):+.2f}"
         print(f"| {label} | {r['cell']:.4f} | {vs} |{ctx_vals(r)} {r['pooled']:.4f} | "
               f"{r.get('blend_calib_w', '')} | {r.get('router_psd_acc', float('nan')):.3f} | "
               f"{r['seconds']:.0f} |")
@@ -210,12 +219,19 @@ def main():
     print(f"recipe: {args.spec} / {args.align} / chans eeg / pool all / wcv {args.wcv}: "
           f"cell {base['cell']:.4f} ({base['n_cells']} cells)")
     ok = lambda d, t: round(d, 6) >= t          # noqa: E731  (>= t points, float-safe)
+    lost = []   # release_ablations.sh steps whose rule could not be applied
+
+    def miss(step):
+        lost.append(step)
+        print(missing(step))
+
     # channels
     chans, passing = "eeg", []
     for c in CHAN_ALTS:
         r = find(chans=c)
         if r is None:
-            print(f"channels  eeg vs {c}: not run -> keep eeg")
+            miss(f"ch_{c.replace('+', '_')}")
+            print(f"channels  eeg vs {c}: no row -> keep eeg")
             continue
         txt, dlt, lo, hi = fmt_cmp(r, base)
         good = ok(dlt, 0.02) and lo > 0
@@ -229,8 +245,11 @@ def main():
     # context alignment
     align = args.align
     r = find(align=f"router-psdctx:{kind}")
-    if r is None:
-        print("context   router-psdctx: not run (no context column?) -> keep router-psd")
+    if r is None and not ctx_names:
+        print("context   router-psdctx: not applicable (no context column) -> keep router-psd")
+    elif r is None:
+        miss("al_ctx")
+        print("context   router-psdctx: no row -> keep router-psd")
     else:
         txt, dlt, lo, hi = fmt_cmp(r, base)
         adopt = ok(dlt, 0.02) and lo > 0
@@ -240,7 +259,10 @@ def main():
     # xDAWN
     spec = args.spec
     r = find(spec=nx) if nx else None
-    if r is None:
+    if nx is None:
+        print(f"xDAWN     not applicable ({args.spec} has no xd=1) -> keep {args.spec}")
+    elif r is None:
+        miss("xd0")
         print("xDAWN     no-xDAWN row missing -> keep xDAWN")
     else:
         txt, dlt, lo, hi = fmt_cmp(r, base)
@@ -255,6 +277,7 @@ def main():
     r = find(wcv=wcv_alt)
     if r is None:
         wcv = "loso"
+        miss(f"wcv_{wcv_alt}")
         print(f"wcv       wcv={wcv_alt} row missing -> wcv = loso (rule 4's default: loso "
               f"unless measured <= -2.0 vs last)")
     else:
@@ -267,6 +290,7 @@ def main():
     pool = "all"
     r = find(pool="test")
     if r is None:
+        miss("pool_test")
         print("pool      pool=test row missing -> keep all")
     else:
         txt, dlt, lo, hi = fmt_cmp(r, base)
@@ -275,11 +299,16 @@ def main():
               f"and CI > 0)")
     # rule-dependent
     if online is None:
-        print("online-64 (rule-dependent) not run")
+        miss("online")
+        print("online-64 (rule-dependent) no row")
     else:
         txt, dlt, lo, hi = fmt_cmp(online, base)
         print(f"online-64 (RULE-DEPENDENT, report only) vs clean: {txt}")
     print(f"\nresult: spec {spec} / align {align} / chans {chans} / pool {pool} / wcv {wcv}")
+    if lost:
+        print(f"MISSING: {len(lost)} step(s) without a row ({' '.join(lost)}): their rules were "
+              f"NOT applied (defaults kept); rerun them (release_ablations.sh STEPS=\""
+              f"{' '.join(lost)}\") before deciding")
     # rule 4: loso deploys as the solver's own weight (BLEND_W=auto), last as
     # the harness's weight baked in (BLEND_W=harness)
     bw = "auto" if wcv == "loso" else "harness"
