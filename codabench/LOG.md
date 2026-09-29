@@ -869,3 +869,53 @@ now refuses to bake it rather than silently train without it.
 C noted that on zhou2016 LOSO picks w = 0.5, where the committed last-session
 rule picks 0.75 (benchopt test 0.742 vs 0.770; 4 subjects, within noise).
 `auto` is not the default.
+
+## 2026-09-28 (night) — Sprint Phase 2: dress rehearsal at realistic size (mock)
+
+Scripts `scripts/sprint0928_p2.sh` (two lanes, full-size 120 Hz mock) and
+`scripts/sprint0928_p2b.sh` (solver sizing at 500 Hz). Logs:
+`logs/sealed_sprint0928_p2*/`, `logs/train_sealed_mock_sealed_120*/` and
+`logs/sealed_sprint0928_abl120/RESULTS.md`. Every run shared the CPU with a
+Phase 4a agent, and 2b also shared it with lane A, so all times are upper bounds.
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 21:55–22:11 | mock_sealed_s `wcv_loso` ablation (left over from Phase 1) | 8 min | 16 min (2×: 3 jobs + agent on 20 threads; progressing, not stalled) | ✅ w 0.75 = `last` |
+| 21:55–22:54 | lane B: 6 ablations on mock_sealed_120, **release-day split** (calib:3, test = 10 fully labelled participants, 3,600 hidden rows excluded) | 90 min | 58 min | ✅ table below |
+| 22:11–22:52 | lane A: `train_sealed.sh` default flow, mock_sealed_120 | 35 min | 41 min | ✅ train = replay = harness = 0.614722 |
+| 22:52–23:53 | lane A: `train_sealed.sh` BLEND_W=auto, mock_sealed_120 (harness `--wcv loso` 38 min, solver fit with its own LOSO ~22 min) | 70 min | 61 min | ✅ solver w 0.75 = harness LOSO w 0.75 (MATCH); train = replay = harness = 0.614722 |
+| 22:54–23:28 | 2b: solver fit with `blend_w="auto"` at **500 Hz** (14,400 × 47 × 2000; 43 ch kept), 2 replays | 60 min | 34 min | ✅ sizing rule passes |
+
+**Sizing (500 Hz, the worst case).** Fit 30.4 min: collect 8 s, router 82 s,
+alignment 83 s, features 265 s, LDA 75 s, 6-fold weight search 1,313 s. Peak RSS
+12.4 GB. Read-only replay of all 3,600 test windows took 77 s at 10 threads and
+66 s at 2 threads, with 2.3 GB RSS. Train = replay (10 threads) = replay
+(2 threads) = 0.612778 exactly. The solver chose w = 0.75 by LOSO. The rule (fit
+≤ 45 min, RSS ≤ 20 GB, predict ≤ 10 / 30 min) **passes** with a wide margin. The
+sealed data can arrive at 500 Hz and the recipe still fits the budget.
+
+**Machinery rules at full size on the release-day split** (mock ground truth,
+not recipe evidence). `release_summarize.py` DECISIONS, cell score vs the recipe
+(0.604), paired bootstrap over the 10 test subjects:
+
+| ablation | Δ points (95 % CI) | subjects up | pre-registered rule → decision |
+|---|---|---|---|
+| EEG + EOG | +1.0 (+0.1, +1.9) | 7/10 | below the +2 bar → EEG only |
+| EEG + EMG (drifting confound) | **−3.7 (−5.2, −2.4)** | 0/10 | rejected: the trap is caught |
+| all 47 channels | −2.8 (−4.7, −0.6) | 2/10 | rejected |
+| router-psdctx (injected context shift) | **+5.9 (+3.8, +8.1)** | 9/10 | adopted (by construction) |
+| no xDAWN | +4.1 (+2.6, +6.0) | 10/10 | drop xDAWN (a mock property) |
+
+The summarizer prints the combined `train_sealed.sh` command for the adopted
+settings, plus a NOTE that the solver cannot yet deploy router-psdctx (Phase 4a
+fixes this). Rules (a) and (b) of the brief hold at full size, and (c) holds.
+
+**Incident (22:10).** The Phase 2 watchdog reported both lanes STALLED at
+15 min. Cause: each lane step wraps an inner script in `/usr/bin/time -v`, so
+the outer step log only grows when the step ends. The inner logs showed
+healthy progress (LOSO fold 5/6, ~1.4 min per fold). Fix: watch the inner
+log dirs (`sealed_sprint0928_abl120`) instead.
+
+**Note.** `scripts/summarize_runs.py` prints a hard-coded "Dreyer 2023 test
+split" header on every RESULTS.md, including the mock runs. This is cosmetic;
+the header is to be fixed in Phase 4.

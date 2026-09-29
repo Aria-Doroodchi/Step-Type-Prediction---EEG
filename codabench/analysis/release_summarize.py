@@ -280,8 +280,9 @@ def main():
     print("(each rule compared one change with the recipe; train_sealed.sh's harness steps "
           "score the combined settings)")
     if "psdctx" in align:
-        print("NOTE: Riemann-Sealed has no (subject, context) router yet: the adopted "
-              "alignment needs a solver option before it can be trained")
+        print("NOTE: router-psdctx deploys as Riemann-Sealed align=\"subject_context\" "
+              "(train_sealed.sh bakes it from RECIPE_ALIGN); it has no online mode, so "
+              "it cannot be combined with ADAPT=online")
     if pool != "all":
         print("NOTE: Riemann-Sealed trains on every labelled window: pool=test needs a "
               "solver option (or a filtered train loader) before it can be trained")

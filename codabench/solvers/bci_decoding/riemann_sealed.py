@@ -35,6 +35,32 @@ Training (``fit``; the train loader supplies ``info["subject_id"]``):
      (chosen in ``fit``, see below, and stored in the joblib).
 Prediction: route each window (argmax posterior; below threshold -> global W
 and pooled LDA), whiten with the routed subject's W, features, LDA(s).
+``align="subject_context"`` (opt-in; the harness's ``router-psdctx:<kind>``,
+analysis/sealed_run.aligned_data + sealed_personal.py): the unit of routing
+and whitening is the (subject, context) pair, e.g. Graz vs BrainHero, whose
+ids ``fit`` reads from the train loader's trigger table (column "context",
+else "condition" / "paradigm", as analysis/xsess_cache.py; the same row-order
+check as the session ids). The router is the same log-PSD shrinkage LDA, fed
+pair labels (subject-major, contexts in sorted order, like the harness's
+subj * n_ctx + ctx), with the same threshold rule and 0.5 cap; each pair gets
+W_p from its own training windows (a pair with fewer than ``ctx_min``
+windows keeps its subject's W, with a warning), and the pooled model is
+trained on pair-whitened windows. Personal LDAs stay per subject: a routed
+pair selects its subject's LDA (below threshold: global W, pooled LDA, as
+before). blend_w="auto" folds use the pair-whitened data (the harness's
+choose_w under router-psdctx). No context ids (e.g. the proxies, or a
+misaligned trigger table) -> a warning and exactly ``align="subject"``.
+With ``adapt="online"`` it raises NotImplementedError (no per-pair online
+re-centring: the harness has none to check it against). Everything added
+to the joblib (pair -> subject map, pair contexts / sizes, W per pair) is
+plain numpy; ``predict`` reads the mode from the joblib, not from the
+solver's parameters. Checked 2026-09-28 on mock_sealed_s (replica:3, 43 EEG
+ch, w = 0.75): benchopt train = read-only replay = the harness's
+blend_calib router-id row under router-psdctx:riemann (0.547222; router
+pair accuracy 0.9944 on both sides); blend_w="auto" LOSO fold scores
+bit-identical to the harness's choose_w (--wcv loso) under router-psdctx
+(w = 0.75 on both). The default align="subject" is unchanged (bit-identical
+probabilities to the previous version on zhou2016 and mock_sealed_s).
 ``adapt="online"`` (RULE-DEPENDENT: uses unlabelled test windows; off by
 default until the organisers confirm it is allowed): the routed subject's W
 comes from the mean covariance of the last ``buffer`` test windows routed to
@@ -599,6 +625,13 @@ def _chan_index(types, chans):
 # -- blend_w="auto": leave-one-calibration-session-out ---------------------------
 W_GRID = [0.0, 0.25, 0.5, 0.75, 1.0]
 _CTX_COLUMNS = ("context", "condition", "paradigm")   # as analysis/xsess_cache.py
+# align="subject_context": a (subject, context) pair with fewer training windows
+# keeps its subject's whitening reference. 16 = the smallest reference this file
+# already trusts (adapt="online": buffer/4 of 64). The harness has no minimum;
+# 2 * n_channels (86 at 43 ch) would put every mock_sealed_s pair (36 / 72
+# windows) on its subject's W, where the harness gains +6.4 points with them.
+# The full-size mocks (60 windows per pair and session) are far above either.
+CTX_MIN_WINDOWS = 16
 
 
 def _session_key(s):
@@ -678,11 +711,20 @@ class RiemannSealedModel:
                  use_xdawn=True, filterbank=True, slow_block=False,
                  align="subject", kind="riemann", personal="pooled",
                  blend_w=0.5, max_batches=None, adapt="none", buffer=64,
-                 chans="eeg", ch_names=None, chs_info=None, ch_types=None):
+                 chans="eeg", ch_names=None, chs_info=None, ch_types=None,
+                 ctx_min=CTX_MIN_WINDOWS):
         self.parts, self.preproc = parts, preproc
         self.nfilter, self.estimator = nfilter, estimator
         self.use_xdawn, self.filterbank, self.slow_block = use_xdawn, filterbank, slow_block
         self.align, self.kind, self.personal = align, kind, personal
+        # align="subject_context": min training windows for a pair's own W
+        self.ctx_min = int(ctx_min)
+        if align == "subject_context" and adapt == "online":
+            raise NotImplementedError(
+                "align='subject_context' with adapt='online' is not implemented (no "
+                "per-(subject, context) online re-centring; the harness has none to "
+                "check it against): use align='subject' with adapt='online', or "
+                "adapt='none'")
         # a number, or "auto": chosen in fit (leave-one-calibration-session-out)
         self.blend_w = "auto" if str(blend_w) == "auto" else float(blend_w)
         self.max_batches = max_batches
@@ -718,7 +760,9 @@ class RiemannSealedModel:
 
     # -- routing / whitening -------------------------------------------------
     def _route(self, X):
-        """Index into parts["subjects"] per window, -1 = fallback (outlier)."""
+        """Index into parts["subjects"] per window (into the pairs when the
+        model was trained with align="subject_context"), -1 = fallback
+        (outlier)."""
         r = self.parts["router"]
         P = r["lda"].predict_proba(_psd_features(X, self.parts["sfreq"]))
         idx = P.argmax(1)
@@ -797,25 +841,44 @@ class RiemannSealedModel:
                  "subjects": subjects, "n_classes": n_classes,
                  "chan_idx": self._chan_idx}
 
-        # router: log-PSD -> shrinkage LDA; OOF threshold (1st percentile)
+        # align="subject_context": (subject, context) pairs, numbered as the
+        # harness's subj * n_ctx + ctx (subject-major, contexts sorted)
+        align, pair = self.align, None
+        if align == "subject_context" and ctx is None:
+            print("[Riemann-Sealed] WARNING: align='subject_context' needs context ids "
+                  f"(trigger-table column {' / '.join(_CTX_COLUMNS)}), which this train "
+                  "loader does not expose: falling back to align='subject'", flush=True)
+            align = "subject"
+        if align == "subject_context":
+            cnames, cidx = np.unique(np.asarray(ctx).astype(str), return_inverse=True)
+            pair_ids, pidx = np.unique(sidx * len(cnames) + cidx.reshape(-1),
+                                       return_inverse=True)
+            pair = {"idx": pidx.reshape(-1), "subject": pair_ids // len(cnames),
+                    "context": cnames[pair_ids % len(cnames)]}
+
+        # router: log-PSD -> shrinkage LDA over subjects (over pairs under
+        # subject_context); OOF threshold (1st percentile)
         t0 = time.time()
         from sklearn.model_selection import StratifiedKFold
+        rlab, n_r = (sidx, len(subjects)) if pair is None else (pair["idx"], len(pair_ids))
         Fp = _psd_features(X, sfreq)
-        oof = np.zeros((len(y), len(subjects)))
-        for tr, va in StratifiedKFold(5, shuffle=True, random_state=0).split(Fp, sidx):
-            lda = _fit_lda(Fp[tr], sidx[tr])
+        oof = np.zeros((len(y), n_r))
+        for tr, va in StratifiedKFold(5, shuffle=True, random_state=0).split(Fp, rlab):
+            lda = _fit_lda(Fp[tr], rlab[tr])
             oof[np.ix_(va, lda.classes_)] = lda.predict_proba(Fp[va])
-        parts["router"] = {"lda": _fit_lda(Fp, sidx),
+        parts["router"] = {"lda": _fit_lda(Fp, rlab),
                            # capped at 0.5: within-session OOF posteriors can saturate
                            # at 1.0 (Zhou: thr=1.000 -> every window fell back)
                            "thr": min(float(np.percentile(oof.max(1), 1)), 0.5)}
+        if pair is not None:     # training-window pair accuracy (OOF), diagnostics
+            parts["router"]["oof_acc"] = float(np.mean(oof.argmax(1) == rlab))
         del Fp, oof
         _lap(tm, "router", t0)
 
         # per-subject whitening (identity everywhere when align="none"): row i
         # of the training set is whitened with Wset[gidx[i]]
         t0 = time.time()
-        if self.align == "subject":
+        if align in ("subject", "subject_context"):
             covs = _window_covs(X)
             parts["W_global"] = _inv_sqrtm(_mean_cov(covs, self.kind))
             parts["W"] = np.stack([_inv_sqrtm(_mean_cov(covs[sidx == k], self.kind))
@@ -824,7 +887,26 @@ class RiemannSealedModel:
             parts["W_global"] = np.eye(X.shape[1])
             parts["W"] = np.stack([np.eye(X.shape[1])] * len(subjects))
         gidx, Wset = sidx, parts["W"]
-        if self.adapt == "online" and self.align == "subject" and sess is not None:
+        if pair is not None:
+            # one W per pair from its own training windows; a pair below
+            # ctx_min windows keeps its subject's W (parts["W"])
+            cnt = np.bincount(pair["idx"], minlength=len(pair_ids))
+            small = cnt < self.ctx_min
+            Wp = np.stack([parts["W"][pair["subject"][p]] if small[p] else
+                           _inv_sqrtm(_mean_cov(covs[pair["idx"] == p], self.kind))
+                           for p in range(len(pair_ids))])
+            if small.any():
+                print(f"[Riemann-Sealed] WARNING: {int(small.sum())} of {len(pair_ids)} "
+                      f"(subject, context) pairs have < ctx_min={self.ctx_min} training "
+                      "windows and use their subject's reference: "
+                      + ", ".join(f"{subjects[pair['subject'][p]]}/{pair['context'][p]} "
+                                  f"({cnt[p]})" for p in np.where(small)[0]), flush=True)
+            parts.update(align="subject_context", W_pair=Wp,
+                         pair_subject=pair["subject"].astype(np.int64),
+                         pair_context=pair["context"], pair_n=cnt,
+                         pair_fallback=small, contexts=cnames)
+            gidx, Wset = pair["idx"], Wp
+        if self.adapt == "online" and align == "subject" and sess is not None:
             # online test windows are centred on their own session's recent
             # statistics, so centre the training data per (subject, session)
             # too (the harness's online condition). Without session ids the
@@ -877,10 +959,15 @@ class RiemannSealedModel:
         _lap(tm, "lda", t0)
         print(f"[Riemann-Sealed] fitting on X={X.shape}, subjects={len(subjects)}, "
               f"classes={np.unique(y).tolist()}, features={n_feats}, "
-              f"align={self.align}/{self.kind}, personal={self.personal}, "
+              f"align={align}/{self.kind}, personal={self.personal}, "
               f"router_thr={parts['router']['thr']:.3f}, "
               f"session_ids={'yes' if sess is not None else 'no'}, "
-              f"chans={self.chans} ({X.shape[1]} kept)", flush=True)
+              f"chans={self.chans} ({X.shape[1]} kept)"
+              + ("" if pair is None else
+                 f", pairs={len(pair_ids)} (contexts {cnames.tolist()}; "
+                 f"{int(parts['pair_fallback'].sum())} on the subject W; windows per "
+                 f"pair {int(parts['pair_n'].min())}-{int(parts['pair_n'].max())}; "
+                 f"router OOF pair acc {parts['router']['oof_acc']:.3f})"), flush=True)
 
         t0 = time.time()
         if self.personal == "blend" and self.blend_w == "auto":
@@ -894,7 +981,8 @@ class RiemannSealedModel:
                                                       gidx, Wset)
                 parts.update(blend_w=w, blend_cv=cv, blend_cv_folds=how)
                 print(f"[Riemann-Sealed] blend_w=auto -> {w} ({how}, {nf} folds, "
-                      f"context={'yes' if ctx is not None else 'no'}; cell scores "
+                      f"context={'yes' if ctx is not None else 'no'}"
+                      + ("" if pair is None else ", pair-whitened") + "; cell scores "
                       f"{np.round(cv, 4).tolist()} for w={W_GRID})", flush=True)
         _lap(tm, "wcv", t0)
         print("[Riemann-Sealed] fit seconds: "
@@ -909,8 +997,9 @@ class RiemannSealedModel:
 
         The harness's choose_w (sealed_personal.py) under ``--wcv loso``, on
         the harness's aligned data: every training window whitened with the
-        whole training set's reference of its group (the true subject, or
-        (subject, session) under adapt="online"), in float32 as
+        whole training set's reference of its group (the true subject, the
+        (subject, context) pair under align="subject_context" as the harness's
+        router-psdctx, or (subject, session) under adapt="online"), in float32 as
         ``xsess_lib.apply_W``. X is overwritten in place with it. The
         stateless blocks (broadband / filter-bank covariances, log-variance,
         slow bins) are computed once; xDAWN, the tangent spaces, the pooled
@@ -989,8 +1078,20 @@ class RiemannSealedModel:
 
     def _predict_block(self, X):
         idx = self._route(X)
-        Xw = (self._online_whiten(X, idx) if self.adapt == "online"
-              else self._whiten(X, idx))
+        if self.parts.get("align") == "subject_context":
+            # routed pair -> that pair's W (fallback: global W), then its subject
+            if self.adapt == "online":
+                raise NotImplementedError(
+                    "adapt='online' with a model trained under align='subject_context' "
+                    "is not implemented (no per-pair online re-centring)")
+            Xw = _whiten_rows(X, idx, self.parts["W_pair"], self.parts["W_global"])
+            sub = np.full(len(idx), -1, dtype=np.int64)
+            ok = idx >= 0
+            sub[ok] = self.parts["pair_subject"][idx[ok]]
+            idx = sub
+        else:
+            Xw = (self._online_whiten(X, idx) if self.adapt == "online"
+                  else self._whiten(X, idx))
         F_ = _features(self.parts, Xw)
         P = self.parts["lda"].predict_proba(F_)
         if self.personal in ("calib", "blend"):
@@ -1043,7 +1144,10 @@ class Solver(CompetSolver):
         "use_xdawn": [True],
         "filterbank": [True],
         "slow_block": [False],
-        "align": ["subject"],       # "subject" (router + per-subject W) | "none"
+        # "subject" (router + per-subject W) | "none" | "subject_context"
+        # (router + W per (subject, context) pair: the harness's router-psdctx)
+        "align": ["subject"],
+        "ctx_min": [CTX_MIN_WINDOWS],   # subject_context: min windows for a pair's own W
         "kind": ["riemann"],        # reference mean: "riemann" | "euclid"
         # the recipe: "blend" = blend_calib (SEALED_RECIPE.md): pooled feature
         # extractor + per-subject LDA. blend_w is set per dataset from
@@ -1074,7 +1178,8 @@ class Solver(CompetSolver):
                                   self.adapt, self.buffer, chans=self.chans,
                                   ch_names=meta.get("ch_names"),
                                   chs_info=meta.get("chs_info"),
-                                  ch_types=meta.get("ch_types"))
+                                  ch_types=meta.get("ch_types"),
+                                  ctx_min=self.ctx_min)
 
     def fit(self, model, train_loader):
         model.fit(train_loader)

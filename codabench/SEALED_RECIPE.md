@@ -25,9 +25,13 @@ prediction time**:
    Riemannian-mean reference from the calibration data.
 3. **blend_calib personalisation**: the pooled LDA's probabilities are blended
    with those of the routed subject's own LDA (fitted on the shared features),
-   P = w·P_pooled + (1−w)·P_subject. w is chosen on the calibration data only
-   (on the release: leave-one-calibration-session-out; on the proxies it came
-   out 0, 0.5 or 0.75).
+   P = w·P_pooled + (1−w)·P_subject. w is chosen on the calibration data only.
+   On the proxies it came out 0, 0.5 or 0.75, from the harness's held-out last
+   calibration session or chronological halves. For the release, the solver
+   chooses w itself (`blend_w="auto"`, since 2026-09-28) by
+   leave-one-calibration-session-out, stores it in the joblib, and matches the
+   harness's `--wcv loso` bit for bit. Until 2026-09-28 this document claimed
+   LOSO while the code held out only the last session.
 
 **Conditional upgrade, pending the organisers' answer:** *online per-subject
 re-centring* (`adapt="online"`). Each routed subject's whitening reference is the
@@ -159,11 +163,11 @@ The organisers' split has the same structure for the ten evaluation participants
 |---|---|---|
 | **EMG (2) and EOG (2) channels** | no proxy has them; the default EEG pick drops them anyway | EEG only vs EEG + EOG vs EEG + EMG vs all 47, cross-session on the replica split. Keep a non-EEG channel only if it helps *and* the gain holds on sessions 4–6. The thesis trap: an "easy" class separated by gross muscle or eye activity that drifts across days. Watch word association (speech-like muscle activity) and calculation (eye movements) |
 | **500 Hz, 43 EEG channels** | proxies are 14–30 ch at 120 Hz | Check what the sealed loader delivers (NeuralBench resamples EEG tasks to 120 Hz so far). If 500 Hz arrives: time one fit + one full predict pass (60 min A100 budget, our code is CPU numpy), and compare the router's log-PSD fingerprint at 1–45 Hz vs 1–100 Hz |
-| **"Context" cells (Graz vs BrainHero)** | proxies have one context | The harness already scores subject × session × context cells if the cache has a context column (`xsess_cache.py` saves `context`/`condition`/`paradigm`). Compare alignment per subject vs per (subject, context) and a router over (subject, context) pairs |
-| **Three calibration sessions per evaluation participant** | Tangermann and Scherer have one; only Zhou has two training sessions | Choose the blend weight (and router threshold) by leave-one-calibration-session-out. Offline training with session ids also allows per-(subject, session) training alignment: on Zhou it added +2.4 per-subject (train-only, Riemannian) |
+| **"Context" cells (Graz vs BrainHero)** | proxies have one context | Since 2026-09-28 the harness scores subject × session × context cells: it reads `context.npy`, which `xsess_cache.py` saves from a `context`/`condition`/`paradigm` column. Before that date the column was saved but never read, although this row said otherwise. Ablation `al_ctx` compares `router-psd` with `router-psdctx` (router and whitening per (subject, context) pair); the solver's matching option is `align="subject_context"` |
+| **Three calibration sessions per evaluation participant** | Tangermann and Scherer have one; only Zhou has two training sessions | Blend weight by leave-one-calibration-session-out (`--wcv loso` / `blend_w="auto"`, implemented 2026-09-28). With one calibration session the router degrades fast on later sessions (0.72 → 0.35 on Zhou): check router accuracy per test session 4, 5, 6. Offline training with session ids also allows per-(subject, session) training alignment: on Zhou it added +2.4 per-subject (train-only, Riemannian) |
 | **Ten training participants with all six sessions** | no proxy has extra fully labelled people | Pooled component on all 20 participants' labelled data vs evaluation participants only; router over the 10 evaluation subjects vs all 20 |
 | **xDAWN and class-specific cues** | Scherer's window starts at the visual cue | EDA: evoked response to the cue per class; ablate xDAWN on the replica split |
-| **Test window order and batch composition** | proxies are in recording order by construction | The clean recipe routes per window and does not care. The online upgrade needs windows of one subject to arrive near each other; the Dreyer test loader delivers recording order (81 % of batches single-subject) |
+| **Test window order and batch composition** | proxies are in recording order by construction | The clean recipe routes per window and does not care. The online upgrade needs windows of one subject to arrive near each other; the Dreyer test loader delivers recording order (81 % of batches single-subject). Measured 2026-09-28 (Phase 3): with subjects interleaved the online gain drops to 58–85 % of its recording-order value (still significant on Tangermann and Scherer), and no lag at a session change |
 | **Class balance per cell** | proxies are balanced | Report per-cell class counts in the EDA; uniform LDA priors already match the balanced-accuracy metric |
 
 ## 4. Reproduce end to end
@@ -171,6 +175,13 @@ The organisers' split has the same structure for the ten evaluation participants
 ```bash
 bash ~/codabench/scripts/train_sealed.sh <data_home> <study> <modality/task> [overlay]
 ```
+
+**For the released data, follow [RELEASE_DAY.md](RELEASE_DAY.md).** It covers
+the replica split (`SPLIT=calib:3 TEST_SUBJECTS=<the fully labelled
+participants>`), the § 3 ablations (`scripts/release_ablations.sh`), the
+pre-registered release-day rules (`analysis/release_summarize.py`) and timings
+from a full-size dress rehearsal on a mock study with the sealed structure
+(`analysis/mock_sealed.py`). The whole path was rehearsed on 2026-09-28.
 
 Steps (resumable, logs in `logs/train_sealed_<study>/`): cache every window with
 subject/session/run(/context) → validate the recipe in the harness (MeanLogReg

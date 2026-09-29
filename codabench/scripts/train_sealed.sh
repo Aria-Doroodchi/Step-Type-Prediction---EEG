@@ -39,7 +39,10 @@
 #   RECIPE_SPEC   harness family (riemann:xd=1,fb=1); xd / fb are baked into the
 #              candidate as use_xdawn / filterbank
 #   RECIPE_ALIGN  harness alignment (router-psd:riemann; online-64:riemann under
-#              ADAPT=online); its kind (and online buffer) is baked in
+#              ADAPT=online); its kind (and online buffer) is baked in.
+#              router-psdctx:<kind> (the release-day context rule) bakes
+#              align="subject_context" (router + whitening per (subject, context)
+#              pair); not with ADAPT=online (the solver has no per-pair online mode)
 #   ROUTER_CAP harness router fallback cap: none | 0.5 (release, the solver's
 #              min(thr, 0.5))
 #   WVARIANT   sealed_personal --wvariant: both | calib (release; same weight,
@@ -184,8 +187,9 @@ RECIPE_SPEC=${RECIPE_SPEC:-riemann:xd=1,fb=1}
 if [ "$ADAPT" = online ]; then DEF_ALIGN=online-64:riemann; else DEF_ALIGN=router-psd:riemann; fi
 RECIPE_ALIGN=${RECIPE_ALIGN:-$DEF_ALIGN}
 # what the candidate can express: xd / fb of the family (harness defaults xd=1,
-# fb=0), the reference kind and online buffer of the alignment
-XD=1; FB=0; KIND=${RECIPE_ALIGN##*:}; HOW=${RECIPE_ALIGN%%:*}; BUF=64
+# fb=0), the reference kind and online buffer of the alignment, and its unit
+# (subject, or (subject, context) pair: router-psdctx -> align="subject_context")
+XD=1; FB=0; KIND=${RECIPE_ALIGN##*:}; HOW=${RECIPE_ALIGN%%:*}; BUF=64; ALIGN_S=subject
 case $RECIPE_SPEC in
   riemann|riemann:*) ;;
   *) note "ERROR: RECIPE_SPEC=$RECIPE_SPEC: the candidate is Riemann-Sealed (riemann:xd=.,fb=.)"; exit 1;;
@@ -199,7 +203,14 @@ done
 case $HOW in
   router-psd) ;;
   online-*) BUF=${HOW#online-};;
-  *-psdctx) note "ERROR: RECIPE_ALIGN=$RECIPE_ALIGN: Riemann-Sealed has no (subject, context) router"; exit 1;;
+  router-psdctx)
+    if [ "$ADAPT" = online ]; then
+      note "ERROR: RECIPE_ALIGN=$RECIPE_ALIGN with ADAPT=online: Riemann-Sealed has no" \
+           "per-(subject, context) online re-centring (align=subject_context raises)"; exit 1
+    fi
+    ALIGN_S=subject_context;;
+  *-psdctx) note "ERROR: RECIPE_ALIGN=$RECIPE_ALIGN: of the context alignments the candidate" \
+                 "expresses only router-psdctx:<kind> (align=subject_context)"; exit 1;;
   *) note "WARNING: RECIPE_ALIGN=$RECIPE_ALIGN is not what the solver does (router-psd / online-N)";;
 esac
 XDB=$([ "$XD" = 0 ] && echo False || echo True); FBB=$([ "$FB" = 1 ] && echo True || echo False)
@@ -306,16 +317,21 @@ sed -e 's/"personal": \["pooled"\]/"personal": ["blend"]/' \
     -e "s/\"kind\": \[\"riemann\"\]/\"kind\": [\"$KIND\"]/" \
     -e "s/\"buffer\": \[64\]/\"buffer\": [$BUF]/" \
     -e "s/\"chans\": \[\"eeg\"\]/\"chans\": [\"$CHANS\"]/" \
+    -e "s/\"align\": \[\"subject\"\]/\"align\": [\"$ALIGN_S\"]/" \
     -e "s/name = \"Riemann-Sealed\"/name = \"Riemann-Sealed-Cand$SUFFIX\"/" \
     "$HOME/codabench/solvers/bci_decoding/riemann_sealed.py" > "$CAND"
 for want in "\"blend_w\": [$CW]" '"personal": ["blend"]' "\"adapt\": [\"$ADAPT\"]" \
             "\"use_xdawn\": [$XDB]" "\"filterbank\": [$FBB]" "\"kind\": [\"$KIND\"]" \
-            "\"buffer\": [$BUF]" "\"chans\": [\"$CHANS\"]"; do
+            "\"buffer\": [$BUF]" "\"chans\": [\"$CHANS\"]" "\"align\": [\"$ALIGN_S\"]"; do
   grep -qF "$want" "$CAND" \
       || { echo "| $(date +%T) | ERROR: candidate defaults not set ($want) |" >> "$STATUS"; exit 1; }
 done
+# a solver without the subject_context branch would silently fall back to no alignment
+if [ "$ALIGN_S" = subject_context ] && ! grep -q 'align == "subject_context"' "$CAND"; then
+  note "ERROR: $CAND has no align=\"subject_context\" (solver older than 2026-09-28 agent G)"; exit 1
+fi
 note "candidate $CAND: personal=blend blend_w=$CW adapt=$ADAPT use_xdawn=$XDB" \
-     "filterbank=$FBB kind=$KIND buffer=$BUF chans=$CHANS"
+     "filterbank=$FBB kind=$KIND buffer=$BUF chans=$CHANS align=$ALIGN_S"
 cd "$HOME/codabench/2026-competition"
 if [ -n "${SUBMISSION_DIR:-}" ] || [ "$SPLIT" != last ]; then
   OUT=${SUBMISSION_DIR:-$LOGDIR/submission}; export COMPET_SUBMISSION_DIR="$OUT"

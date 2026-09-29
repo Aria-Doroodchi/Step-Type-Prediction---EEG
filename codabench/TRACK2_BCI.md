@@ -152,6 +152,12 @@ Its first next step is a question to the organisers about test-time statistics.
 
 ## Next steps (warm-up era, 2026-09-24)
 
+> **Superseded (note added 2026-09-28).** Items 1–5 are done (LOG.md
+> 2026-09-24/25), item 6 is parked pending the weights approval, and item 7 is
+> now a full runbook: [RELEASE_DAY.md](RELEASE_DAY.md). Current ranked next steps:
+> [SEALED_RECIPE.md § 5](SEALED_RECIPE.md). The list below is kept as the
+> warm-up-era record.
+
 The reasoning, effort estimates and the adapt-vs-ecosystem verdict are in
 [REUSING_MY_MODELS.md § 4-5](REUSING_MY_MODELS.md#4-adapt-the-thesis-code-or-build-on-the-ecosystem).
 Short form (2026-09-24):
