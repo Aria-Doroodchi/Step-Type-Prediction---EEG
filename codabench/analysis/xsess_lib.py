@@ -148,6 +148,9 @@ def xsess_split(d, mode="last", test_subjects=None):
       meta["eval_subjects"] (the sealed structure: 10 fully labelled training
       participants + 10 evaluation participants with K = 3 calibration
       sessions). calib / replica have no val session (val all False).
+      replica:K is refused on a cache whose meta has no "mock" key
+      (2026-09-29): on the released data use calib:K with test_subjects =
+      the fully labelled participants.
     Every mode keeps the organisers' hidden-test rows (``hidden_rows``: cache
     split 2 of a release-structure cache, e.g. the evaluation participants'
     sessions 3..5) out of train / val, and refuses a test set holding them
@@ -171,6 +174,18 @@ def xsess_split(d, mode="last", test_subjects=None):
             test_subjects=np.unique(np.asarray(test_subjects, dtype=np.int64))))
     if name not in ("calib", "replica") or not k.isdigit():
         raise ValueError(f"split {mode!r}: expected last | calib:K | replica:K")
+    if name == "replica" and "mock" not in d["meta"]:
+        # replica:K = the organisers' own split; only the mock has true labels
+        # on its hidden rows. On the released data it would test nothing (the
+        # evaluation participants' sessions >= K absent) or score placeholder
+        # labels (meta hidden_labelled), so it is refused whatever the meta says.
+        full = d["meta"].get("full_subjects")
+        raise ValueError(
+            f"split {mode!r} runs only on a mock cache (meta has no \"mock\" key: "
+            f"{d['meta'].get('study', '?')}): on the released data validate on "
+            f"calib:{k} --test_subjects <the fully labelled participants> "
+            f"(train_sealed.sh / release_ablations.sh: SPLIT=calib:{k} TEST_SUBJECTS=<full>"
+            + (f"; meta full_subjects: {','.join(map(str, full))}" if full else "") + ")")
     if test_subjects is None:
         test_subjects = (np.unique(subj) if name == "calib"
                          else d["meta"].get("eval_subjects"))

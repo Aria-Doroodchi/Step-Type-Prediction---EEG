@@ -13,3 +13,4 @@
 | 23:29:44 | START Phase 4b workflow runbook-claims-and-eda (wf_d9155f1c-cbd): V2 claims checker + V3 release_eda.py, ETA ~1 h |
 | 23:53:24 | Phase 2 ALL DONE (21:55-23:53, 1 h 58 min vs ~2 h est, on). t120_auto: MATCH w=0.75, train=replay=harness 0.614722 |
 | 23:55:00 | G's patches applied (train_sealed.sh bakes align=subject_context; summarizer NOTE); R3 review of G still running |
+| 23:55:09 | START Phase 4c workflow runbook-fix-and-verify (wf_7738f1de-e8f): S scripts + W runbook rewrite -> V1 literal run on mock -> F4, ETA ~2.5 h (-> ~02:30) |

@@ -19,26 +19,42 @@ prediction time**:
 1. A **subject router** (log-PSD 1–45 Hz per channel, shrinkage LDA over the
    calibration subjects) names the subject of each test window. It identifies
    the subject of a later-session window 87–100 % of the time on the proxies.
-   Windows it is unsure about (below the 1st percentile of its training
-   confidence) fall back to the pooled model.
+   A window it is unsure about gets the global whitening and the pooled model.
+   "Unsure" means its max posterior is below the 1st percentile of the router's
+   out-of-fold training confidence, capped at 0.5 (`riemann_sealed.py`:
+   `min(percentile 1, 0.5)`). The cap matters: with one calibration session the
+   uncapped threshold saturates at 1.0, and 49 % of Zhou's later windows fell
+   back (LOG 2026-09-28 Phase 3).
 2. **Per-subject whitening** of every window with its (routed) subject's
-   Riemannian-mean reference from the calibration data.
+   Riemannian-mean reference from the calibration data. If the release-day
+   context rule adopts it, routing and whitening are instead per (subject,
+   context) pair (`align="subject_context"`, § 3).
 3. **blend_calib personalisation**: the pooled LDA's probabilities are blended
    with those of the routed subject's own LDA (fitted on the shared features),
    P = w·P_pooled + (1−w)·P_subject. w is chosen on the calibration data only.
    On the proxies it came out 0, 0.5 or 0.75, from the harness's held-out last
    calibration session or chronological halves. For the release, the solver
    chooses w itself (`blend_w="auto"`, since 2026-09-28) by
-   leave-one-calibration-session-out, stores it in the joblib, and matches the
-   harness's `--wcv loso` bit for bit. Until 2026-09-28 this document claimed
-   LOSO while the code held out only the last session.
+   leave-one-calibration-session-out and stores it in the joblib. It uses the
+   same LOSO rule as the harness's `--wcv loso`:
+   - on `mock_sealed_s` and zhou2016 the weights were identical, with
+     bit-identical fold scores with the filter bank (CV equal to 4 dp without
+     it);
+   - on the full-size 120 Hz mock both chose 0.75 (MATCH).
+
+   Small differences are expected on NeuralBench overlays with a validation
+   slice: the loader withholds that slice from the solver, while the harness
+   trains on it. The mock has no such slice. Until 2026-09-28 this document
+   claimed LOSO while the code held out only the last session.
 
 **Conditional upgrade, pending the organisers' answer:** *online per-subject
 re-centring* (`adapt="online"`). Each routed subject's whitening reference is the
 mean covariance of the last 64 test windows routed to it. This is the single
-largest lever measured: **+3.5 to +7.5 points** on top of the clean recipe when
-test windows arrive in recording order, at or above what the (unattainable) oracle
-session re-centring gives. **It depends on the test order** (sprint 2026-09-28,
+largest lever measured. In recording order it adds **+3.5 to +7.5 points** to the
+clean recipe on the three proxies where the gain is significant (Tangermann,
+Scherer, Scherer 3-class). On Zhou the gain is +1.8 and not significant (CI −3.0
+to +4.8). That is at or above what the (unattainable) oracle session re-centring
+gives. **It depends on the test order** (sprint 2026-09-28,
 Phase 3, `logs/sprint0928_p3/`): in recording order a 64-window batch is mostly one
 subject, so the buffer is essentially the current batch. With subjects interleaved
 window by window, the gain shrinks to **+3.0 (Tangermann) and +4.4 (Scherer
@@ -155,17 +171,20 @@ is the first block to drop if the release data disagrees.
 
 What the proxies cannot tell us, and the ablation that settles each point once
 the data is released. The first run on the new data should use the **ten fully
-labelled training participants as an internal replica of the sealed split**:
-calibrate on their sessions 1–3, score their sessions 4–6 with the cell metric.
-The organisers' split has the same structure for the ten evaluation participants.
+labelled training participants as an internal replica of the sealed split**.
+Every participant's sessions 1–3 train, and the fully labelled participants'
+sessions 4–6 are scored with the cell metric (`SPLIT=calib:3
+TEST_SUBJECTS=<their indices>`). The organisers' split has the same structure for
+the ten evaluation participants; as `replica:3` it runs on the mock only, and the
+scripts refuse it on any other cache.
 
 | Open point | Why the proxies can't answer it | Ablation on the released data |
 |---|---|---|
-| **EMG (2) and EOG (2) channels** | no proxy has them; the default EEG pick drops them anyway | EEG only vs EEG + EOG vs EEG + EMG vs all 47, cross-session on the replica split. Keep a non-EEG channel only if it helps *and* the gain holds on sessions 4–6. The thesis trap: an "easy" class separated by gross muscle or eye activity that drifts across days. Watch word association (speech-like muscle activity) and calculation (eye movements) |
-| **500 Hz, 43 EEG channels** | proxies are 14–30 ch at 120 Hz | Check what the sealed loader delivers (NeuralBench resamples EEG tasks to 120 Hz so far). If 500 Hz arrives: time one fit + one full predict pass (60 min A100 budget, our code is CPU numpy), and compare the router's log-PSD fingerprint at 1–45 Hz vs 1–100 Hz |
-| **"Context" cells (Graz vs BrainHero)** | proxies have one context | Since 2026-09-28 the harness scores subject × session × context cells: it reads `context.npy`, which `xsess_cache.py` saves from a `context`/`condition`/`paradigm` column. Before that date the column was saved but never read, although this row said otherwise. Ablation `al_ctx` compares `router-psd` with `router-psdctx` (router and whitening per (subject, context) pair); the solver's matching option is `align="subject_context"` |
-| **Three calibration sessions per evaluation participant** | Tangermann and Scherer have one; only Zhou has two training sessions | Blend weight by leave-one-calibration-session-out (`--wcv loso` / `blend_w="auto"`, implemented 2026-09-28). With one calibration session the router degrades fast on later sessions (0.72 → 0.35 on Zhou): check router accuracy per test session 4, 5, 6. Offline training with session ids also allows per-(subject, session) training alignment: on Zhou it added +2.4 per-subject (train-only, Riemannian) |
-| **Ten training participants with all six sessions** | no proxy has extra fully labelled people | Pooled component on all 20 participants' labelled data vs evaluation participants only; router over the 10 evaluation subjects vs all 20 |
+| **EMG (2) and EOG (2) channels** | no proxy has them; the default EEG pick drops them anyway | EEG only vs EEG + EOG vs EEG + EMG vs all 47, cross-session on the replica split. This runs on a 47-channel cache (`<study>_x`, `xsess_cache.py --picks eeg,emg,eog`); on the default 43-channel cache these ablations equal the recipe row. Keep a non-EEG channel only if it helps *and* the gain holds on sessions 4–6, and only if the official loader delivers it. The thesis trap: an "easy" class separated by gross muscle or eye activity that drifts across days. Watch word association (speech-like muscle activity) and calculation (eye movements) |
+| **500 Hz, 43 EEG channels** | proxies are 14–30 ch at 120 Hz | Check what the sealed loader delivers (NeuralBench resamples EEG tasks to 120 Hz so far). The solver's sizing passes at 500 Hz on the full-size mock (2026-09-28): fit with `blend_w="auto"` 30.4 min, peak 11.8 GiB, read-only replay of 3,600 windows 77 s at 10 threads and 66 s at 2 threads (RELEASE_DAY § 8). A 1–45 Hz vs 1–100 Hz router comparison has no option yet: the band is hard-coded in `xsess_lib.SubjectRouter._feats` and `riemann_sealed._psd_features` |
+| **"Context" cells (Graz vs BrainHero)** | proxies have one context | Since 2026-09-28 the harness scores subject × session × context cells: it reads `context.npy`, which `xsess_cache.py` saves from a `context`/`condition`/`paradigm` column. Before that date the column was saved but never read, although this row said otherwise. Ablation `al_ctx` compares `router-psd` with `router-psdctx` (router and whitening per (subject, context) pair). The solver's matching option `align="subject_context"` exists since 2026-09-28, and `train_sealed.sh` bakes it for `RECIPE_ALIGN=router-psdctx:<kind>`. On `mock_sealed_s` it gave train = replay = harness = 0.547222. It cannot be combined with `ADAPT=online` (the solver raises NotImplementedError and `train_sealed.sh` refuses). A pair with fewer than `ctx_min` = 16 training windows keeps its subject's whitening. The solver reads the context from the same column names as `xsess_cache.py` (`_CTX_COLUMNS`); a column with another name must be added to both (RELEASE_DAY § 2) |
+| **Three calibration sessions per evaluation participant** | Tangermann and Scherer have one; only Zhou has two training sessions | Blend weight by leave-one-calibration-session-out (`--wcv loso` / `blend_w="auto"`, implemented 2026-09-28). With one calibration session the router degrades fast on later sessions (0.72 → 0.35 on Zhou): check router accuracy per test session 4, 5, 6 (`analysis/release_eda.py` section 4; 0.997 on the full-size mock with three calibration sessions). Offline training with session ids also allows per-(subject, session) training alignment: on Zhou it added +2.4 per-subject (train-only, Riemannian) |
+| **Ten training participants with all six sessions** | no proxy has extra fully labelled people | Pooled model and router trained on everyone vs on the test subjects only (`pool_test`, harness `--pool test`). On the replica the ten fully labelled participants stand in for the evaluation participants. The one ablation restricts the pooled model and the router together; there is no separate router-only ablation. The solver has no option to train on a subset yet, so a `pool = test` decision cannot be deployed (`release_summarize.py` prints a NOTE) |
 | **xDAWN and class-specific cues** | Scherer's window starts at the visual cue | EDA: evoked response to the cue per class; ablate xDAWN on the replica split |
 | **Test window order and batch composition** | proxies are in recording order by construction | The clean recipe routes per window and does not care. The online upgrade needs windows of one subject to arrive near each other; the Dreyer test loader delivers recording order (81 % of batches single-subject). Measured 2026-09-28 (Phase 3): with subjects interleaved the online gain drops to 58–85 % of its recording-order value (still significant on Tangermann and Scherer), and no lag at a session change |
 | **Class balance per cell** | proxies are balanced | Report per-cell class counts in the EDA; uniform LDA priors already match the balanced-accuracy metric |
@@ -181,7 +200,15 @@ the replica split (`SPLIT=calib:3 TEST_SUBJECTS=<the fully labelled
 participants>`), the § 3 ablations (`scripts/release_ablations.sh`), the
 pre-registered release-day rules (`analysis/release_summarize.py`) and timings
 from a full-size dress rehearsal on a mock study with the sealed structure
-(`analysis/mock_sealed.py`). The whole path was rehearsed on 2026-09-28.
+(`analysis/mock_sealed.py`).
+- **Rehearsed on the full-size mock on 2026-09-28:** the `train_sealed.sh` flow
+  on the organisers' split, the 500 Hz sizing, and the ablation machinery (6 of
+  10 steps timed at full size).
+- **Rehearsable on the mock since 2026-09-29:** the release-day replica through
+  benchopt (`calib:3` with `split=replica_full`, the stand-in for the
+  `<study>_xsess` overlay). See RELEASE_DAY § 9.
+- **Only the release can exercise:** the organisers' loader, the real NeuralBench
+  overlays (`<study>_xsess`, `<study>_all`) and the cache build at release size.
 
 Steps (resumable, logs in `logs/train_sealed_<study>/`): cache every window with
 subject/session/run(/context) → validate the recipe in the harness (MeanLogReg
@@ -196,13 +223,16 @@ score) → zip into the log folder. It never uploads and never writes
 w = 0.75, train 0.770 = read-only replay 0.770 (harness 0.778); `ADAPT=online`
 w = 0.5, train 0.792 = replay 0.792 (harness 0.797). Tangermann through benchopt:
 0.805 clean, 0.841 online (harness 0.802 / 0.837). Each run takes under 3 minutes.
+The clean `zhou2016_xsess` flow was re-checked on 2026-09-28 at 20:06:00–20:08:01
+(`logs/sprint0928_D_zhou_regress/STATUS.md`): train 0.770000 = replay 0.770000.
+It is also the release-day regression gate (RELEASE_DAY § 0).
 
 ## 5. Next steps (ranked)
 
 | # | Step | Expected gain | Effort | Risk |
 |---|---|---|---|---|
-| 1 | **Ask the organisers** whether `predict()` may use statistics of the unlabelled test windows it has already received (online per-subject re-centring; no labels, no training on the sealed split). Suggested wording below. If yes: `ADAPT=online bash scripts/train_sealed.sh ...` | **+3.5 to +7.5 points** on the proxies in recording order (significant on 3 of 4); **+3.0 to +4.4** if test windows arrive interleaved across subjects; the single largest lever found | one forum post (the user's action); code ready and verified | rule only. If the answer is no, the clean recipe stands unchanged |
-| 2 | **Release day**: run `train_sealed.sh` on Graz + BrainHero using the ten fully labelled participants as a replica split (calibrate on sessions 1–3, test on 4–6). Then: EMG/EOG ablation, context cells, blend weight by leave-one-calibration-session-out, xDAWN ablation (§ 3) | correctness: the proxies are small (4–9 people), so the ranking of close variants can change | ~1 day: the pipeline runs in minutes, the EDA and ablations are the work | loader surprises (47 ch at 500 Hz, contexts, how sessions are labelled) |
+| 1 | **Ask the organisers** whether `predict()` may use statistics of the unlabelled test windows it has already received (online per-subject re-centring; no labels, no training on the sealed split). Suggested wording below. If yes: add `ADAPT=online RECIPE_ALIGN=online-<N>:riemann` to the release-day settings, e.g. `ADAPT=online RECIPE_ALIGN=online-32:riemann SPLIT=calib:3 TEST_SUBJECTS=$FULL bash ~/codabench/scripts/train_sealed.sh $DH <study>`. N comes from RELEASE_DAY § 6 rule 6. It cannot be combined with `router-psdctx` | **+3.5 to +7.5 points** in recording order on the three proxies where the gain is significant; +1.8, not significant, on Zhou. **+3.0 to +4.4** (Tangermann, Scherer 3-class, N = 64) if test windows arrive interleaved across subjects. The single largest lever found | one forum post (the user's action); code ready and verified | rule only. If the answer is no, the clean recipe stands unchanged |
+| 2 | **Release day** ([RELEASE_DAY.md](RELEASE_DAY.md)): use the ten fully labelled participants as a replica split (everyone's sessions 1–3 train, their sessions 4–6 are scored). Then run the EMG/EOG ablation, context cells, blend weight by leave-one-calibration-session-out and the xDAWN ablation (§ 3), and train the candidate | correctness: the proxies are small (4–9 people), so the ranking of close variants can change | ~1 day. At the sealed size one `train_sealed.sh` flow takes 41 min (fixed weight) to 61 min (`auto`) at 120 Hz on the mock, and the ablations 1.5–2 h. RELEASE_DAY § 8 budgets 5.5–6.5 h from download to a checked zip, reading included | loader surprises (47 ch at 500 Hz, contexts, how sessions are labelled) |
 | 3 | **Riemann + pooled-EEGNet probability ensemble** on the 3 classes. Pooled EEGNet reaches 0.476 there, close to the Riemann recipe (0.486–0.499), and its errors may differ. Weight on held-out calibration sessions, never equal weights (the Riemann LDA is overconfident: an equal blend lost 0.75 points in the warm-up) | +1–2 points (the warm-up ensemble gave +0.8) | half a day: both models into one `submission.py`, weight search in the harness | small; adds inference time and a second model to audit |
 
 Not recommended now: more participants (warm-up: no gain), REVE/LaBraM on this
@@ -219,6 +249,7 @@ train-only alignment (hurts), batch-level statistics (superseded by online).
 > or interleaved/shuffled across participants? And is the model object kept
 > between `predict()` calls?
 
-The order question matters on its own: the online gain on the proxies is
-+3.5 to +7.5 points in recording order but +3.0 to +4.4 with subjects interleaved
-(§ 1).
+The order question matters on its own. In recording order the online gain is
++3.5 to +7.5 points on the three proxies where it is significant. With subjects
+interleaved it is +3.0 (Tangermann) and +4.4 (Scherer 3-class), the two
+significant proxies measured that way (§ 1).

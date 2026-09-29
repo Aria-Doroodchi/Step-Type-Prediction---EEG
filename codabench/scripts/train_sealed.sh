@@ -30,7 +30,9 @@
 #              TEST_SUBJECTS=<the fully labelled participants' indices> (their
 #              sessions 3..5 are scored; the hidden-test rows never train). A
 #              cache that looks sealed (context column, eval_subjects, > 3
-#              sessions) with SPLIT unset stops here and says so
+#              sessions) with SPLIT unset stops here and says so. replica:K on
+#              a cache whose meta has no "mock" key stops too (the harness
+#              refuses it as well)
 #   TEST_SUBJECTS  comma list of subject indices tested under SPLIT (harness
 #              --test_subjects; default: the split's own)
 #   WCV        harness blend-weight CV: last | loso (default when BLEND_W=auto,
@@ -50,7 +52,31 @@
 #   DATASET    benchopt -d selector: BCI[study=<study>]; a mock cache (meta has
 #              "mock") -> ../datasets/mock_sealed.py[study=<study>]. The name form
 #              MockSealed[...] is rewritten to that path (benchopt 1.10 finds the
-#              mock dataset only by path)
+#              mock dataset only by path). Extra parameters pass through as
+#              given, e.g. the release-day replica on the mock (RELEASE_DAY
+#              section 7 step 1; test = the full participants' sessions 3..5):
+#              DATASET="../datasets/mock_sealed.py[study=<study>,split=replica_full]"
+#              with SPLIT=calib:3 TEST_SUBJECTS=<meta full_subjects>
+#   GATE       which step-5 gates block the zip (none is in config.txt):
+#              replica (default when SPLIT != last: benchopt's test set is the
+#              harness's) -> a failed replay, train != replay, a harness gap
+#              > 2 points (FLAG) and, with BLEND_W=auto and WCV=loso, a solver
+#              vs harness weight MISMATCH all block it | final (default when
+#              SPLIT=last, i.e. as before; for the release-day all-data run,
+#              whose test set differs from the harness's) -> only a failed
+#              replay or train != replay block it; the gap / weight lines are
+#              recorded, informational
+#   FORCE_ZIP  1: zip despite a weight MISMATCH under GATE=replica (a loud
+#              WARNING goes into STATUS.md and RESULTS.md); never overrides a
+#              failed replay, train != replay or a gap FLAG
+#   HARNESS_FROM <tag>: seed this run's harness folder logs/sealed_<HTAG> from
+#              logs/sealed_<tag> (results_*.jsonl + probs/) before the harness
+#              steps, so every setting already computed there is skipped (the
+#              steps still run: sealed_personal refits its router, then skips).
+#              E.g. the release-day final run: RUN_NAME=final_<S>
+#              HARNESS_FROM=train_sealed_<S>. Only into a harness folder that has
+#              no results yet, and only from a folder with this cache's
+#              fingerprint (stale rows are refused)
 #   SUBMISSION_DIR  absolute folder training writes the submission to: the
 #              track's outputs/Riemann-Sealed-Cand<suffix>/ (as before), or
 #              (release) <logdir>/submission, so no outputs/ folder is overwritten
@@ -78,7 +104,11 @@
 #   4. train Riemann-Sealed with benchopt (the settings baked into a candidate
 #      copy as defaults); the solver's own weight is logged next to the harness's
 #   5. platform replay from a read-only copy (score must match step 4), gate
-#      check vs the harness in RESULTS.md, zip into the log dir
+#      check vs the harness in RESULTS.md, zip into the log dir only if the
+#      GATE's gates pass (a failed replay stops the script; the parquets are
+#      the ones benchopt reported saving in this run's train.log / replay.log;
+#      a blocked run writes no zip, renames older zips of the folder to
+#      *.zip.blocked and exits 1)
 # Never uploads (the user's action) and never writes codabench/submissions/.
 set -u
 DATA_HOME=${1:?data_home}; STUDY=${2:?study}; TASK=${3:-}; OVERLAY=${4:-}
@@ -167,6 +197,22 @@ if [ -z "${SPLIT:-}" ]; then
     SPLIT=last
   fi
 fi
+# replica:K is the organisers' split: only the mock has true labels there
+if [[ $SPLIT == replica:* ]] && [ "$IS_MOCK" != mock ]; then
+  note "ERROR: SPLIT=$SPLIT runs only on a mock cache ($STUDY's meta has no \"mock\" key):" \
+       "on the released data use SPLIT=calib:${SPLIT#replica:} TEST_SUBJECTS=<the fully" \
+       "labelled participants' indices> (meta full_subjects: $FULL)"
+  exit 1
+fi
+# which gates block the zip (step 5); not a setting of the computation
+if [ -z "${GATE:-}" ]; then
+  if [ "$SPLIT" = last ]; then GATE=final; else GATE=replica; fi
+fi
+case $GATE in
+  replica|final) ;;
+  *) note "ERROR: GATE=$GATE: expected replica | final"; exit 1;;
+esac
+FORCE_ZIP=${FORCE_ZIP:-0}
 TEST_SUBJECTS=${TEST_SUBJECTS:-}
 if [ "$BLEND_W" = auto ]; then WCV=${WCV:-loso}; else WCV=${WCV:-last}; fi
 CHANS=${CHANS:-eeg}
@@ -243,10 +289,37 @@ for f in "$LOGDIR/cache_fingerprint.txt" "$HDIR/cache_fingerprint.txt"; do
     exit 1
   fi
 done
+# HARNESS_FROM: seed this run's harness rows from another harness tag (same
+# cache build), so the harness steps skip every setting already computed there
+if [ -n "${HARNESS_FROM:-}" ]; then
+  SRC="$HOME/codabench/logs/sealed_$HARNESS_FROM"
+  if [ "$SRC" = "$HDIR" ]; then
+    note "HARNESS_FROM=$HARNESS_FROM is this run's own harness tag: nothing to seed"
+  elif [ ! -d "$SRC" ] || ! ls "$SRC"/results*.jsonl >/dev/null 2>&1; then
+    note "ERROR: HARNESS_FROM=$HARNESS_FROM: no harness rows in $SRC"; exit 1
+  elif [ ! -f "$SRC/cache_fingerprint.txt" ] || [ "$(cat "$SRC/cache_fingerprint.txt")" != "$FP" ]; then
+    note "ERROR: HARNESS_FROM=$HARNESS_FROM: $SRC was computed on another build of the" \
+         "$STUDY cache ($(cat "$SRC/cache_fingerprint.txt" 2>/dev/null || echo 'no fingerprint'))," \
+         "not this one ($FP): its rows would be stale"
+    exit 1
+  elif ls "$HDIR"/results*.jsonl >/dev/null 2>&1; then
+    note "HARNESS_FROM=$HARNESS_FROM: logs/sealed_$HTAG already holds rows" \
+         "($(cat "$HDIR/seeded_from.txt" 2>/dev/null || echo 'not seeded')): not seeded again"
+  else
+    mkdir -p "$HDIR/probs"
+    cp -p "$SRC"/results*.jsonl "$HDIR/" \
+      && { [ ! -d "$SRC/probs" ] || cp -rp "$SRC/probs/." "$HDIR/probs/"; } \
+      || { note "ERROR: HARNESS_FROM=$HARNESS_FROM: copying $SRC into $HDIR failed"; exit 1; }
+    echo "$HARNESS_FROM $(date '+%F %T')" > "$HDIR/seeded_from.txt"
+    note "HARNESS_FROM: seeded logs/sealed_$HTAG from logs/sealed_$HARNESS_FROM" \
+         "($(cat "$HDIR"/results*.jsonl | wc -l) rows, $(ls "$HDIR/probs" | wc -l) probs files)"
+  fi
+fi
 mkdir -p "$HDIR"
 echo "$FP" > "$LOGDIR/cache_fingerprint.txt"; echo "$FP" > "$HDIR/cache_fingerprint.txt"
 echo "$CONF" > "$LOGDIR/config.txt"
 note "config $CONF (harness rows: logs/sealed_$HTAG; cache $FP)"
+note "gates blocking the zip: GATE=$GATE$([ "$FORCE_ZIP" = 1 ] && echo ' FORCE_ZIP=1')"
 
 H_ARGS=(--split "$SPLIT" --chans "$CHANS")
 [ -n "$TEST_SUBJECTS" ] && H_ARGS+=(--test_subjects "$TEST_SUBJECTS")
@@ -339,44 +412,61 @@ else
   OUT=tracks/bci_decoding/outputs/Riemann-Sealed-Cand$SUFFIX
 fi
 # --no-cache: benchopt caches on (dataset, solver) parameters, not on the data or
-# the candidate file, so a rerun would silently return the previous score
+# the candidate file, so a rerun would silently return the previous score.
+# A (re)training voids an earlier replay: the replay must be of this training.
+[ -f "$LOGDIR/train.done" ] || rm -f "$LOGDIR/replay.done"
 step train 180m benchopt run tracks/bci_decoding -d "$DATASET" -s "$CAND" \
     -o "BCI-decoding[training=True]" --no-plot --no-html --no-cache --output "${TAG}_train" || exit 1
 unset COMPET_SUBMISSION_DIR
 note "solver: $(grep -m1 -o 'fitting on X=.*' "$LOGDIR/train.log")"
+# solver vs harness weight, WV: MATCH | MISMATCH (both chose by loso: a real
+# disagreement) | INCOMPARABLE (harness wcv is not loso) | n/a (weight baked)
+SW=
 if [ "$BLEND_W" = auto ]; then
   SW=$(sed -n 's/.*\[Riemann-Sealed\] blend_w=auto -> \([0-9.]*\) .*/\1/p' "$LOGDIR/train.log" | tail -1)
   grep -q "blend_w='auto' needs session ids" "$LOGDIR/train.log" && SW="0.5 (no session ids)"
   if [ "$SW" = "$W" ]; then V=MATCH; else V="MISMATCH: check the fold scores"; fi
-  [ "$WCV" = loso ] || V="$V (harness wcv=$WCV is not the solver's loso rule)"
+  if [ "$WCV" = loso ]; then WV=${V%%:*}
+  else WV=INCOMPARABLE; V="$V (harness wcv=$WCV is not the solver's loso rule: informational)"; fi
   note "blend weight: harness w=$W (split=$SPLIT wcv=$WCV) vs solver auto w=${SW:-not found}: $V"
 else
+  WV=n/a
   note "blend weight: harness w=$W (split=$SPLIT wcv=$WCV); solver trained with the baked w=$CW"
 fi
 
-# 5. replay read-only, inference only; then zip (files at the zip root)
+# 5. replay read-only, inference only; a failed replay stops here (no zip)
 R=/tmp/${TAG}_replay; [ -d "$R" ] && chmod -R u+w "$R"; rm -rf "$R"; cp -r "$OUT" "$R"; chmod -R a-w "$R"
 COMPET_SUBMISSION_DIR="$R" step replay 120m benchopt run tracks/bci_decoding \
-    -d "$DATASET" -s "$R/submission.py" --no-plot --no-html --no-cache --output "${TAG}_replay"
-python "$HOME/codabench/scripts/summarize_runs.py" \
-    tracks/bci_decoding/outputs/"${TAG}"_train*.parquet \
-    tracks/bci_decoding/outputs/"${TAG}"_replay*.parquet > "$LOGDIR/RESULTS.md" 2>&1
+    -d "$DATASET" -s "$R/submission.py" --no-plot --no-html --no-cache --output "${TAG}_replay" \
+    || { note "ERROR: replay failed: NO ZIP (see $LOGDIR/replay.log)"; exit 1; }
+# this run's result files: the paths benchopt reported saving in the step logs
+# (it appends _1, _2, ... to a name that exists, so a name glob or the newest
+# mtime can pick another run's file)
+saved() {
+  grep -ao 'Saving result in: [^ ]*\.parquet' "$LOGDIR/$1.log" 2>/dev/null | tail -1 \
+    | sed 's/^Saving result in: //'
+}
+PT=$(saved train); PR=$(saved replay)
+if [ -z "$PT" ] || [ ! -f "$PT" ] || [ -z "$PR" ] || [ ! -f "$PR" ]; then
+  note "ERROR: this run's result files are missing (train: ${PT:-not in train.log}," \
+       "replay: ${PR:-not in replay.log}): NO ZIP"
+  exit 1
+fi
+python "$HOME/codabench/scripts/summarize_runs.py" "$PT" "$PR" > "$LOGDIR/RESULTS.md" 2>&1
 # gate: train score == replay score (exact) and within 2 points of the harness
 # blend_calib (router ids) pooled balanced accuracy on the same split
-GATE=$(python - tracks/bci_decoding/outputs "$TAG" "$H_POOLED" "$H_CELL" "$W" "$CW" \
-       "$LOGDIR/RESULTS.md" <<'PY'
+GOUT=$(python - "$PT" "$PR" "$H_POOLED" "$H_CELL" "$W" "$CW" "$LOGDIR/RESULTS.md" <<'PY'
 import pathlib, sys
 import pandas as pd
-out, tag, hp, hc, hw, cw, res = sys.argv[1:]
+pt, pr, hp, hc, hw, cw, res = sys.argv[1:]
 hp, hc = float(hp), float(hc)
 
-def newest(kind):
-    ps = sorted(pathlib.Path(out).glob(f"{tag}_{kind}*.parquet"), key=lambda p: p.stat().st_mtime)
-    if not ps:
-        return "missing", float("nan")
-    return ps[-1].name, float(pd.read_parquet(ps[-1])["objective_balanced_accuracy"].iloc[-1])
 
-(ft, tr), (fr, rp) = newest("train"), newest("replay")
+def score(p):
+    return pathlib.Path(p).name, float(pd.read_parquet(p)["objective_balanced_accuracy"].iloc[-1])
+
+
+(ft, tr), (fr, rp) = score(pt), score(pr)
 same = "EQUAL" if tr == rp else "DIFFERENT"
 gap = abs(tr - hp)
 ok = "OK" if gap <= 0.02 else "FLAG"
@@ -389,12 +479,62 @@ with open(res, "a") as f:
             f"\nCandidate blend_w = {cw}.\n")
 print(f"gate: train {tr:.6f} replay {rp:.6f} {same}; harness blend_calib pooled "
       f"{hp:.6f} (w={hw}), gap {gap:.4f} {ok}")
+print(same, ok)
 PY
-)
-note "$GATE"
+) || { note "ERROR: the gate check failed to run: NO ZIP"; exit 1; }
+{ read -r GLINE; read -r SAME GAPV; } <<< "$GOUT"
+note "$GLINE"
+# which gates block the zip (GATE, see the header): train = replay always; on a
+# replica run (benchopt's test set = the harness's) also the gap and a weight
+# MISMATCH (FORCE_ZIP=1 overrides the MISMATCH only)
+BLOCK=; FORCED=
+[ "$SAME" = EQUAL ] || BLOCK="train != replay (exact)"
+if [ "$GATE" = replica ]; then
+  [ "$GAPV" = OK ] || BLOCK="${BLOCK:+$BLOCK; }harness gap > 0.02 (FLAG)"
+  if [ "$WV" = MISMATCH ]; then
+    if [ "$FORCE_ZIP" = 1 ]; then
+      FORCED="solver vs harness weight MISMATCH (harness w=$W, solver w=${SW:-not found})"
+    else
+      BLOCK="${BLOCK:+$BLOCK; }solver vs harness weight MISMATCH (FORCE_ZIP=1 zips anyway)"
+    fi
+  fi
+fi
+if [ "$GATE" = replica ]; then
+  GAPROLE="a FLAG blocks the zip"
+  case $WV in
+    MATCH|MISMATCH) WROLE="a MISMATCH blocks the zip unless FORCE_ZIP=1";;
+    INCOMPARABLE) WROLE="informational (harness wcv=$WCV is not the solver's loso rule)";;
+    *) WROLE="nothing to compare (the weight was baked)";;
+  esac
+else
+  GAPROLE="informational under GATE=final"; WROLE="informational under GATE=final"
+fi
+{ printf '\n## Zip decision (GATE=%s)\n\n' "$GATE"
+  echo "- train = read-only replay (exact): $SAME (anything but EQUAL blocks the zip under every GATE)"
+  echo "- harness gap: $GAPV ($GAPROLE)"
+  echo "- blend weight, solver vs harness: $WV ($WROLE)"
+  if [ -n "$BLOCK" ]; then echo "- **NO ZIP**: $BLOCK"
+  elif [ -n "$FORCED" ]; then echo "- **ZIP FORCED (FORCE_ZIP=1) despite: $FORCED. Do not upload it before the fold scores explain the difference.**"
+  else echo "- zip written"; fi
+} >> "$LOGDIR/RESULTS.md"
+if [ -n "$BLOCK" ]; then
+  note "NO ZIP (GATE=$GATE): $BLOCK"
+  for z in "$LOGDIR"/*.zip; do
+    [ -e "$z" ] || continue
+    mv "$z" "$z.blocked" \
+      && note "renamed $(basename "$z") (an older zip of this folder) to $(basename "$z").blocked"
+  done
+  echo "| $(date +%T) | STOPPED: gate failed, no zip |" >> "$STATUS"
+  exit 1
+fi
+if [ -n "$FORCED" ]; then
+  note "WARNING !!! FORCE_ZIP=1: ZIPPING DESPITE A FAILED REPLICA GATE: $FORCED." \
+       "Do not upload this zip before the fold scores in train.log and personal_$ADAPT.log" \
+       "explain the difference !!!"
+fi
 # zip into the run's log dir (codabench/submissions/ is the user's folder)
 Z="$LOGDIR/riemann_sealed_${STUDY}_$(date +%F).zip"
-python - "$OUT" "$Z" <<'PY' && echo "| $(date +%T) | zipped $Z (NOT uploaded) |" >> "$STATUS"
+python - "$OUT" "$Z" <<'PY' || { note "ERROR: zipping $OUT failed"; exit 1; }
 import pathlib, sys, zipfile
 src, dst = pathlib.Path(sys.argv[1]), sys.argv[2]
 with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:
@@ -402,4 +542,5 @@ with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:
         if p.is_file() and "__pycache__" not in p.parts:
             z.write(p, p.relative_to(src))
 PY
+echo "| $(date +%T) | zipped $Z (NOT uploaded$([ -n "$FORCED" ] && echo '; FORCED, see the WARNING')) |" >> "$STATUS"
 echo "| $(date +%T) | ALL DONE |" >> "$STATUS"

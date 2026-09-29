@@ -8,10 +8,18 @@ to a solver exactly like ``BCI[...]`` does through ``benchmark_utils.nb_task``,
 so the release pipeline (solver fit, save, replay) runs end to end today.
 Its accuracies mean nothing for the recipe.
 
-- ``train_loader``: every window with ``split != 2`` (the 10 fully labelled
-  participants' 6 sessions + the 10 evaluation participants' calibration
-  sessions 0..2), shuffled; ``test_loader``: ``split == 2`` (evaluation
-  participants' sessions 3..5) in recording order, unshuffled.
+- ``split="organisers"`` (default, the organisers' split): ``train_loader``:
+  every window with ``split != 2`` (the 10 fully labelled participants' 6
+  sessions + the 10 evaluation participants' calibration sessions 0..2),
+  shuffled; ``test_loader``: ``split == 2`` (evaluation participants'
+  sessions 3..5) in recording order, unshuffled.
+- ``split="replica_full"`` (the release-day internal replica, 2026-09-29):
+  test = the fully labelled participants' (meta ``full_subjects``) sessions
+  ``>= calib_sessions``; train = every other window except the hidden
+  ``split == 2`` rows. This mirrors the release-day ``<name>_xsess`` overlay
+  and the harness's ``--split calib:3 --test_subjects <full_subjects>``, so
+  RELEASE_DAY section 7 step 1 can be rehearsed on the mock through benchopt:
+  ``-d "../datasets/mock_sealed.py[study=mock_sealed_s,split=replica_full]"``.
 - Batches are ``(X, y, info)``: X float32 ``(B, C, T)``, y long ``(B,)``,
   info ``{"subject_id", "record_id", "onset"}`` (onset = window start in
   samples of its run). As on NeuralBench, the loaders' dataset exposes
@@ -48,6 +56,7 @@ from torch.utils.data import DataLoader, default_collate
 from benchmark_utils.data import chs_info_from_names, get_device
 
 CACHE_ROOT = Path.home() / "neuralbench/xsess_cache"
+SPLITS = ("organisers", "replica_full")     # values of the "split" parameter
 
 
 class _Segments:
@@ -97,6 +106,9 @@ class Dataset(BaseDataset):
     parameters = {
         "study": ["mock_sealed_s"],
         "batch_size": [64],
+        # organisers (test = the hidden split 2) | replica_full (test = the
+        # fully labelled participants' sessions >= calib_sessions)
+        "split": ["organisers"],
     }
 
     test_parameters = {
@@ -144,8 +156,20 @@ class Dataset(BaseDataset):
                 "start": a["onset"][rows]})
             return _MockWindows(X, a["y"], rows, a["subj"], record_id, onset, trig)
 
-        train = windows(np.flatnonzero(a["split"] != 2))
-        test = windows(np.flatnonzero(a["split"] == 2))
+        hidden = a["split"] == 2
+        if self.split == "organisers":
+            test_mask = hidden
+        elif self.split == "replica_full":
+            if "full_subjects" not in meta:
+                raise ValueError(f"split='replica_full': {d}/meta.json has no full_subjects")
+            k = int(meta.get("calib_sessions", 3))
+            test_mask = np.isin(a["subj"], meta["full_subjects"]) & (a["session"] >= k)
+            if (test_mask & hidden).any():   # cannot happen on a sealed-structure cache
+                raise ValueError("split='replica_full': a full participant has hidden rows")
+        else:
+            raise ValueError(f"split={self.split!r}: expected one of {SPLITS}")
+        train = windows(np.flatnonzero(~test_mask & ~hidden))
+        test = windows(np.flatnonzero(test_mask))
         ch_names = list(meta["ch_names"])
         return dict(
             train_loader=DataLoader(

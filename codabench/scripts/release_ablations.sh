@@ -4,10 +4,13 @@
 #   TAG=rel STUDY=graz2026 bash ~/codabench/scripts/release_ablations.sh
 #   TAG=sprint0928_abl_s STUDY=mock_sealed_s XS_THREADS=4 STEPS="base ch_all" LANES=A \
 #       bash ~/codabench/scripts/release_ablations.sh      # one <= 10-min chunk
-# Split SPLIT (default replica:3: the fully labelled participants train on all
-# their sessions, the evaluation participants calibrate on sessions 0..2 and
-# are scored on 3..5); cell metric over subject x session x context cells; the
-# harness router's fallback capped like the solver's (CAP=0.5).
+# Split SPLIT (default on the mock only: replica:3, the fully labelled
+# participants train on all their sessions, the evaluation participants
+# calibrate on sessions 0..2 and are scored on 3..5; any other cache, i.e. meta
+# without a "mock" key, needs SPLIT set, and replica:K is refused there, as in
+# train_sealed.sh and the harness, 2026-09-29); cell metric over subject x
+# session x context cells; the harness router's fallback capped like the
+# solver's (CAP=0.5).
 # Which split judges what (review 2026-09-28): the release-day DECISIONS are
 # taken on SPLIT=calib:3 TEST_SUBJECTS=<the fully labelled participants>, i.e.
 # their sessions 3..5 scored after training on everyone's sessions 0..2 (the
@@ -59,7 +62,33 @@
 : "${TAG:?TAG}" "${STUDY:?STUDY}"
 export XS_THREADS=${XS_THREADS:-10}
 source "$HOME/codabench/scripts/sealed_lib.sh"
-SPLIT=${SPLIT:-replica:3}
+# XSESS_CACHE_ROOT: another cache root (opt-in, as analysis/xsess_cache.py)
+CACHE="${XSESS_CACHE_ROOT:-$HOME/neuralbench/xsess_cache}/$STUDY"
+# replica:K is the mock's split only (review 2026-09-28, V2): a cache whose meta
+# has no "mock" key needs an explicit SPLIT, and replica:K is refused there (the
+# harness refuses it too)
+read -r IS_MOCK FULL < <(python - "$CACHE" <<'PY'
+import json, os, sys
+m = json.load(open(os.path.join(sys.argv[1], "meta.json")))
+print("mock" if "mock" in m else "real", ",".join(map(str, m.get("full_subjects") or [])) or "-")
+PY
+) || { echo "| $(date +%T) | ERROR: no readable cache at $CACHE |" >> "$STATUS"; exit 1; }
+if [ -z "${SPLIT:-}" ]; then
+  if [ "$IS_MOCK" = mock ]; then
+    SPLIT=replica:3
+  else
+    echo "| $(date +%T) | ERROR: $STUDY is not a mock cache (meta has no \"mock\" key): set SPLIT" \
+         "explicitly, on the released data SPLIT=calib:3 TEST_SUBJECTS=<the fully labelled" \
+         "participants> (meta full_subjects: $FULL) |" >> "$STATUS"
+    exit 1
+  fi
+fi
+if [[ $SPLIT == replica:* ]] && [ "$IS_MOCK" != mock ]; then
+  echo "| $(date +%T) | ERROR: SPLIT=$SPLIT runs only on a mock cache ($STUDY's meta has no" \
+       "\"mock\" key): on the released data use SPLIT=calib:${SPLIT#replica:}" \
+       "TEST_SUBJECTS=<the fully labelled participants> (meta full_subjects: $FULL) |" >> "$STATUS"
+  exit 1
+fi
 TEST_SUBJECTS=${TEST_SUBJECTS:-}
 SPEC=${SPEC:-riemann:xd=1,fb=1}
 ALIGN=${ALIGN:-router-psd:riemann}
@@ -68,8 +97,6 @@ CAP=${CAP:-0.5}
 KIND=${ALIGN##*:}
 if [ "$WCV" = last ]; then WCV_ALT=loso; else WCV_ALT=last; fi
 case $SPEC in *xd=1*) SPEC_NX=${SPEC/xd=1/xd=0};; *) SPEC_NX=;; esac
-# XSESS_CACHE_ROOT: another cache root (opt-in, as analysis/xsess_cache.py)
-CACHE="${XSESS_CACHE_ROOT:-$HOME/neuralbench/xsess_cache}/$STUDY"
 HAS_CTX=$([ -f "$CACHE/context.npy" ] && echo 1)
 COMMON=(--study "$STUDY" --split "$SPLIT")
 [ -n "$TEST_SUBJECTS" ] && COMMON+=(--test_subjects "$TEST_SUBJECTS")

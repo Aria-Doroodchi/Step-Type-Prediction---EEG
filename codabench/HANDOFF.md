@@ -1,86 +1,77 @@
-# HANDOFF
+# HANDOFF — sprint 2026-09-28: sealed-release readiness
 
-> **Active sprint (2026-09-28 16:55 → 09-29 04:55): sealed-release readiness.**
-> Plan of record: [prompts/2026-09-28_release_readiness.md](prompts/2026-09-28_release_readiness.md).
-> This file will be rewritten at the sprint's end; until then the weekend
-> handoff below is still accurate for everything the sprint has not touched.
+Resume from this file alone. Plan of record:
+[prompts/2026-09-28_release_readiness.md](prompts/2026-09-28_release_readiness.md).
+Branch `feat/codabench-track2`, pushed to `personal` after every commit. The
+weekend handoff (2026-09-25) it replaces is in git history (a44526a).
 
-# (previous) HANDOFF — sealed-phase prep (weekend 2026-09-25 → 09-27)
+## State (updated 2026-09-29 00:00; final update at the sprint's end)
 
-Resume from this file alone. The plan is the weekend prompt (commit d3019b7,
-pasted in the session); phases 0–6, decision rules, launch/watchdog pattern.
-Branch `feat/codabench-track2`, push to `personal` after every commit.
-
-## State (updated 2026-09-25 23:55): all phases done
-
-| Phase | Status | Result (details: LOG.md 2026-09-25 entries) |
+| Phase | Status | Result (details: LOG.md 2026-09-28 entries) |
 |---|---|---|
-| 0 harness | ✅ 3c78929 | caches for 4 proxies, cross-session harness, overlays, watchdog |
-| 1 baselines | ✅ 18af79d | Riemann xDAWN + filter bank is the base family; per-subject > pooled on 2 of 3 |
-| 2 alignment | ✅ 08ea8c3 | clean router recovers little (affine invariance); online re-centring (rule-dep.) ≥ oracle |
-| 3 personalisation | ✅ c22c19c | **blend_calib** best/tied on all 3 |
-| 4 sealed-like 3 classes | ✅ 0816dc1 | separable: 0.49 clean / 0.56 online (chance 0.33); FB carries it; xDAWN not measurable there, kept |
-| 5 pre-training | ✅ 43809a9 | no gain at this scale |
-| 6 deliverable | ✅ b1ff2b8 | **[SEALED_RECIPE.md](SEALED_RECIPE.md)**, `solvers/bci_decoding/riemann_sealed.py`, `scripts/train_sealed.sh` (verified end to end on zhou2016_xsess, clean and online) |
+| 0 brief | ✅ a44526a | three false claims found in the code before planning |
+| 1 build (workflow, 9 agents) | ✅ bd931df | sealed-structure harness, mock sealed study, fast LDA, release scripts; defaults bit-identical |
+| 3 online stream/order (real proxies) | ✅ bd931df | online gain not order-robust (+3.0/+4.4 interleaved vs +3.5/+7.5 rec. order); no session lag; reset guard no gain |
+| 2 dress rehearsal (full-size mock, 120 + 500 Hz) | ✅ ee5377d | all gates exact; 500 Hz sizing passes (fit 30 min, 12 GB); release-split ablations catch the EMG trap |
+| 4a solver `align="subject_context"` | ✅ ee5377d (review R3 pending) | deploys the harness's router-psdctx; baked by train_sealed.sh |
+| 4b claims check + `release_eda.py` | ✅ ee5377d | 30 doc mismatches found → fixed in 4c |
+| 4c runbook fix + literal verification | running | RELEASE_DAY.md rewrite, script gate enforcement, V1 literal run |
 
-Nothing is running. Nothing uploaded. `codabench/submissions/` and the WU1
-solver untouched.
+## What is running
 
-## What the user needs to do (Monday)
+TBD at the end of the sprint (normally nothing).
 
-1. Read `SEALED_RECIPE.md` § 1 and § 5.
-2. Decide whether to post the drafted organiser question (§ 5): it gates the
-   biggest measured lever (+3.5 to +7.5 points).
-3. Optional: approve REVE/LaBraM weight download (not needed for the recipe).
+## Where things are
 
-## If the weekend session continues
-
-- Check https://neural-interfaces26.github.io/tracks.html once per day (last
-  check 2026-09-25 18:53: "coming soon"). If Graz + BrainHero is released:
-  download to `Z:\Projects\codabench\neural_compet\` (approved), copy/rsync into
-  `~/neuralbench/benchopt_data/neural_compet/`, write a benchopt overlay (pattern
-  in `config/nb_overlays/motor_imagery/`, install with
-  `scripts/install_xsess_overlays.sh`), then
-  `bash ~/codabench/scripts/train_sealed.sh ~/neuralbench/benchopt_data <study> eeg/<task> <overlay>`,
-  and the § 3 ablations (EMG/EOG, contexts, replica split on the 10 training
-  participants).
-- Otherwise the cheapest useful experiment is next step 3 (Riemann + pooled
-  EEGNet ensemble on Scherer 3-class, weight on held-out calibration data).
-
-## How to run / resume
-
-All in WSL (`wsl.exe bash -s <<'EOF' ... EOF` from the Bash tool; no PowerShell
-for WSL, no `python3` on the Windows side: it is the Store alias and hangs).
-
-- Caches: `bash ~/codabench/scripts/sealed_p0_caches.sh` (skips built ones) →
-  `~/neuralbench/xsess_cache/{zhou2016,tangermann2012,scherer2015,zyma2019}/`
-  (+ `zhou2016_xsess` from the end-to-end test).
-- A phase: `wsl.exe bash -lc 'bash ~/codabench/scripts/sealed_pN.sh'` from the Bash
-  tool with `run_in_background: true` (keeps wsl.exe attached). `LANES=A|B` runs
-  one lane. Finished steps are skipped by `<step>.done`, finished configs by
-  `results_<study>.jsonl` keys.
-- Watchdog: `bash ~/codabench/scripts/watch_run.sh ~/codabench/logs/sealed_pN`;
-  Monitor event stream: `bash ~/codabench/scripts/monitor_loop.sh <logdir> 300`.
-- Summaries: `analysis/sealed_summarize.py --tag pN`, `sealed_decide.py` (Phase 2),
-  `sealed_decide_p3.py` (Phase 3), `sealed_bootstrap.py` (subject-level CIs).
-- One config by hand: `python ~/codabench/analysis/sealed_run.py --tag x --study
-  zhou2016 --models riemann:xd=1,fb=1 --modes pooled --aligns router-psd:riemann`.
-- Every step log starts with `[data] ... X=(n, C, T) subjects=...`: check it.
+- **[RELEASE_DAY.md](RELEASE_DAY.md)**: the release-day runbook, from download to
+  zip, with pre-registered rules and dress-rehearsal timings.
+- **[SEALED_RECIPE.md](SEALED_RECIPE.md)**: the recipe and the evidence; § 5
+  lists the ranked next steps.
+- **Mock study:** `analysis/mock_sealed.py` (caches `mock_sealed_s`, `_120`,
+  `_500`) and `datasets/mock_sealed.py` (benchopt; path form only:
+  `-d "../datasets/mock_sealed.py[study=...]"`).
+- **Harness:**
+  - `analysis/xsess_lib.py`, `sealed_run.py`, `sealed_personal.py`: splits
+    `last` | `calib:K` | `replica:K`, context cells, `--wcv loso`, `--chans`,
+    `--pool`, `router-psdctx`, `--router_cap`, `--wvariant`, `--mmap`;
+  - `xsess_cache.py`: `--picks`, `--sealed`, `--eval_subjects`,
+    `--hidden_labelled`.
+- **Release tools:**
+  - `scripts/train_sealed.sh` (env documented in its header);
+  - `scripts/release_ablations.sh`;
+  - `analysis/release_summarize.py` (the pre-registered rules);
+  - `analysis/release_eda.py`.
+- **Solver:** `solvers/bci_decoding/riemann_sealed.py`, with new opt-in options:
+  - `blend_w="auto"`;
+  - `chans`;
+  - `align="subject_context"`;
+  - fast shrinkage LDA above 4,000 features;
+  - float32 memory path.
+- **Online-order study:** `analysis/sealed_stream.py`, results in
+  `logs/sprint0928_p3/`.
 
 ## Facts a resumer needs
 
-- Scherer 2015 codes: 1 WORD, 2 SUB, 3 NAV, 4 HAND, 5 FEET (from the .mat
-  `classes` field; MOABB names are wrong). Cache labels 0..4 in that order;
-  sealed-like 3-class subset = `--classes 0,1,3`.
-- Thread caps are mandatory for parallel lanes (`sealed_lib.sh` exports
-  OMP/OPENBLAS/MKL_NUM_THREADS = XS_THREADS=10); without them two lanes thrash.
-- `adapt="online"` and batch-level alignment are rule-dependent (test-time
-  statistics); off by default until the organisers answer.
-- The solver's online mode needs per-(subject, session) training centring; it
-  reads session ids from the NeuralBench trigger table under the loader
-  (`session_ids=yes` in the fit line). Without them it underperforms on
-  multi-session data.
-- Codabench runs a solver's DEFAULT parameters: `train_sealed.sh` bakes the
-  chosen settings into a candidate copy (`logs/train_sealed_<study>/riemann_sealed_cand.py`).
-- Do not touch `solvers/bci_decoding/eegnet_steptype_wu1.py`, `submissions/`, or
-  `2026-competition/tracks/bci_decoding/outputs/` by hand. Do not upload.
+- On the released data the internal replica is **`SPLIT=calib:3
+  TEST_SUBJECTS=<the 10 fully labelled participants>`**. `replica:3` is for the
+  mock only.
+- Release-day DECISIONS must be read on that split: on `replica:3`, the drifting
+  EMG trap is invisible (+0.8), while on `calib:3` it costs −3.7 to −4.2 points.
+- NeuralBench's default EEG extractor keeps EEG channels only and resamples to
+  120 Hz. Expect 43 ch at 120 Hz; EMG/EOG reach `predict()` only if the organisers
+  override `neuro.picks`.
+- The fast LDA (a Cholesky solve) is used only above 4,000 features, so every
+  committed proxy number is reproduced bit for bit.
+- benchopt caches on parameters, not data: pass `--no-cache` after rebuilding
+  any cache under the same study name.
+- WSL `git` in `2026-competition` shows ~82 CRLF-only diffs. Use
+  `git -c core.autocrlf=true`.
+
+## What the user needs to do
+
+1. **Post the organiser question** (SEALED_RECIPE § 5 step 1). It now also asks
+   about test-window **order and batching**: the online gain halves when windows
+   arrive interleaved.
+2. Optional: review/merge the thesis docs branch `docs/sprint0928-consistency`
+   (853f9c5; pushed to `personal`, no PR).
+3. Optional: approve the REVE/LaBraM weights (still parked).
