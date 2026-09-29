@@ -49,7 +49,21 @@ trained on pair-whitened windows. Personal LDAs stay per subject: a routed
 pair selects its subject's LDA (below threshold: global W, pooled LDA, as
 before). blend_w="auto" folds use the pair-whitened data (the harness's
 choose_w under router-psdctx). No context ids (e.g. the proxies, or a
-misaligned trigger table) -> a warning and exactly ``align="subject"``.
+trigger table that ``_collect``'s row-order check rejects) -> a warning and
+exactly ``align="subject"``. That check sees a table misordered ACROSS
+subjects (via its subject column), but a table misordered WITHIN subjects
+only when the loader's info carries record_id / onset (datasets/mock_sealed.py
+does; NeuralBench's nb_task loader gives subject_id only, and its table is
+aligned by construction, seg_ds[i] <-> row i). A within-subject misorder that
+passes trains the pairs, and blend_w="auto"'s sessions, on wrong ids with no
+warning. The tell: when it breaks the (subject, context) grouping, the fit
+log's "router OOF pair acc" drops well below the router-psdctx OOF / test
+pair accuracy that analysis/release_eda.py reports from the harness cache
+(mock_sealed_s, solver: 1.000 aligned, 0.500 for a within-subject shuffle,
+0.813 for a table sorted by context; harness psdctx router 0.994 on test;
+release_eda OOF 1.000 on mock_sealed_120). A table that swaps the context
+names consistently keeps 1.000, but then the grouping, hence every W_p and
+the routing, is unchanged.
 With ``adapt="online"`` it raises NotImplementedError (no per-pair online
 re-centring: the harness has none to check it against). Everything added
 to the joblib (pair -> subject map, pair contexts / sizes, W per pair) is
@@ -705,6 +719,71 @@ def _trigger_table(ds):
     return None
 
 
+# onset vs table start tolerance: max(2 samples, 20 ms); rounding of either
+# is <= 0.5 sample (or a few ms), a misplaced window is off by its jitter or more
+_ROW_TOL = (2.0, 0.02)
+
+
+def _table_row_mismatch(trig, record_id, onset):
+    """Why the trigger table does not follow the dataset's index order, from
+    the loader's own ``info["record_id"]`` (one id per source recording) and
+    ``info["onset"]`` (window start, samples) row by row; None when they
+    agree or cannot be compared (no ids, a single recording id as
+    benchmark_utils' ArrayWindows default, onsets constant within every
+    recording, non-numeric values).
+    - each recording id must map to one (subject, session) of the table;
+    - within each recording, the table's ``start`` (s) and the onsets must be
+      one affine map with a common positive slope (the sample rate), every
+      residual within _ROW_TOL. This catches rows moved within a recording
+      and whole recordings swapped for one another (their jittered window
+      starts differ). Blind spots: swapped recordings whose window starts
+      coincide up to a shift (a regular grid) and, without a start column,
+      any swap of whole recordings (only rows that split a recording across
+      subjects / sessions are seen then)."""
+    if record_id is None or len(record_id) != len(trig):
+        return None
+    try:
+        rec, g, cnt = np.unique(np.asarray(record_id), return_inverse=True,
+                                return_counts=True)
+    except TypeError:                    # unsortable ids: not comparable
+        return None
+    if len(rec) < 2:
+        return None
+    g = g.reshape(-1)
+    import pandas as pd
+    cols = [c for c in ("subject", "session") if c in trig.columns]
+    if cols:
+        key = np.zeros(len(trig), dtype=np.int64)
+        for c in cols:
+            codes, uniq = pd.factorize(trig[c].astype(str))
+            key = key * len(uniq) + codes
+        n_pairs = len(np.unique(g * (int(key.max()) + 1) + key))
+        if n_pairs != len(rec):
+            return (f"{len(rec)} recording ids map to {n_pairs} (recording, "
+                    f"{' / '.join(cols)}) pairs")
+    if onset is None or len(onset) != len(trig) or "start" not in trig.columns:
+        return None
+    try:
+        st = trig["start"].to_numpy(dtype=np.float64)
+        on = np.asarray(onset, dtype=np.float64)
+    except (TypeError, ValueError):      # non-numeric: not comparable
+        return None
+    if not (np.isfinite(st).all() and np.isfinite(on).all()):
+        return None
+    dst = st - (np.bincount(g, st) / cnt)[g]      # centred within each recording
+    don = on - (np.bincount(g, on) / cnt)[g]
+    ss = float(dst @ dst)
+    if ss == 0.0 or float(don @ don) == 0.0:      # nothing varies within recordings
+        return None
+    a = float(dst @ don) / ss
+    res = float(np.abs(don - a * dst).max())
+    tol = max(_ROW_TOL[0], _ROW_TOL[1] * a)
+    if a <= 0 or res > tol:
+        return (f"window starts do not follow the onsets within recordings: slope "
+                f"{a:.4g} samples/s, max residual {res:.1f} samples > {tol:.1f}")
+    return None
+
+
 class RiemannSealedModel:
 
     def __init__(self, parts=None, preproc=None, nfilter=4, estimator="oas",
@@ -784,7 +863,16 @@ class RiemannSealedModel:
         (local training), read the dataset in index order so session ids line
         up with the windows. Otherwise iterate the loader (shuffled) and
         return session=None. X is float32 because the preprocessing output
-        is: the float64 copies made per chunk later hold the same values."""
+        is: the float64 copies made per chunk later hold the same values.
+
+        Row-order check (a failure -> a warning and session = context = None):
+        the table's subject column must map one-to-one onto the loader's
+        subject ids (catches a table misordered across subjects); and, when
+        the loader's info also carries record_id / onset (the mock does,
+        NeuralBench's does not), ``_table_row_mismatch`` compares them with
+        the table's subject / session / start row by row (catches a table
+        misordered within subjects). On NeuralBench a within-subject misorder
+        is not detectable here."""
         ds = getattr(train_loader, "dataset", None)
         trig = _trigger_table(ds)
         ci = self._chan_idx
@@ -793,6 +881,7 @@ class RiemannSealedModel:
             dl = tud.DataLoader(ds, batch_size=256, shuffle=False,
                                 collate_fn=getattr(train_loader, "collate_fn", None))
             X, ys, ss, i = None, [], [], 0
+            ids = {"record_id": [], "onset": []}     # for the row-order check
             for Xb, yb, info in dl:
                 xb = self._prep(Xb, ci, np.float32)
                 if X is None:           # preallocated: no second full copy
@@ -801,6 +890,11 @@ class RiemannSealedModel:
                 i += len(xb)
                 ys.append(to_numpy(yb))
                 ss.append(np.asarray(to_numpy(info["subject_id"])).reshape(-1))
+                for k in ids:
+                    try:
+                        ids[k].append(np.asarray(to_numpy(info[k])).reshape(-1))
+                    except Exception:    # absent (None / KeyError) or unusable
+                        ids[k] = None
             X, y, subj = X[:i], np.concatenate(ys), np.concatenate(ss)
             sess = trig["session"].astype(str).to_numpy()
             if len(sess) != len(y):
@@ -816,6 +910,15 @@ class RiemannSealedModel:
                           f"({len(pairs)} (table, id) pairs for {len(set(subj.tolist()))} "
                           "subjects): session / context ids not used", flush=True)
                     return X, y, subj, None, None
+            # within subjects: the loader's record_id / onset, when it has them
+            why = _table_row_mismatch(
+                trig, *(None if ids[k] is None else np.concatenate(ids[k])
+                        for k in ("record_id", "onset")))
+            if why is not None:
+                print("[Riemann-Sealed] WARNING: the trigger table does not match the "
+                      f"loader's record_id / onset row by row ({why}): session / "
+                      "context ids not used", flush=True)
+                return X, y, subj, None, None
             ctx = next((trig[c].astype(str).to_numpy() for c in _CTX_COLUMNS
                         if c in trig.columns), None)
             return X, y, subj, sess, ctx
