@@ -39,7 +39,9 @@
 #              the rule of the solver's "auto", so the two weights are comparable)
 #   CHANS      eeg (default) | eeg+eog | eeg+emg | all: harness and candidate
 #   RECIPE_SPEC   harness family (riemann:xd=1,fb=1); xd / fb are baked into the
-#              candidate as use_xdawn / filterbank
+#              candidate as use_xdawn / filterbank, and x=<ids> (the harness's
+#              extra blocks, analysis/xfeat.py; the solver has tseg<K> and
+#              bpt<K>) as xblocks, e.g. riemann:xd=1,fb=1,x=bpt4 (sprint 2026-09-29)
 #   RECIPE_ALIGN  harness alignment (router-psd:riemann; online-64:riemann under
 #              ADAPT=online); its kind (and online buffer) is baked in.
 #              router-psdctx:<kind> (the release-day context rule) bakes
@@ -257,7 +259,7 @@ RECIPE_ALIGN=${RECIPE_ALIGN:-$DEF_ALIGN}
 # what the candidate can express: xd / fb of the family (harness defaults xd=1,
 # fb=0), the reference kind and online buffer of the alignment, and its unit
 # (subject, or (subject, context) pair: router-psdctx -> align="subject_context")
-XD=1; FB=0; KIND=${RECIPE_ALIGN##*:}; HOW=${RECIPE_ALIGN%%:*}; BUF=64; ALIGN_S=subject
+XD=1; FB=0; XB=""; KIND=${RECIPE_ALIGN##*:}; HOW=${RECIPE_ALIGN%%:*}; BUF=64; ALIGN_S=subject
 case $RECIPE_SPEC in
   riemann|riemann:*) ;;
   *) note "ERROR: RECIPE_SPEC=$RECIPE_SPEC: the candidate is Riemann-Sealed (riemann:xd=.,fb=.)"; exit 1;;
@@ -265,6 +267,11 @@ esac
 for kv in $(echo "${RECIPE_SPEC#riemann}" | tr ':,' '  '); do
   case $kv in
     xd=*) XD=${kv#xd=};; fb=*) FB=${kv#fb=};;
+    x=*) XB=$(echo "${kv#x=}" | tr '+' '_')
+         for b in $(echo "$XB" | tr '_' ' '); do
+           echo "$b" | grep -qE '^(tseg|bpt)[1-9][0-9]*$' \
+             || { note "ERROR: RECIPE_SPEC block $b: the solver's xblocks has tseg<K> / bpt<K> only"; exit 1; }
+         done;;
     *) note "ERROR: RECIPE_SPEC option $kv has no Riemann-Sealed parameter"; exit 1;;
   esac
 done
@@ -452,6 +459,7 @@ sed -e 's/"personal": \["pooled"\]/"personal": ["blend"]/' \
     -e "s/\"adapt\": \[\"none\"\]/\"adapt\": [\"$ADAPT\"]/" \
     -e "s/\"use_xdawn\": \[True\]/\"use_xdawn\": [$XDB]/" \
     -e "s/\"filterbank\": \[True\]/\"filterbank\": [$FBB]/" \
+    -e "s/\"xblocks\": \[\"\"\]/\"xblocks\": [\"$XB\"]/" \
     -e "s/\"kind\": \[\"riemann\"\]/\"kind\": [\"$KIND\"]/" \
     -e "s/\"buffer\": \[64\]/\"buffer\": [$BUF]/" \
     -e "s/\"chans\": \[\"eeg\"\]/\"chans\": [\"$CHANS\"]/" \
@@ -459,7 +467,8 @@ sed -e 's/"personal": \["pooled"\]/"personal": ["blend"]/' \
     -e "s/name = \"Riemann-Sealed\"/name = \"Riemann-Sealed-Cand$SUFFIX\"/" \
     "$HOME/codabench/solvers/bci_decoding/riemann_sealed.py" > "$CAND"
 for want in "\"blend_w\": [$CW]" '"personal": ["blend"]' "\"adapt\": [\"$ADAPT\"]" \
-            "\"use_xdawn\": [$XDB]" "\"filterbank\": [$FBB]" "\"kind\": [\"$KIND\"]" \
+            "\"use_xdawn\": [$XDB]" "\"filterbank\": [$FBB]" "\"xblocks\": [\"$XB\"]" \
+            "\"kind\": [\"$KIND\"]" \
             "\"buffer\": [$BUF]" "\"chans\": [\"$CHANS\"]" "\"align\": [\"$ALIGN_S\"]"; do
   grep -qF "$want" "$CAND" \
       || { echo "| $(date +%T) | ERROR: candidate defaults not set ($want) |" >> "$STATUS"; exit 1; }
@@ -469,7 +478,7 @@ if [ "$ALIGN_S" = subject_context ] && ! grep -q 'align == "subject_context"' "$
   note "ERROR: $CAND has no align=\"subject_context\" (solver older than 2026-09-28 agent G)"; exit 1
 fi
 note "candidate $CAND: personal=blend blend_w=$CW adapt=$ADAPT use_xdawn=$XDB" \
-     "filterbank=$FBB kind=$KIND buffer=$BUF chans=$CHANS align=$ALIGN_S"
+     "filterbank=$FBB xblocks=${XB:-none} kind=$KIND buffer=$BUF chans=$CHANS align=$ALIGN_S"
 cd "$HOME/codabench/2026-competition"
 # OUT: resolved with the settings above
 [ -n "$SET_OUT" ] && export COMPET_SUBMISSION_DIR="$OUT"

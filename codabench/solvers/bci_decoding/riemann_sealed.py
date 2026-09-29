@@ -295,6 +295,82 @@ def _band_covs(parts, X, band):
                            for xb in _band_chunks(X, parts["sfreq"], band)])
 
 
+# ---------------------------------------------------------------------------
+# Extra temporal blocks (opt-in ``xblocks``, sprint 2026-09-29; the harness's
+# analysis/xfeat_temporal.py blocks of the same ids, same values):
+#   tseg<K>  per FB band: band-pass the whole window, K equal contiguous
+#            segments (remainder dropped), OAS covariance each -> one tangent
+#            space per (band, segment); 4 * K * C(C+1)/2 features;
+#   bpt<K>   per FB band: band-pass, square, mean over K equal contiguous time
+#            bins per channel, log(. + 1e-12) (stateless); 4 * K * C features.
+# Appended after the filter bank, in ``xblocks`` order. Default "" = none (the
+# model is then exactly the recipe).
+# ---------------------------------------------------------------------------
+_XBLOCK_RX = re.compile(r"(tseg|bpt)([1-9][0-9]*)")
+
+
+def _parse_xblocks(xblocks):
+    """"" / None -> []; "tseg3_bpt4" (or "tseg3+bpt4") -> ["tseg3", "bpt4"].
+    ("_" is the separator to use on a benchopt command line.)"""
+    names = [s for s in re.split(r"[_+,]", str(xblocks or "")) if s]
+    for s in names:
+        if not _XBLOCK_RX.fullmatch(s):
+            raise ValueError(f"xblocks: unknown block {s!r} (expected tseg<K> / bpt<K>)")
+    if len(set(names)) != len(names):
+        raise ValueError(f"xblocks: duplicate block in {xblocks!r}")
+    return names
+
+
+def _seg_slices(T, k):
+    w = T // k
+    if w < 2:
+        raise ValueError(f"{k} segments of a {T}-sample window are too short")
+    return [slice(i * w, (i + 1) * w) for i in range(k)]
+
+
+def _xblock_raw(parts, X):
+    """Per-window inputs of the extra blocks for (n, C, T) float64 windows:
+    "<tsegK>:<band>:<i>" -> (n, C, C) covariances, "<bptK>" -> (n, 4 K C)."""
+    out = {}
+    names = parts.get("xblocks") or []
+    if not names:
+        return out
+    cov = Covariances(estimator=parts["estimator"])
+    bpt = {s: [] for s in names if s.startswith("bpt")}
+    for band in FB_BANDS:
+        Xb = np.concatenate(list(_band_chunks(X, parts["sfreq"], band)))
+        for s in names:
+            k = int(_XBLOCK_RX.fullmatch(s).group(2))
+            segs = _seg_slices(Xb.shape[-1], k)
+            if s.startswith("tseg"):
+                for i, sl in enumerate(segs):
+                    out[f"{s}:{band}:{i}"] = cov.transform(Xb[..., sl])
+            else:
+                P = Xb ** 2
+                bpt[s] += [np.log(P[..., sl].mean(axis=2) + 1e-12) for sl in segs]
+    for s, v in bpt.items():
+        out[s] = np.concatenate(v, axis=1)
+    return out
+
+
+def _xblock_keys(s):
+    k = int(_XBLOCK_RX.fullmatch(s).group(2))
+    return [f"{s}:{band}:{i}" for band in FB_BANDS for i in range(k)]
+
+
+def _xblock_features(parts, raw, rows=slice(None)):
+    """Extra-block features of ``rows`` from ``_xblock_raw`` output."""
+    out = []
+    for s in parts.get("xblocks") or []:
+        if s.startswith("tseg"):
+            out.append(np.concatenate(
+                [ts.transform(raw[key][rows])
+                 for key, ts in zip(_xblock_keys(s), parts["xts:" + s])], axis=1))
+        else:
+            out.append(raw[s][rows])
+    return out
+
+
 def _feature_blocks(parts, X):
     """Named feature blocks for (n, C, T) float64 windows, in union order."""
     blocks = {}
@@ -309,6 +385,9 @@ def _feature_blocks(parts, X):
         blocks["fb"] = np.concatenate(
             [ts.transform(_band_covs(parts, X, band))
              for band, ts in zip(parts["fb_bands"], parts["fb_ts"])], axis=1)
+    if parts.get("xblocks"):
+        for s, f in zip(parts["xblocks"], _xblock_features(parts, _xblock_raw(parts, X))):
+            blocks["x:" + s] = f
     return blocks
 
 
@@ -446,6 +525,8 @@ def _window_blocks(parts, get, rows, size, which=None):
         if want("fb"):
             for band in parts.get("fb_bands") or []:
                 out["fb:" + band] = _band_covs(parts, xb, band)
+        if want("x"):
+            out.update(_xblock_raw(parts, xb))
         for k, v in out.items():
             acc.setdefault(k, []).append(v)
     return {k: v[0] if len(v) == 1 else np.concatenate(v) for k, v in acc.items()}
@@ -460,6 +541,9 @@ def _fit_tangent(parts, raw, y, rows=slice(None)):
     parts["broad_ts"] = ts(raw["broad"][rows])
     if parts.get("fb_bands"):
         parts["fb_ts"] = [ts(raw["fb:" + b][rows]) for b in parts["fb_bands"]]
+    for s in parts.get("xblocks") or []:
+        if s.startswith("tseg"):
+            parts["xts:" + s] = [ts(raw[key][rows]) for key in _xblock_keys(s)]
 
 
 def _raw_features(parts, raw, rows=slice(None)):
@@ -476,6 +560,7 @@ def _raw_features(parts, raw, rows=slice(None)):
         blocks.append(np.concatenate(
             [ts.transform(raw["fb:" + b][rows])
              for b, ts in zip(parts["fb_bands"], parts["fb_ts"])], axis=1))
+    blocks += _xblock_features(parts, raw, rows)
     return np.concatenate(blocks, axis=1)
 
 
@@ -857,8 +942,9 @@ class RiemannSealedModel:
                  align="subject", kind="riemann", personal="pooled",
                  blend_w=0.5, max_batches=None, adapt="none", buffer=64,
                  chans="eeg", ch_names=None, chs_info=None, ch_types=None,
-                 ctx_min=CTX_MIN_WINDOWS, ch_perm=None):
+                 ctx_min=CTX_MIN_WINDOWS, ch_perm=None, xblocks=""):
         self.parts, self.preproc = parts, preproc
+        self.xblocks = _parse_xblocks(xblocks)    # validated early (opt-in, default none)
         self.nfilter, self.estimator = nfilter, estimator
         self.use_xdawn, self.filterbank, self.slow_block = use_xdawn, filterbank, slow_block
         self.align, self.kind, self.personal = align, kind, personal
@@ -1123,6 +1209,8 @@ class RiemannSealedModel:
                              "n_bins": min(14, (X.shape[2] - start) // width)}
         if self.filterbank:
             parts["fb_bands"] = list(FB_BANDS)
+        if self.xblocks:
+            parts["xblocks"] = list(self.xblocks)
         raw = _window_blocks(parts, get, n, size)
         _fit_tangent(parts, raw, y)
         feats = _raw_features(parts, raw)
@@ -1198,7 +1286,8 @@ class RiemannSealedModel:
               else np.unique(ctx, return_inverse=True)[1])
         folds, how = _blend_folds(sidx, rank)
         K = int(parts["n_classes"])
-        base = {k: parts[k] for k in ("estimator", "sfreq", "slow", "fb_bands") if k in parts}
+        base = {k: parts[k] for k in ("estimator", "sfreq", "slow", "fb_bands", "xblocks")
+                if k in parts}
         base["xdawn"] = None
         raw = _window_blocks(base, get, n, size)
         scores = np.zeros(len(W_GRID))
@@ -1328,6 +1417,9 @@ class Solver(CompetSolver):
         "use_xdawn": [True],
         "filterbank": [True],
         "slow_block": [False],
+        # extra temporal blocks, e.g. "bpt4" or "tseg3_bpt4" (sprint 2026-09-29;
+        # "" = none, the recipe)
+        "xblocks": [""],
         # "subject" (router + per-subject W) | "none" | "subject_context"
         # (router + W per (subject, context) pair: the harness's router-psdctx)
         "align": ["subject"],
@@ -1368,7 +1460,8 @@ class Solver(CompetSolver):
                                   ch_names=ch_names,
                                   chs_info=meta.get("chs_info"),
                                   ch_types=meta.get("ch_types"),
-                                  ctx_min=self.ctx_min, ch_perm=perm)
+                                  ctx_min=self.ctx_min, ch_perm=perm,
+                                  xblocks=self.xblocks)
 
     def fit(self, model, train_loader):
         model.fit(train_loader)

@@ -13,12 +13,17 @@ B=riemann:xd=1,fb=1
 SPECS_S="$B,x=fblv $B,x=fbrlv $B,x=reg $B,x=csp8 $B,x=icoh"
 SPECS_E="$B,x=tcut1000 $B,blocks=xdawn+broad+logvar,x=fbfrom1000"
 C3="--study scherer2015 --classes 0,1,3"
-for s in s3_T zh_T tg_T s5_T; do
-  pid=$(cat "$LOGDIR/$s.pid" 2>/dev/null)
-  if [ -n "$pid" ] && [ ! -f "$LOGDIR/$s.done" ] && kill -0 "$pid" 2>/dev/null; then
-    echo "| $(date +%T) | f2b refused: $s (pid $pid) still running |" >> "$STATUS"; exit 1
-  fi
-done
+LANES=${LANES:-AB}
+busy() {   # f2's step of the same lane still running -> refuse (shared results files)
+  for s in "$@"; do
+    pid=$(cat "$LOGDIR/$s.pid" 2>/dev/null)
+    if [ -n "$pid" ] && [ ! -f "$LOGDIR/$s.done" ] && kill -0 "$pid" 2>/dev/null; then
+      echo "| $(date +%T) | f2b refused: $s (pid $pid) still running |" >> "$STATUS"; exit 1
+    fi
+  done
+}
+[[ $LANES == *A* ]] && busy s3_T zh_T
+[[ $LANES == *B* ]] && busy tg_T s5_T
 
 fam() {   # fam <S|E> <stepname> <eta> <timeout> <args...>: run only if FAM has it
   local f=$1; shift
