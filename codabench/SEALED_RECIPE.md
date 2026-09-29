@@ -32,10 +32,16 @@ prediction time**:
 **Conditional upgrade, pending the organisers' answer:** *online per-subject
 re-centring* (`adapt="online"`). Each routed subject's whitening reference is the
 mean covariance of the last 64 test windows routed to it. This is the single
-largest lever measured: **+3.5 to +7.5 points** on top of the clean recipe, at
-or above what the (unattainable) oracle session re-centring gives. It uses
-unlabelled test windows, which the rules neither allow nor forbid explicitly (§ 5,
-step 1).
+largest lever measured: **+3.5 to +7.5 points** on top of the clean recipe when
+test windows arrive in recording order, at or above what the (unattainable) oracle
+session re-centring gives. **It depends on the test order** (sprint 2026-09-28,
+Phase 3, `logs/sprint0928_p3/`): in recording order a 64-window batch is mostly one
+subject, so the buffer is essentially the current batch. With subjects interleaved
+window by window, the gain shrinks to **+3.0 (Tangermann) and +4.4 (Scherer
+3-class)**. Both are still significant, but that is only 58–85 % of the
+recording-order gain. N = 32 kept the most under interleaving. A session change
+inside the test stream causes no measurable lag. It uses unlabelled test windows,
+which the rules neither allow nor forbid explicitly (§ 5, step 1).
 
 Not in the recipe: EEGNet (6–12 points below Riemann in every comparison, with
 or without last-layer calibration or alignment); cross-dataset pre-training
@@ -184,7 +190,7 @@ w = 0.5, train 0.792 = replay 0.792 (harness 0.797). Tangermann through benchopt
 
 | # | Step | Expected gain | Effort | Risk |
 |---|---|---|---|---|
-| 1 | **Ask the organisers** whether `predict()` may use statistics of the unlabelled test windows it has already received (online per-subject re-centring; no labels, no training on the sealed split). Suggested wording below. If yes: `ADAPT=online bash scripts/train_sealed.sh ...` | **+3.5 to +7.5 points** on the proxies (significant on 3 of 4); the single largest lever found | one forum post (the user's action); code ready and verified | rule only. If the answer is no, the clean recipe stands unchanged |
+| 1 | **Ask the organisers** whether `predict()` may use statistics of the unlabelled test windows it has already received (online per-subject re-centring; no labels, no training on the sealed split). Suggested wording below. If yes: `ADAPT=online bash scripts/train_sealed.sh ...` | **+3.5 to +7.5 points** on the proxies in recording order (significant on 3 of 4); **+3.0 to +4.4** if test windows arrive interleaved across subjects; the single largest lever found | one forum post (the user's action); code ready and verified | rule only. If the answer is no, the clean recipe stands unchanged |
 | 2 | **Release day**: run `train_sealed.sh` on Graz + BrainHero using the ten fully labelled participants as a replica split (calibrate on sessions 1–3, test on 4–6). Then: EMG/EOG ablation, context cells, blend weight by leave-one-calibration-session-out, xDAWN ablation (§ 3) | correctness: the proxies are small (4–9 people), so the ranking of close variants can change | ~1 day: the pipeline runs in minutes, the EDA and ablations are the work | loader surprises (47 ch at 500 Hz, contexts, how sessions are labelled) |
 | 3 | **Riemann + pooled-EEGNet probability ensemble** on the 3 classes. Pooled EEGNet reaches 0.476 there, close to the Riemann recipe (0.486–0.499), and its errors may differ. Weight on held-out calibration sessions, never equal weights (the Riemann LDA is overconfident: an equal blend lost 0.75 points in the warm-up) | +1–2 points (the warm-up ensemble gave +0.8) | half a day: both models into one `submission.py`, weight search in the harness | small; adds inference time and a second model to audit |
 
@@ -196,6 +202,12 @@ train-only alignment (hurts), batch-level statistics (superseded by online).
 > In the sealed phase, may a submission's `predict()` use statistics of the
 > unlabelled windows it has received so far, for example keeping a running mean
 > covariance per inferred user to re-centre later windows? It uses no labels
-> and no sealed data for training, but it is test-time adaptation. Also, will
-> test windows reach `predict()` grouped by subject/session (recording order)
-> as in the Dreyer warm-up?
+> and no sealed data for training, but it is test-time adaptation. Also, in what
+> order and in what batches will the sealed test windows reach `predict()`:
+> grouped by subject and session in recording order (as in the Dreyer warm-up),
+> or interleaved/shuffled across participants? And is the model object kept
+> between `predict()` calls?
+
+The order question matters on its own: the online gain on the proxies is
++3.5 to +7.5 points in recording order but +3.0 to +4.4 with subjects interleaved
+(§ 1).

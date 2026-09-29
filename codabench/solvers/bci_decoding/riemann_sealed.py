@@ -8,6 +8,12 @@ bare ``(B, C, T)`` windows. Built from the cross-session proxy study
 (codabench/SEALED_RECIPE.md, codabench/LOG.md 2026-09-25/26).
 
 Training (``fit``; the train loader supplies ``info["subject_id"]``):
+  0. channel pick (``chans``): "eeg" (default) drops EMG/EOG/ECG channels,
+     typed by ``meta["ch_types"]``, else the ``chs_info`` kind, else the
+     name (EMG / EOG / ECG anywhere in it); "eeg+eog" / "eeg+emg" keep that type
+     too; "all" keeps every channel. The index is stored in the joblib and
+     applied identically at prediction (a joblib without one keeps all
+     channels, as it was trained). The proxies are EEG-only: no change there;
   1. per-window preprocessing (WindowPreproc, as Riemann-StepType);
   2. subject router: log-PSD (Welch, 1 s segments, 1-45 Hz, every channel)
      -> shrinkage LDA over training subjects. Fallback threshold = min(0.5, 1st
@@ -20,9 +26,13 @@ Training (``fit``; the train loader supplies ``info["subject_id"]``):
   4. Riemann-StepType feature union on the whitened windows (xDAWN,
      broadband TS, log-variance, optional filter bank / slow block) ->
      pooled shrinkage LDA (uniform priors);
-  5. ``personal="calib"``: additionally one LDA per subject on the shared
-     features (pooled extractor, own LDA); ``personal="blend"``: prediction =
-     w * pooled + (1 - w) * per-subject LDA probabilities (``blend_w``).
+  5. personalisation (``personal``): "pooled" = the pooled LDA alone;
+     "calib" = the routed subject's own LDA, fitted on the pooled feature
+     extractor's features; "blend" = **blend_calib** of SEALED_RECIPE.md,
+     i.e. the pooled feature extractor with a per-subject LDA, P = w *
+     P_pooled + (1 - w) * P_subject (the pooled LDA's and the routed
+     subject's LDA's probabilities). w = ``blend_w``: a number, or "auto"
+     (chosen in ``fit``, see below, and stored in the joblib).
 Prediction: route each window (argmax posterior; below threshold -> global W
 and pooled LDA), whiten with the routed subject's W, features, LDA(s).
 ``adapt="online"`` (RULE-DEPENDENT: uses unlabelled test windows; off by
@@ -32,6 +42,50 @@ that subject, kept across predict() calls (training W until buffer/4 seen).
 On the proxies this recovers the whole session-drift gain (+5.6 to +7.5
 points per-subject); without it, per-subject whitening is ~invisible to a
 tangent space at the subject's own mean (affine invariance).
+
+``blend_w="auto"`` needs session ids (local training: NeuralBench's trigger
+table, see ``_collect``; without them w = 0.5 and a warning). It is the
+harness's ``sealed_personal.py --wcv loso`` rule, leave-one-calibration-
+session-out: for each chronological session index k, validate on session k of
+every subject with >= 2 training sessions and refit on all other training
+windows (xDAWN, tangent spaces, pooled LDA, per-subject LDAs); score w in
+{0, .25, .5, .75, 1} on the validation rows with each row's TRUE subject's
+LDA, cell metric over subject x session (x context) cells; mean over folds,
+ties to the larger (more pooled) w. No subject with 2 training sessions ->
+two chronological halves per subject (the harness's fallback). As in the
+harness, the folds keep the whitening references of the whole training set
+(each subject's W from all its training windows, the validation session
+included) and whiten in float32 like ``xsess_lib.apply_W``, so the solver's
+weight equals the harness's when both see the same windows in the same order.
+Residual differences: row order (the train loader's index order vs the
+cache's recording order: last-bit differences in the xDAWN/LDA fits), which
+windows are "training" (the benchopt train split vs the harness's split),
+preprocessing (the solver re-references/band-passes before whitening, the
+harness after; both are off by default), and above one chunk the chunked
+xDAWN statistics (~1e-12 relative vs the harness's one-shot pyriemann fit).
+Every LDA (solver and harness) is ``fit_shrinkage_lda`` with the same solve
+rule (Cholesky above LDA_FAST_P features, sklearn's lstsq below), so the LDAs
+add no solver-harness difference at any size.
+Checked 2026-09-28: identical weights and bit-identical fold scores on
+zhou2016 (with and without contexts, adapt none/online) and mock_sealed_s
+(replica:3, 43 EEG ch, contexts; harness LDAs on the same Cholesky solve).
+The strict alternative, whitening references refitted on each fold's fit
+rows (a held-out session then drifts like a real test session), is not
+implemented: it would no longer equal the harness's weight.
+
+Memory and time (43-47 ch x 500 Hz): training windows are kept as float32
+(exact: the preprocessing output is float32); every float64 step (router PSD,
+window covariances, whitening, feature blocks) runs in chunks of <=
+_CHUNK_BYTES, and xDAWN is fitted from chunked statistics (signal covariance +
+class-mean responses) when the training set exceeds one chunk. LDAs with more
+than LDA_FAST_P features (the sealed data: ~5-6k) solve with a Cholesky
+factorisation instead of sklearn's SVD lstsq (86 s -> 2 s per LDA at p = 5987;
+sklearn's lstsq is kept if the matrix is ill-conditioned or the residual is
+not tiny) and drop their unused p x p covariance_ (287 MB each). Every proxy is one
+chunk and <= 3175 features, so their numbers are bit-identical to the plain
+code. Prediction memory is bounded by the batch. ``fit`` prints the seconds
+per stage and the peak RSS (plus a heartbeat line for any stage or blend fold
+slower than 30 s); ``predict_proba`` prints a timing summary every 20 calls.
 
 Everything saved is numpy arrays and sklearn/pyriemann objects (joblib), so it
 unpickles on the scoring worker.
@@ -44,6 +98,9 @@ Train locally (from ~/codabench/2026-competition, after ``source env.sh``):
 """
 
 
+import re
+import time
+
 import joblib
 import numpy as np
 import torch
@@ -55,6 +112,11 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 from benchmark_utils.base_solver import CompetSolver
 from benchmark_utils.data import to_numpy
+
+try:
+    import resource          # peak RSS; not available on Windows
+except ImportError:          # pragma: no cover
+    resource = None
 
 
 # ---------------------------------------------------------------------------
@@ -203,15 +265,181 @@ def _features(parts, X):
     return np.concatenate(list(_feature_blocks(parts, X).values()), axis=1)
 
 
+# ---------------------------------------------------------------------------
+# Chunked training passes (43-47 ch x 500 Hz). The windows are stored as
+# float32; each chunk is converted to float64 before any math, so a single
+# chunk reproduces the unchunked float64 code exactly.
+# ---------------------------------------------------------------------------
+# float64 bytes of windows per chunk. Every proxy (<= 0.45 GB as float64) and
+# mock_sealed_s (0.48 GiB) is one chunk; 47 ch x 2000 samples -> 713 windows.
+_CHUNK_BYTES = 512 * 2 ** 20
+
+
+def _chunk_len(shape):
+    """Windows per chunk for (n, C, T) data: all n when they fit in one."""
+    n, per = int(shape[0]), 8 * int(np.prod(shape[1:]))
+    return max(1, n if n * per <= _CHUNK_BYTES else _CHUNK_BYTES // per)
+
+
+def _row_chunks(rows, size):
+    """Chunks of <= size rows: slices for ``rows`` = a count n (all rows),
+    else pieces of the index array ``rows``."""
+    if isinstance(rows, (int, np.integer)):
+        return [slice(i, min(i + size, rows)) for i in range(0, rows, size)]
+    return [rows[i:i + size] for i in range(0, len(rows), size)]
+
+
+def _maxrss_gb():
+    if resource is None:
+        return float("nan")
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2 ** 20   # KB -> GB
+
+
+_HEARTBEAT_S = 30     # stages / blend folds slower than this print a progress line
+
+
+def _lap(tm, stage, t0):
+    """Record a fit stage's seconds; a slow stage prints a heartbeat line (so
+    a long 500 Hz fit keeps its log growing)."""
+    tm[stage] = time.time() - t0
+    if tm[stage] >= _HEARTBEAT_S:
+        print(f"[Riemann-Sealed] [{time.strftime('%H:%M:%S')}] {stage} done in "
+              f"{tm[stage]:.0f} s; maxrss {_maxrss_gb():.2f} GB", flush=True)
+
+
+def _whiten_rows(X, idx, Ws, Wg, f32=False):
+    """Row i <- W[idx[i]] @ X[i] (idx -1 -> Wg). float64 (the solver's own
+    whitening), or f32=True: the harness's float32 ``xsess_lib.apply_W``,
+    used only to choose blend_w="auto" on the harness's aligned data."""
+    X = np.asarray(X, dtype=np.float32 if f32 else np.float64)
+    out = np.empty_like(X)
+    for k in np.unique(idx):
+        m = idx == k
+        W = Wg if k < 0 else Ws[k]
+        if f32:
+            out[m] = np.einsum("ij,njt->nit", W.astype(np.float32), X[m]).astype(np.float32)
+        else:
+            out[m] = np.einsum("ij,njt->nit", W, X[m])
+    return out
+
+
+def _oas_shrink(emp, n_samples):
+    """sklearn's OAS shrinkage (covariance._shrunk_covariance._oas) applied to
+    a precomputed centred empirical covariance of ``n_samples`` samples."""
+    p = emp.shape[0]
+    alpha = np.mean(emp ** 2)
+    mu = np.trace(emp) / p
+    num = alpha + mu ** 2
+    den = (n_samples + 1) * (alpha - mu ** 2 / p)
+    shrink = 1.0 if den == 0 else min(num / den, 1.0)
+    out = (1.0 - shrink) * emp
+    out.flat[::p + 1] += shrink * mu
+    return out
+
+
+def _fit_xdawn(nfilter, estimator, get, y, rows, size):
+    """XdawnCovariances fitted on the windows ``get(rows)``: pyriemann's own fit
+    when they are one chunk (bit-identical), else the same filters from chunked
+    statistics: the signal covariance over all samples (Chan et al. pairwise
+    merge of per-chunk means/scatters, then the OAS shrinkage) as
+    ``baseline_cov``, and each class's mean response as its only "trial"."""
+    kw = dict(nfilter=nfilter, estimator=estimator, xdawn_estimator=estimator)
+    chunks = _row_chunks(rows, size)
+    if len(chunks) == 1:
+        return XdawnCovariances(**kw).fit(get(chunks[0]), y[chunks[0]])
+    if estimator not in ("oas", "scm"):
+        raise ValueError(f"chunked xDAWN supports estimator oas|scm, not {estimator!r}")
+    classes = np.unique(y if isinstance(rows, (int, np.integer)) else y[rows])
+    sums, counts = {c: 0.0 for c in classes}, {c: 0 for c in classes}
+    n_tot, mean, M2 = 0, 0.0, 0.0
+    for s in chunks:
+        xb, yb = get(s), y[s]
+        for c in classes:
+            sums[c] = sums[c] + xb[yb == c].sum(axis=0)
+            counts[c] += int(np.sum(yb == c))
+        nb = xb.shape[0] * xb.shape[2]
+        mb = xb.mean(axis=(0, 2)) if estimator == "oas" else np.zeros(xb.shape[1])
+        xc = xb - mb[None, :, None] if estimator == "oas" else xb
+        Sb = np.tensordot(xc, xc, axes=([0, 2], [0, 2]))
+        d, tot = mb - mean, n_tot + nb
+        M2 = M2 + Sb + np.outer(d, d) * (n_tot * nb / tot)
+        mean, n_tot = mean + d * (nb / tot), tot
+    Cx = M2 / n_tot
+    if estimator == "oas":
+        Cx = _oas_shrink(Cx, n_tot)
+    P = np.stack([sums[c] / counts[c] for c in classes])
+    return XdawnCovariances(**kw, baseline_cov=Cx).fit(P, classes)
+
+
+def _window_blocks(parts, get, rows, size, which=None):
+    """One chunked pass over the windows ``get(chunk)`` (float64): the
+    per-window input of every feature block before its tangent space (xDAWN,
+    broadband and filter-bank covariances; log-variance; slow bins), as in
+    ``_feature_blocks``. ``which``: only these block names."""
+    acc = {}
+
+    def want(k):
+        return which is None or k in which
+    for s in _row_chunks(rows, size):
+        xb = get(s)
+        out = {}
+        if parts.get("xdawn") is not None and want("xdawn"):
+            out["xdawn"] = parts["xdawn"].transform(xb)
+        if want("broad"):
+            out["broad"] = Covariances(estimator=parts["estimator"]).transform(xb)
+        if want("logvar"):
+            out["logvar"] = np.log(np.var(xb, axis=2) + 1e-12)
+        if parts.get("slow") is not None and want("slow"):
+            out["slow"] = _slow_bins(parts, xb)
+        if want("fb"):
+            for band in parts.get("fb_bands") or []:
+                out["fb:" + band] = _band_covs(parts, xb, band)
+        for k, v in out.items():
+            acc.setdefault(k, []).append(v)
+    return {k: v[0] if len(v) == 1 else np.concatenate(v) for k, v in acc.items()}
+
+
+def _fit_tangent(parts, raw, y, rows=slice(None)):
+    """Tangent spaces of the covariance blocks, fitted on ``rows``."""
+    def ts(covs):
+        return TangentSpace(metric="riemann").fit(covs, y[rows])
+    if parts.get("xdawn") is not None:
+        parts["xdawn_ts"] = ts(raw["xdawn"][rows])
+    parts["broad_ts"] = ts(raw["broad"][rows])
+    if parts.get("fb_bands"):
+        parts["fb_ts"] = [ts(raw["fb:" + b][rows]) for b in parts["fb_bands"]]
+
+
+def _raw_features(parts, raw, rows=slice(None)):
+    """Feature union of ``rows`` from ``_window_blocks`` output (the order of
+    ``_feature_blocks``)."""
+    blocks = []
+    if parts.get("xdawn") is not None:
+        blocks.append(parts["xdawn_ts"].transform(raw["xdawn"][rows]))
+    blocks.append(parts["broad_ts"].transform(raw["broad"][rows]))
+    blocks.append(raw["logvar"][rows])
+    if parts.get("slow") is not None:
+        blocks.append(raw["slow"][rows])
+    if parts.get("fb_ts") is not None:
+        blocks.append(np.concatenate(
+            [ts.transform(raw["fb:" + b][rows])
+             for b, ts in zip(parts["fb_bands"], parts["fb_ts"])], axis=1))
+    return np.concatenate(blocks, axis=1)
 
 
 # ---------------------------------------------------------------------------
 # Sealed-phase additions: router + per-subject whitening + personal LDAs.
 # ---------------------------------------------------------------------------
 def _window_covs(X, shrink=1e-3):
-    C = np.einsum("nct,ndt->ncd", X, X) / X.shape[-1]
-    tr = np.trace(C, axis1=1, axis2=2)[:, None, None] / C.shape[1]
-    return C + shrink * tr * np.eye(C.shape[1])[None]
+    """(n, C, C) float64 window covariances X X^T / T + trace-scaled ridge,
+    chunked over windows."""
+    out = []
+    for s in _row_chunks(len(X), _chunk_len(X.shape)):
+        Xb = np.asarray(X[s], dtype=np.float64)
+        C = np.einsum("nct,ndt->ncd", Xb, Xb) / Xb.shape[-1]
+        tr = np.trace(C, axis1=1, axis2=2)[:, None, None] / C.shape[1]
+        out.append(C + shrink * tr * np.eye(C.shape[1])[None])
+    return out[0] if len(out) == 1 else np.concatenate(out)
 
 
 def _mean_cov(covs, kind):
@@ -227,14 +455,221 @@ def _inv_sqrtm(R):
 
 
 def _psd_features(X, sfreq):
+    """Router features (float64 math, chunked over windows)."""
     from scipy.signal import welch
-    f, P = welch(X, fs=sfreq, nperseg=int(sfreq), axis=-1)
-    m = (f >= 1) & (f <= 45)
-    return np.log(P[..., m] + 1e-12).reshape(len(X), -1)
+    out = []
+    for s in _row_chunks(len(X), _chunk_len(X.shape)):
+        f, P = welch(np.asarray(X[s], dtype=np.float64), fs=sfreq,
+                     nperseg=int(sfreq), axis=-1)
+        m = (f >= 1) & (f <= 45)
+        out.append(np.log(P[..., m] + 1e-12).reshape(len(P), -1))
+    return out[0] if len(out) == 1 else np.concatenate(out)
 
 
-def _shrink_lda(priors=None):
-    return LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto", priors=priors)
+# ---------------------------------------------------------------------------
+# Shrinkage LDA with a fast solve (identical block in riemann_steptype.py,
+# which the harness uses, so solver and harness LDAs agree at every size).
+# sklearn's LinearDiscriminantAnalysis(solver="lsqr") solves
+# covariance_ @ coef_.T = means_.T with scipy's SVD lstsq, O(p^3): 70-100 s
+# per fit at p = 5073 features (fb=1 union at 43 ch) on 4 threads. The shrunk
+# covariance is SPD, so a Cholesky solve gives the same coefficients (to
+# ~1e-14 relative) in ~3 s. Above LDA_FAST_P features the fit is sklearn's own
+# fit with only that solve replaced; every proxy has p <= 3175 (3595 with
+# slow_block) and keeps sklearn's lstsq bit-for-bit.
+# ---------------------------------------------------------------------------
+LDA_FAST_P = 4000
+LDA_MAX_RESID = 1e-8      # relative residual above which the solve falls back
+LDA_STATS = {"fast": 0, "fallback": 0}   # diagnostics: fast solves / lstsq fallbacks
+
+try:
+    from sklearn.discriminant_analysis import _class_cov, _class_means
+except ImportError:       # pragma: no cover (a future sklearn): plain fits only
+    _class_cov = _class_means = None
+
+
+class _CholeskyLsqrLDA(LinearDiscriminantAnalysis):
+    """LinearDiscriminantAnalysis whose lsqr step is a Cholesky solve. Used
+    only inside ``fit_shrinkage_lda``, which turns the fitted object back into
+    a plain LinearDiscriminantAnalysis: nothing pickled refers to this class."""
+
+    def _solve_lstsq(self, X, y, shrinkage, covariance_estimator):
+        # sklearn 1.9 LinearDiscriminantAnalysis._solve_lstsq, except the solve
+        import warnings
+        from scipy import linalg
+        self.means_ = _class_means(X, y)
+        self.covariance_ = _class_cov(X, y, self.priors_, shrinkage, covariance_estimator)
+        B = self.means_.T
+        coef = None
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", linalg.LinAlgWarning)   # ill-conditioned
+                coef = linalg.solve(self.covariance_, B, assume_a="pos")
+            resid = np.linalg.norm(self.covariance_ @ coef - B) / np.linalg.norm(B)
+            if not resid <= LDA_MAX_RESID:          # also catches NaN
+                coef = None
+        except (linalg.LinAlgError, linalg.LinAlgWarning, ValueError):
+            coef = None
+        if coef is None:                            # sklearn's own solve
+            LDA_STATS["fallback"] += 1
+            coef = linalg.lstsq(self.covariance_, B)[0]
+        else:
+            LDA_STATS["fast"] += 1
+        self.coef_ = coef.T
+        self.intercept_ = -0.5 * np.diag(np.dot(self.means_, self.coef_.T)) + np.log(
+            self.priors_
+        )
+
+
+def fit_shrinkage_lda(X, y, priors=None, fast=None):
+    """LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto", priors)
+    fitted on (X, y), returned as a plain sklearn object (it unpickles
+    anywhere sklearn does). Up to LDA_FAST_P features: sklearn's own fit.
+    Above: the same fit (validation, classes_, priors_, class means,
+    Ledoit-Wolf class covariance, 2-class coef reduction, n_features_in_)
+    with the lstsq step as a Cholesky solve; sklearn's lstsq is kept when the
+    matrix is not numerically SPD / well conditioned or the solve's relative
+    residual exceeds LDA_MAX_RESID. ``fast`` = True / False forces the choice
+    (equivalence checks)."""
+    use_fast = (np.shape(X)[1] > LDA_FAST_P) if fast is None else bool(fast)
+    if not use_fast or _class_cov is None:
+        return LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto",
+                                          priors=priors).fit(X, y)
+    lda = _CholeskyLsqrLDA(solver="lsqr", shrinkage="auto", priors=priors)
+    try:
+        lda.fit(X, y)
+    finally:
+        lda.__class__ = LinearDiscriminantAnalysis
+    return lda
+
+
+def _fit_lda(F, y, priors=None):
+    """The solver's shrinkage LDA: ``fit_shrinkage_lda``; above LDA_FAST_P
+    features the fitted p x p ``covariance_`` (206 MB at p = 5073, 287 MB at
+    5987; one per subject) is then dropped: lsqr prediction uses only
+    coef_ / intercept_ / classes_, and 21 of them would put ~4-6 GB in the
+    model and the submission joblib."""
+    lda = fit_shrinkage_lda(F, y, priors)
+    if F.shape[1] > LDA_FAST_P:
+        del lda.covariance_
+    return lda
+
+
+# -- channel types (chans) ------------------------------------------------------
+# anywhere in the name (HEOG, VEOG, LEOG, Chin_EMG, EOG_L, EMG1, ...); also the
+# harness's rule for caches without meta ch_types (analysis/xsess_lib.ch_types)
+_NON_EEG = re.compile(r"EMG|EOG|ECG", re.IGNORECASE)
+_FIFF_KINDS = {2: "eeg", 202: "eog", 302: "emg", 402: "ecg"}   # MNE FIFFV_*_CH
+_CHANS = {"eeg": {"eeg"}, "eeg+eog": {"eeg", "eog"}, "eeg+emg": {"eeg", "emg"}}
+
+
+def _channel_types(ch_names, chs_info=None, ch_types=None):
+    """'eeg' | 'emg' | 'eog' | 'ecg' per channel: an explicit ``ch_types``
+    list, else each ``chs_info`` entry's kind (MNE FIFF code or a type
+    string), else the name (EMG / EOG / ECG anywhere in it, case-insensitive;
+    anything else is EEG, e.g. ExG1)."""
+    if ch_types is not None and len(ch_types) == len(ch_names):
+        return [str(t).lower() for t in ch_types]
+    out = []
+    for i, name in enumerate(ch_names):
+        kind = None
+        info = chs_info[i] if chs_info is not None and i < len(chs_info) else None
+        k = (info.get("kind", info.get("ch_type", info.get("type")))
+             if isinstance(info, dict) else None)
+        if k is not None:
+            try:
+                kind = _FIFF_KINDS.get(int(k))
+            except (TypeError, ValueError):
+                kind = next((t for t in ("emg", "eog", "ecg", "eeg")
+                             if t in str(k).lower()), None)
+        if kind is None:
+            m = _NON_EEG.search(str(name))
+            kind = m.group(0).lower() if m else "eeg"
+        out.append(kind)
+    return out
+
+
+def _chan_index(types, chans):
+    """Kept channel indices for ``chans``, or None when every channel is kept."""
+    if chans == "all":
+        return None
+    idx = [i for i, t in enumerate(types) if t in _CHANS[chans]]
+    return None if len(idx) == len(types) else idx
+
+
+# -- blend_w="auto": leave-one-calibration-session-out ---------------------------
+W_GRID = [0.0, 0.25, 0.5, 0.75, 1.0]
+_CTX_COLUMNS = ("context", "condition", "paradigm")   # as analysis/xsess_cache.py
+
+
+def _session_key(s):
+    """Chronological sort key for session labels ('0', '1test', ...), the
+    order analysis/xsess_cache.py gives sessions."""
+    s = str(s)
+    digits = "".join(ch for ch in s if ch.isdigit())
+    return (int(digits) if digits else 0, s)
+
+
+def _session_rank(sidx, sess):
+    """Chronological index of each window's session among its subject's
+    training sessions (= the cache's session index when training sessions
+    precede test sessions, as in the sealed split)."""
+    rank = np.zeros(len(sidx), dtype=np.int64)
+    for k in np.unique(sidx):
+        m = sidx == k
+        order = {v: j for j, v in enumerate(sorted(set(sess[m]), key=_session_key))}
+        rank[m] = [order[v] for v in sess[m]]
+    return rank
+
+
+def _blend_folds(sidx, rank):
+    """(fit_idx, val_idx) pairs: leave-one-session-out over chronological
+    session indices, validating only subjects with >= 2 training sessions
+    (empty folds skipped); else two chronological halves of each subject's
+    windows (rows in recording order), fit on one and score the other."""
+    n_sess = np.array([len(np.unique(rank[sidx == k])) for k in range(sidx.max() + 1)])
+    multi = n_sess[sidx] >= 2
+    folds = []
+    for k in np.unique(rank):
+        v = multi & (rank == k)
+        if v.any():
+            folds.append((np.where(~v)[0], np.where(v)[0]))
+    if folds:
+        return folds, "loso"
+    first = np.zeros(len(sidx), bool)
+    for k in np.unique(sidx):
+        i = np.where(sidx == k)[0]
+        first[i[: len(i) // 2]] = True
+    a, b = np.where(first)[0], np.where(~first)[0]
+    return [(a, b), (b, a)], "halves"
+
+
+def _cell_score(y, yhat, subj, sess, ctx):
+    """Mean balanced accuracy over subject x session x context cells, in the
+    order of analysis/xsess_lib.score (its "cell")."""
+    import warnings
+    from sklearn.metrics import balanced_accuracy_score
+    cells = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for s in np.unique(subj):
+            ms = subj == s
+            for v, c in sorted({(v, c) for v, c in zip(sess[ms], ctx[ms])}):
+                m = ms & (sess == v) & (ctx == c)
+                cells.append(balanced_accuracy_score(y[m], yhat[m]))
+    return float(np.mean(cells))
+
+
+def _trigger_table(ds):
+    """The train dataset's per-window trigger table (index order), or None:
+    NeuralBench's ``dataset.seg_ds.triggers``, or a ``dataset.triggers``."""
+    for obj in (getattr(ds, "seg_ds", None), ds):
+        try:
+            trig = getattr(obj, "triggers", None) if obj is not None else None
+        except Exception:        # no triggers table: try the next / fall back
+            trig = None
+        if trig is not None and hasattr(trig, "columns"):
+            return trig
+    return None
 
 
 class RiemannSealedModel:
@@ -242,25 +677,44 @@ class RiemannSealedModel:
     def __init__(self, parts=None, preproc=None, nfilter=4, estimator="oas",
                  use_xdawn=True, filterbank=True, slow_block=False,
                  align="subject", kind="riemann", personal="pooled",
-                 blend_w=0.5, max_batches=None, adapt="none", buffer=64):
+                 blend_w=0.5, max_batches=None, adapt="none", buffer=64,
+                 chans="eeg", ch_names=None, chs_info=None, ch_types=None):
         self.parts, self.preproc = parts, preproc
         self.nfilter, self.estimator = nfilter, estimator
         self.use_xdawn, self.filterbank, self.slow_block = use_xdawn, filterbank, slow_block
         self.align, self.kind, self.personal = align, kind, personal
-        self.blend_w, self.max_batches = float(blend_w), max_batches
+        # a number, or "auto": chosen in fit (leave-one-calibration-session-out)
+        self.blend_w = "auto" if str(blend_w) == "auto" else float(blend_w)
+        self.max_batches = max_batches
         # adapt="online" (RULE-DEPENDENT, transductive): each routed subject's
         # whitening reference = mean covariance of the last `buffer` test
         # windows routed to it (training reference until buffer/4 are seen).
         # State persists across predict() calls, i.e. across test batches.
         self.adapt, self.buffer = adapt, int(buffer)
         self._buf = {}
+        if chans != "all" and chans not in _CHANS:
+            raise ValueError(f"chans must be eeg|eeg+eog|eeg+emg|all, got {chans!r}")
+        self.chans = chans
+        self.ch_names, self.chs_info, self.ch_types = ch_names, chs_info, ch_types
+        self._chan_idx = None
+        self._pred = {"calls": 0, "windows": 0, "seconds": 0.0}
+        self._warned_w = False
 
-    def _prep(self, X):
+    def _prep(self, X, chan_idx=None, dtype=np.float64):
         X = torch.as_tensor(X, dtype=torch.float32).cpu()
         if self.preproc is not None:
             with torch.no_grad():
                 X = self.preproc(X)
-        return X.numpy().astype(np.float64)
+        if chan_idx is not None:
+            X = X[:, chan_idx]
+        return X.numpy().astype(dtype)
+
+    def _pick_channels(self):
+        """Channel index for ``chans`` from the meta channel info (None = all)."""
+        if self.ch_names is None:
+            return None
+        return _chan_index(_channel_types(self.ch_names, self.chs_info, self.ch_types),
+                           self.chans)
 
     # -- routing / whitening -------------------------------------------------
     def _route(self, X):
@@ -273,75 +727,94 @@ class RiemannSealedModel:
 
     def _whiten(self, X, idx, parts=None):
         parts = self.parts if parts is None else parts
-        Ws, Wg = parts["W"], parts["W_global"]
-        out = np.empty_like(X)
-        for k in np.unique(idx):
-            m = idx == k
-            W = Wg if k < 0 else Ws[k]
-            out[m] = np.einsum("ij,njt->nit", W, X[m])
-        return out
+        return _whiten_rows(X, idx, parts["W"], parts["W_global"])
 
     # -- training -------------------------------------------------------------
     def _collect(self, train_loader):
-        """(X, y, subject, session-or-None) from the train loader.
+        """(X float32 (n, C, T), y, subject, session-or-None, context-or-None)
+        from the train loader, channels already picked.
 
         The competition loader gives ``info["subject_id"]`` only. NeuralBench's
-        dataset underneath keeps a per-window trigger table with ``session``;
-        when it is reachable (local training), read the dataset in index order
-        so session ids line up with the windows. Otherwise iterate the loader
-        (shuffled) and return session=None."""
+        dataset underneath keeps a per-window trigger table with ``session``
+        (and a context column where the study has one); when it is reachable
+        (local training), read the dataset in index order so session ids line
+        up with the windows. Otherwise iterate the loader (shuffled) and
+        return session=None. X is float32 because the preprocessing output
+        is: the float64 copies made per chunk later hold the same values."""
         ds = getattr(train_loader, "dataset", None)
-        seg = getattr(ds, "seg_ds", None)
-        trig = None
-        try:
-            trig = seg.triggers if seg is not None else None
-        except Exception:        # no triggers table: fall back to the loader
-            trig = None
+        trig = _trigger_table(ds)
+        ci = self._chan_idx
         if trig is not None and "session" in trig.columns and self.max_batches is None:
             import torch.utils.data as tud
             dl = tud.DataLoader(ds, batch_size=256, shuffle=False,
                                 collate_fn=getattr(train_loader, "collate_fn", None))
-            Xs, ys, ss = [], [], []
-            for X, y, info in dl:
-                Xs.append(self._prep(X))
-                ys.append(to_numpy(y))
+            X, ys, ss, i = None, [], [], 0
+            for Xb, yb, info in dl:
+                xb = self._prep(Xb, ci, np.float32)
+                if X is None:           # preallocated: no second full copy
+                    X = np.empty((len(ds), *xb.shape[1:]), dtype=np.float32)
+                X[i:i + len(xb)] = xb
+                i += len(xb)
+                ys.append(to_numpy(yb))
                 ss.append(np.asarray(to_numpy(info["subject_id"])).reshape(-1))
+            X, y, subj = X[:i], np.concatenate(ys), np.concatenate(ss)
             sess = trig["session"].astype(str).to_numpy()
-            X, y, subj = np.concatenate(Xs), np.concatenate(ys), np.concatenate(ss)
-            if len(sess) == len(y):
-                return X, y, subj, sess
-            return X, y, subj, None
+            if len(sess) != len(y):
+                return X, y, subj, None, None
+            # the table must follow the dataset's index order: its subject column
+            # has to map one-to-one onto the loader's subject ids, row by row
+            if "subject" in trig.columns:
+                ts = trig["subject"].astype(str).to_numpy()
+                pairs = set(zip(ts.tolist(), subj.tolist()))
+                if not len(pairs) == len(set(ts.tolist())) == len(set(subj.tolist())):
+                    print("[Riemann-Sealed] WARNING: the trigger table's subject column "
+                          "does not match the loader's subject ids row by row "
+                          f"({len(pairs)} (table, id) pairs for {len(set(subj.tolist()))} "
+                          "subjects): session / context ids not used", flush=True)
+                    return X, y, subj, None, None
+            ctx = next((trig[c].astype(str).to_numpy() for c in _CTX_COLUMNS
+                        if c in trig.columns), None)
+            return X, y, subj, sess, ctx
         Xs, ys, ss = [], [], []
-        for i, (X, y, info) in enumerate(train_loader):
+        for i, (Xb, yb, info) in enumerate(train_loader):
             if self.max_batches is not None and i >= self.max_batches:
                 break
-            Xs.append(self._prep(X))
-            ys.append(to_numpy(y))
+            Xs.append(self._prep(Xb, ci, np.float32))
+            ys.append(to_numpy(yb))
             ss.append(np.asarray(to_numpy(info["subject_id"])).reshape(-1))
-        return np.concatenate(Xs), np.concatenate(ys), np.concatenate(ss), None
+        return np.concatenate(Xs), np.concatenate(ys), np.concatenate(ss), None, None
 
     def fit(self, train_loader):
-        X, y, subj, sess = self._collect(train_loader)
+        tm, t0 = {}, time.time()
+        self._chan_idx = self._pick_channels()
+        X, y, subj, sess, ctx = self._collect(train_loader)
+        _lap(tm, "collect", t0)
         subjects = np.unique(subj)
         sidx = np.searchsorted(subjects, subj)
         n_classes = len(np.unique(y))
         sfreq = self.preproc.sfreq
         parts = {"estimator": self.estimator, "xdawn": None, "sfreq": sfreq,
-                 "subjects": subjects, "n_classes": n_classes}
+                 "subjects": subjects, "n_classes": n_classes,
+                 "chan_idx": self._chan_idx}
 
         # router: log-PSD -> shrinkage LDA; OOF threshold (1st percentile)
+        t0 = time.time()
         from sklearn.model_selection import StratifiedKFold
         Fp = _psd_features(X, sfreq)
         oof = np.zeros((len(y), len(subjects)))
         for tr, va in StratifiedKFold(5, shuffle=True, random_state=0).split(Fp, sidx):
-            lda = _shrink_lda().fit(Fp[tr], sidx[tr])
+            lda = _fit_lda(Fp[tr], sidx[tr])
             oof[np.ix_(va, lda.classes_)] = lda.predict_proba(Fp[va])
-        parts["router"] = {"lda": _shrink_lda().fit(Fp, sidx),
+        parts["router"] = {"lda": _fit_lda(Fp, sidx),
                            # capped at 0.5: within-session OOF posteriors can saturate
                            # at 1.0 (Zhou: thr=1.000 -> every window fell back)
                            "thr": min(float(np.percentile(oof.max(1), 1)), 0.5)}
+        del Fp, oof
+        _lap(tm, "router", t0)
 
-        # per-subject whitening (identity everywhere when align="none")
+        # per-subject whitening (identity everywhere when align="none"): row i
+        # of the training set is whitened with Wset[gidx[i]]
+        t0 = time.time()
         if self.align == "subject":
             covs = _window_covs(X)
             parts["W_global"] = _inv_sqrtm(_mean_cov(covs, self.kind))
@@ -350,6 +823,7 @@ class RiemannSealedModel:
         else:
             parts["W_global"] = np.eye(X.shape[1])
             parts["W"] = np.stack([np.eye(X.shape[1])] * len(subjects))
+        gidx, Wset = sidx, parts["W"]
         if self.adapt == "online" and self.align == "subject" and sess is not None:
             # online test windows are centred on their own session's recent
             # statistics, so centre the training data per (subject, session)
@@ -357,47 +831,135 @@ class RiemannSealedModel:
             # training data stays centred per subject, which cost 2.7 points
             # on Zhou (two training sessions) in the 2026-09-25 check.
             g = sidx * 1000 + np.unique(sess, return_inverse=True)[1]
-            Xw = np.empty_like(X)
-            for gg in np.unique(g):
-                m = g == gg
-                Xw[m] = np.einsum("ij,njt->nit",
-                                  _inv_sqrtm(_mean_cov(covs[m], self.kind)), X[m])
-            X = Xw
-        else:
-            X = self._whiten(X, sidx, parts)
+            groups, gidx = np.unique(g, return_inverse=True)
+            Wset = np.stack([_inv_sqrtm(_mean_cov(covs[g == gg], self.kind))
+                             for gg in groups])
+        _lap(tm, "align", t0)
 
-        # Riemann-StepType feature union on the whitened windows
+        # Riemann-StepType feature union on the whitened windows: one chunked
+        # pass for the xDAWN statistics, one for every per-window block
+        t0 = time.time()
+        n, size = len(X), _chunk_len(X.shape)
+        if size >= n:               # one chunk (every proxy): whiten once
+            Xw = _whiten_rows(X, gidx, Wset, parts["W_global"])
+
+            def get(s):
+                return Xw[s]
+        else:
+            Xw = None
+
+            def get(s):
+                return _whiten_rows(X[s], gidx[s], Wset, parts["W_global"])
         if self.use_xdawn:
-            parts["xdawn"] = XdawnCovariances(
-                nfilter=self.nfilter, estimator=self.estimator,
-                xdawn_estimator=self.estimator).fit(X, y)
-            parts["xdawn_ts"] = TangentSpace(metric="riemann").fit(
-                parts["xdawn"].transform(X), y)
-        c = Covariances(estimator=self.estimator).transform(X)
-        parts["broad_ts"] = TangentSpace(metric="riemann").fit(c, y)
+            parts["xdawn"] = _fit_xdawn(self.nfilter, self.estimator, get, y, n, size)
         if self.slow_block:
             start, width = round(0.5 * sfreq), round(0.25 * sfreq)
             parts["slow"] = {"band": "0.1to4", "start": start, "width": width,
                              "n_bins": min(14, (X.shape[2] - start) // width)}
         if self.filterbank:
             parts["fb_bands"] = list(FB_BANDS)
-            parts["fb_ts"] = [TangentSpace(metric="riemann").fit(_band_covs(parts, X, b), y)
-                              for b in FB_BANDS]
-        feats = _features(parts, X)
+        raw = _window_blocks(parts, get, n, size)
+        _fit_tangent(parts, raw, y)
+        feats = _raw_features(parts, raw)
+        del raw, Xw
+        _lap(tm, "features", t0)
+
+        t0 = time.time()
         priors = np.full(n_classes, 1.0 / n_classes)
-        parts["lda"] = _shrink_lda(priors).fit(feats, y)
+        parts["lda"] = _fit_lda(feats, y, priors)
         if self.personal in ("calib", "blend"):
             parts["lda_subject"] = [
-                _shrink_lda(priors).fit(feats[sidx == k], y[sidx == k])
+                _fit_lda(feats[sidx == k], y[sidx == k], priors)
                 if len(np.unique(y[sidx == k])) == n_classes else None
                 for k in range(len(subjects))]
+        n_feats = feats.shape[1]
+        del feats
+        _lap(tm, "lda", t0)
         print(f"[Riemann-Sealed] fitting on X={X.shape}, subjects={len(subjects)}, "
-              f"classes={np.unique(y).tolist()}, features={feats.shape[1]}, "
+              f"classes={np.unique(y).tolist()}, features={n_feats}, "
               f"align={self.align}/{self.kind}, personal={self.personal}, "
               f"router_thr={parts['router']['thr']:.3f}, "
-              f"session_ids={'yes' if sess is not None else 'no'}", flush=True)
+              f"session_ids={'yes' if sess is not None else 'no'}, "
+              f"chans={self.chans} ({X.shape[1]} kept)", flush=True)
+
+        t0 = time.time()
+        if self.personal == "blend" and self.blend_w == "auto":
+            if sess is None:
+                parts["blend_w"] = 0.5
+                print("[Riemann-Sealed] WARNING: blend_w='auto' needs session ids, "
+                      "which this train loader does not expose; using w=0.5", flush=True)
+            else:
+                # overwrites X in place (float32 harness-style whitening)
+                w, cv, how, nf = self._choose_blend_w(parts, X, y, sidx, sess, ctx,
+                                                      gidx, Wset)
+                parts.update(blend_w=w, blend_cv=cv, blend_cv_folds=how)
+                print(f"[Riemann-Sealed] blend_w=auto -> {w} ({how}, {nf} folds, "
+                      f"context={'yes' if ctx is not None else 'no'}; cell scores "
+                      f"{np.round(cv, 4).tolist()} for w={W_GRID})", flush=True)
+        _lap(tm, "wcv", t0)
+        print("[Riemann-Sealed] fit seconds: "
+              + ", ".join(f"{k} {v:.1f}" for k, v in tm.items())
+              + f", total {sum(tm.values()):.1f}; chunk={size}/{n} windows; "
+              f"maxrss {_maxrss_gb():.2f} GB", flush=True)
         self.parts = parts
         return self
+
+    def _choose_blend_w(self, parts, X, y, sidx, sess, ctx, gidx, Wset):
+        """blend_w="auto": (w, cell scores per W_GRID, fold kind, n folds).
+
+        The harness's choose_w (sealed_personal.py) under ``--wcv loso``, on
+        the harness's aligned data: every training window whitened with the
+        whole training set's reference of its group (the true subject, or
+        (subject, session) under adapt="online"), in float32 as
+        ``xsess_lib.apply_W``. X is overwritten in place with it. The
+        stateless blocks (broadband / filter-bank covariances, log-variance,
+        slow bins) are computed once; xDAWN, the tangent spaces, the pooled
+        LDA and the per-subject LDAs are refitted on each fold's fit rows."""
+        n, size = len(X), _chunk_len(X.shape)
+        for s in _row_chunks(n, size):
+            X[s] = _whiten_rows(X[s], gidx[s], Wset, parts["W_global"], f32=True)
+
+        def get(s):
+            return np.asarray(X[s], dtype=np.float64)
+        rank = _session_rank(sidx, sess)
+        cc = (np.zeros(n, dtype=np.int64) if ctx is None
+              else np.unique(ctx, return_inverse=True)[1])
+        folds, how = _blend_folds(sidx, rank)
+        K = int(parts["n_classes"])
+        base = {k: parts[k] for k in ("estimator", "sfreq", "slow", "fb_bands") if k in parts}
+        base["xdawn"] = None
+        raw = _window_blocks(base, get, n, size)
+        scores = np.zeros(len(W_GRID))
+        for i, (fit_idx, val_idx) in enumerate(folds):
+            t0 = time.time()
+            fp = dict(base)
+            if self.use_xdawn:
+                fp["xdawn"] = _fit_xdawn(self.nfilter, self.estimator, get, y, fit_idx, size)
+                raw["xdawn"] = _window_blocks(fp, get, n, size, which=("xdawn",))["xdawn"]
+            _fit_tangent(fp, raw, y, fit_idx)
+            F_fit, F_val = _raw_features(fp, raw, fit_idx), _raw_features(fp, raw, val_idx)
+            yf = y[fit_idx]
+            kf = len(np.unique(yf))
+            P_pool = _fit_lda(F_fit, yf, np.full(kf, 1.0 / kf)).predict_proba(F_val)
+            P_own = np.array(P_pool)
+            for k in np.unique(sidx[fit_idx]):
+                mf, rows = sidx[fit_idx] == k, sidx[val_idx] == k
+                if not rows.any() or len(np.unique(yf[mf])) < K:
+                    continue
+                P_own[rows] = _fit_lda(F_fit[mf], yf[mf],
+                                       np.full(K, 1.0 / K)).predict_proba(F_val[rows])
+            for j, w in enumerate(W_GRID):
+                Pb = w * P_pool + (1 - w) * P_own
+                scores[j] += _cell_score(y[val_idx], Pb.argmax(1), sidx[val_idx],
+                                         rank[val_idx], cc[val_idx])
+            if time.time() - t0 >= _HEARTBEAT_S:
+                print(f"[Riemann-Sealed] [{time.strftime('%H:%M:%S')}] blend_w fold "
+                      f"{i + 1}/{len(folds)} ({len(fit_idx)} fit / {len(val_idx)} val "
+                      f"windows) in {time.time() - t0:.0f} s", flush=True)
+        scores = scores / len(folds)
+        # ties -> the larger (more pooled) w, as sealed_personal.choose_w
+        j = max(range(len(W_GRID)), key=lambda i: (round(scores[i], 6), W_GRID[i]))
+        return W_GRID[j], scores.tolist(), how, len(folds)
 
     # -- prediction -----------------------------------------------------------
     def _online_whiten(self, X, idx):
@@ -414,14 +976,25 @@ class RiemannSealedModel:
                 out[m] = np.einsum("ij,njt->nit", W, X[m])
         return out
 
-    def predict_proba(self, X):
-        X = self._prep(X)
+    def _blend_weight(self):
+        """The pooled weight: the one chosen in fit (joblib), else blend_w."""
+        w = self.parts.get("blend_w", self.blend_w)
+        if isinstance(w, str):          # "auto", but the joblib holds no weight
+            if not self._warned_w:
+                print("[Riemann-Sealed] WARNING: blend_w='auto' but the model has "
+                      "no chosen weight; using w=0.5", flush=True)
+                self._warned_w = True
+            return 0.5
+        return float(w)
+
+    def _predict_block(self, X):
         idx = self._route(X)
         Xw = (self._online_whiten(X, idx) if self.adapt == "online"
               else self._whiten(X, idx))
         F_ = _features(self.parts, Xw)
         P = self.parts["lda"].predict_proba(F_)
         if self.personal in ("calib", "blend"):
+            w = self._blend_weight()
             for k in np.unique(idx[idx >= 0]):
                 lda = self.parts["lda_subject"][k]
                 if lda is None:
@@ -429,7 +1002,31 @@ class RiemannSealedModel:
                 m = idx == k
                 Ps = lda.predict_proba(F_[m])
                 P[m] = Ps if self.personal == "calib" else (
-                    self.blend_w * P[m] + (1 - self.blend_w) * Ps)
+                    w * P[m] + (1 - w) * Ps)
+        return P
+
+    def predict_proba(self, X):
+        """(B, n_classes) probabilities. Windows are independent unless
+        adapt="online", so a batch larger than one chunk is split (memory is
+        bounded by the chunk); online batches are kept whole (the buffer
+        advances once per call)."""
+        t0 = time.time()
+        ci = self.parts.get("chan_idx")
+        n = len(X)
+        shape = (n, X.shape[1] if ci is None else len(ci), X.shape[-1])
+        size = n if self.adapt == "online" else _chunk_len(shape)
+        chunks = _row_chunks(n, max(size, 1)) or [slice(0, n)]
+        Ps = [self._predict_block(self._prep(X[s], ci)) for s in chunks]
+        P = Ps[0] if len(Ps) == 1 else np.concatenate(Ps)
+        st = self._pred
+        st["calls"] += 1
+        st["windows"] += n
+        st["seconds"] += time.time() - t0
+        if st["calls"] % 20 == 0:
+            print(f"[Riemann-Sealed] predict: {st['calls']} calls, {st['windows']} "
+                  f"windows, {st['seconds']:.1f} s "
+                  f"({1000 * st['seconds'] / max(st['windows'], 1):.1f} ms/window), "
+                  f"maxrss {_maxrss_gb():.2f} GB", flush=True)
         return P
 
     def predict(self, X):
@@ -448,8 +1045,10 @@ class Solver(CompetSolver):
         "slow_block": [False],
         "align": ["subject"],       # "subject" (router + per-subject W) | "none"
         "kind": ["riemann"],        # reference mean: "riemann" | "euclid"
-        # the recipe: "blend" = blend_calib (SEALED_RECIPE.md); blend_w is set per
-        # dataset from calibration data by scripts/train_sealed.sh
+        # the recipe: "blend" = blend_calib (SEALED_RECIPE.md): pooled feature
+        # extractor + per-subject LDA. blend_w is set per dataset from
+        # calibration data by scripts/train_sealed.sh, or "auto" = chosen in
+        # fit by leave-one-calibration-session-out (needs session ids)
         "personal": ["blend"],      # "pooled" | "calib" | "blend"
         "blend_w": [0.5],           # pooled weight when personal="blend"
         # "online" = rule-dependent test-time re-centring (see RiemannSealedModel)
@@ -457,6 +1056,8 @@ class Solver(CompetSolver):
         "buffer": [64],
         "bandpass": ["none"],
         "reference": ["none"],
+        # channel types kept: "eeg" | "eeg+eog" | "eeg+emg" | "all"
+        "chans": ["eeg"],
         "max_batches": [None],
     }
 
@@ -470,7 +1071,10 @@ class Solver(CompetSolver):
                                   self.use_xdawn, self.filterbank, self.slow_block,
                                   self.align, self.kind, self.personal,
                                   self.blend_w, self.max_batches,
-                                  self.adapt, self.buffer)
+                                  self.adapt, self.buffer, chans=self.chans,
+                                  ch_names=meta.get("ch_names"),
+                                  chs_info=meta.get("chs_info"),
+                                  ch_types=meta.get("ch_types"))
 
     def fit(self, model, train_loader):
         model.fit(train_loader)

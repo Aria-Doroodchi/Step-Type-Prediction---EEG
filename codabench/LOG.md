@@ -706,3 +706,166 @@ unlike the affine-invariant Riemann pipeline.
   and it is the first block to drop if the release data disagrees.
 - Whole weekend plan (Phases 0–6) done by ~23:55 Friday, well ahead of the
   8–12 h compute budget (~5.5 h wall, two lanes). Nothing uploaded.
+
+## 2026-09-28 (evening) — Sprint: sealed-release readiness (brief `prompts/2026-09-28_release_readiness.md`)
+
+A 12-hour sprint (16:55 → 04:55). The user asked for a workflow and gave no focus;
+the value check picked release readiness (brief § 3). Claims checked in the code
+before planning: the harness ignored context cells (the cache saved `context.npy`,
+nothing read it), the blend weight was not leave-one-calibration-session-out (only
+the last training session was held out), the sealed split (3 test sessions for
+the evaluation participants only) was not expressible, and nothing above
+30 ch / 120 Hz had been sized.
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 16:55–17:03 | Phase 0: orient, value check, brief | 50 min | 8 min | brief a44526a pushed; tracks page still "coming soon" (17:00) |
+| 17:06–18:43 | Phase 1 builders (workflow): A mock study, B harness, C solver, E stream script | 3 h (whole Phase 1) | 1 h 37 min for the builders | ✅ all four done; gates below |
+| 18:45– | Phase 1 resumed with inserted step L (fast LDA) | — | — | see the Phase 1 entry |
+
+Also, in idle main-loop time: a thesis doc-consistency pass on its own branch
+`docs/sprint0928-consistency` (853f9c5, pushed to personal, no PR). It fixes the
+perf-loop confirm CV design (the +0.028 compared 5×2 vs 4×1 CV; like-for-like is
++0.031 paired), stale pooling/TF/window notes and CLAUDE.md branch names, and adds
+stim-ledger errata.
+
+## 2026-09-28 (evening) — Sprint Phase 3: online re-centring on a realistic test stream
+
+Script `analysis/sealed_stream.py` (agent E); tables `logs/sprint0928_p3/RESULTS.md`
+and `BOOTSTRAP.md`. Sanity: it reproduces the committed Phase 3 rows exactly (clean
+/ online-64: Tangermann 0.802/0.837, Scherer 3-class 0.486/0.561, Zhou 0.778/0.797;
+diff 0.0000). Its whitening is bit-identical to `sealed_run.aligned_data`.
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 17:15–17:19 | Zhou sanity + last/stream rows | ~5 min | 3.5 min | on |
+| 17:19–17:31 | Tangermann | 6 min | 12 min (hit the 600 s cap once, resumed) | over 2×: choose_w CV + CPU shared with 3 agents |
+| 17:31–17:58 | Scherer 3-class | 3.5 min | 27 min incl. one timeout | over: fixed with a calib-only weight CV and per-fold checkpoints |
+| 18:00–18:09 | buffer-reset guard runs | 8.5 min | 9 min | on |
+
+Online-64 minus clean (rule-dependent), cell score, paired subject bootstrap:
+
+| proxy | recording order | subjects interleaved | fully shuffled |
+|---|---|---|---|
+| Tangermann (9 subj.) | +3.5 (+1.6, +5.4) | +3.0 (+1.2, +5.0) | +3.1 (+1.3, +4.9) |
+| Scherer 3-class (9) | +7.5 (+4.3, +10.8) | +4.4 (+2.4, +6.4) | +4.6 (+1.9, +7.4) |
+| Zhou last session (4) | +1.8 (−3.0, +4.8) | +0.5 (−2.7, +3.7) | +1.6 (−2.0, +5.1) |
+| Zhou stream: calib s0, test s1+s2 (4) | +3.5 (−3.3, +10.3) | +2.2 (−2.3, +6.8) | +1.7 (−4.0, +7.4) |
+
+**Decisions (pre-registered, brief § 5 Phase 3).**
+- **Order robustness: NOT order-robust.** With subjects interleaved, online-64 keeps
+  85 / 58 / 27 / 65 % of its recording-order gain (rule: ≥ 75 % on every proxy).
+  The gain shrinks but stays positive, and it stays significant on Tangermann and
+  Scherer. Mechanism: in recording order a 64-window batch is mostly one subject,
+  so the buffer is essentially the current batch, including look-ahead within it.
+  Interleaved, each subject gets ~7 windows per batch. Consequence: the organiser
+  question must also ask how test windows are ordered and batched, and the recipe
+  quotes the interleaved gain (+3 to +4.4) as the conservative figure.
+- **Session-boundary lag: none.** The second-session gain is < 0 for 2/4 Zhou
+  subjects (trigger ≥ 3). The first 32 post-boundary windows score 3.3 points
+  *above* that session's mean (trigger: a drop > 5).
+- **Buffer-reset guard: no gain.** −0.1 (−0.5, +0.3). Not adopted. It never fired
+  at a session boundary.
+- Descriptive only (choosing N on test sessions would be test tuning): N = 32 kept
+  the most gain under interleaving on all 4 proxies. On release day, choose N on
+  the replica split under the announced order.
+
+**New risk found.** With one calibration session, the log-PSD router's accuracy
+falls to 0.718 on the next session and 0.353 on the one after (Zhou stream;
+chance 0.25). The harness's fallback threshold saturates at 1.0 (0.49 of windows
+fall back); the solver caps it at 0.5. The sealed data gives three calibration
+sessions, but the runbook must report router accuracy per test session on the
+replica split.
+
+## 2026-09-28 (evening) — Sprint Phase 1: build (workflow `sealed-readiness-build`)
+
+The workflow ran 9 agents. Builders worked in parallel on disjoint files: A (mock
+sealed study + benchopt dataset), B (harness), C (solver), E (Phase 3 stream
+script). The main loop then inserted L (fast LDA) when B and C found a blocking
+bottleneck. After that came D (integration), two adversarial reviewers (R1:
+leakage/splits; R2: regression/agreement) and F (fixed all 9 review findings).
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 17:06–18:43 | builders A, B, C, E | (3 h for all of Phase 1) | 1 h 37 min | ✅ |
+| 18:43–18:45 | workflow stopped and resumed with step L inserted (A–E cached) | — | 2 min | — |
+| 18:45–19:37 | L: fast LDA, router cap, --wvariant calib, 500 Hz harness memory | ~45 min | 52 min | ✅ |
+| 19:37–20:35 | D: train_sealed.sh, release_ablations.sh, release_summarize.py, mock e2e | ~1 h | 58 min | ✅ (1 ablation step left to Phase 2: over the 600 s agent cap) |
+| 20:35–21:00 | R1 + R2 | ~30 min | 25 min | pass_with_fixes: 4 major, 5 minor findings |
+| 21:00–21:55 | F: fixes + re-gate | ~30 min | 55 min | ✅ all 9 fixed, all 4 gates pass |
+| **Phase 1** | | **3 h** | **4 h 49 min (1.6×)** | the overrun is the inserted L step plus the review fixes |
+
+**What exists now (all opt-in; defaults reproduce every committed number
+bit-for-bit, re-checked independently by B, L, R2 and F):**
+- **Harness** (`xsess_lib`, `sealed_run`, `sealed_personal`, `xsess_cache`):
+  - context cells everywhere;
+  - `--split last | calib:K | replica:K`, `--test_subjects`;
+  - hidden (split 2) rows of a release cache never enter training;
+  - `--wcv loso` (leave-one-calibration-session-out), `--chans`, `--pool test`;
+  - `router-psdctx` alignment, `--router_cap 0.5` (matches the solver);
+  - `--wvariant calib` (1.6× faster), `--mmap`;
+  - `xsess_cache.py --picks`, and `ch_types` / release-structure fields in meta.
+- **Solver** (`riemann_sealed.py`):
+  - float32 storage with chunked float64 maths;
+  - `blend_w="auto"` (the same LOSO as the harness; the weight is stored in the
+    joblib);
+  - `chans`; stage timings and RSS prints;
+  - a trigger-table sanity check.
+- **Fast shrinkage LDA** (a Cholesky solve instead of sklearn's SVD lstsq, above
+  4,000 features; always a plain sklearn object; predict_proba within 1e-9):
+  - one 5,073-feature fit: 38.7 s → 3.8 s;
+  - it makes the 43-channel recipe feasible, where 21 LDAs × 7 LOSO folds would
+    otherwise take hours.
+- **Mock sealed study** (`analysis/mock_sealed.py`, `datasets/mock_sealed.py`):
+  - 20 subjects × 6 sessions × 2 contexts, 43 EEG + 2 EMG + 2 EOG, 3 classes;
+  - `_s` / `_120` / `_500` sizes;
+  - injected session drift, a context shift, a drifting WORD↔EMG confound and a
+    stable CALC↔EOG cue.
+- **Scripts:**
+  - `train_sealed.sh`: SPLIT / TEST_SUBJECTS / WCV / CHANS / DATASET /
+    BLEND_W=auto / RUN_NAME / STOP_AFTER; guards against stale rows and changed
+    settings; refuses a sealed-looking cache without SPLIT; kills its step on a
+    signal;
+  - `release_ablations.sh` (two lanes, every SEALED_RECIPE § 3 ablation);
+  - `release_summarize.py` (applies the pre-registered release-day rules with a
+    paired bootstrap).
+
+**Gates (brief § 5, Phase 1).**
+- (i) Regression: zhou2016 15/15 and scherer 3-class 9/9 committed rows match
+  with |d| = 0. The zhou2016_xsess default flow gives train 0.770 = replay 0.770.
+- (ii) Mock `[data]` line: 20 subjects × 6 sessions × 2 contexts, 47 → 43 ch,
+  60 test cells.
+- (iii) Mock: benchopt train = read-only replay exactly (0.483333); gap to the
+  harness 0.0000.
+- (iv) Solver `blend_w="auto"` = harness `--wcv loso`:
+  - fb=0: w 0.25, CV equal to 4 dp;
+  - fb=1: w 0.75, folds bit-identical (fold slices).
+
+**Machinery rules (mock, verified by construction, not recipe evidence).**
+- (a) 60 cells with per-context columns.
+- (b) Decided on the **release-day split** (calib:3, test = the 10 fully labelled
+  participants, hidden rows excluded): EEG+EMG −4.2 points (CI −8.3, −0.4), so
+  the rule rejects EMG. On replica:3 it had shown +0.8, because training then held
+  the decoupled later sessions. That was review finding R1-3, and the reason the
+  release-day DECISIONS must use calib:3.
+- (c) `router-psdctx` recovers the injected context shift: +6.4 (CI +2.8,
+  +10.0).
+
+**Found and fixed, each a release-day failure that would have gone unnoticed:**
+- contexts were ignored;
+- the blend weight was not LOSO;
+- the sealed split could not be expressed;
+- LDA fit time at 43 ch: hours;
+- the mock's hidden rows leaked into training on calib:3;
+- channel typing: harness and solver disagreed on real caches;
+- train_sealed.sh silently validated on the proxy split for a real cache;
+- a misaligned trigger table was accepted silently;
+- stale harness rows were reused after a cache rebuild.
+
+**Open (goes to Phase 4):** the solver has no (subject, context) alignment yet.
+On the mock the pre-registered rule adopts `router-psdctx`, and train_sealed.sh
+now refuses to bake it rather than silently train without it.
+
+C noted that on zhou2016 LOSO picks w = 0.5, where the committed last-session
+rule picks 0.75 (benchopt test 0.742 vs 0.770; 4 subjects, within noise).
+`auto` is not the default.

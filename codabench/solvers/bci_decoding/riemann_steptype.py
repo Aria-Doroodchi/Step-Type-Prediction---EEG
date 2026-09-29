@@ -34,7 +34,14 @@ priors. Changes vs the thesis model, and why:
   worker; pyriemann/sklearn classes always do (both ship in the image —
   pyriemann comes in with moabb);
 - the streamed train loader is materialised into memory once (covariance
-  methods need all windows); ``max_batches`` caps it for quick tests.
+  methods need all windows); ``max_batches`` caps it for quick tests;
+- above 4000 features (43-47 ch with the filter bank) the shrinkage LDA
+  solves with a Cholesky factorisation instead of sklearn's SVD lstsq
+  (``fit_shrinkage_lda``: same coefficients, a plain sklearn object; ~10x
+  faster); a training set larger than one 512 MiB float64 chunk (500 Hz) is
+  kept as float32 and processed per chunk. Every proxy has <= 3175 features
+  and fits in one chunk, so its numbers are unchanged. The analysis harness
+  (analysis/xsess_lib.py) fits its Riemann models and LDAs through this file.
 
 Train locally (from ~/codabench/2026-competition, after ``source env.sh``):
 
@@ -42,6 +49,8 @@ Train locally (from ~/codabench/2026-competition, after ``source env.sh``):
         -s ../solvers/bci_decoding/riemann_steptype.py \
         -o "BCI-decoding[training=True]"
 """
+
+import time
 
 import joblib
 import numpy as np
@@ -202,6 +211,217 @@ def _features(parts, X):
     return np.concatenate(list(_feature_blocks(parts, X).values()), axis=1)
 
 
+# ---------------------------------------------------------------------------
+# Chunked passes for large training sets (43-47 ch x 500 Hz; the same helpers
+# as riemann_sealed.py). Windows stay float32 (the preprocessing output) and
+# each chunk is converted to float64 before any math. Data that fit in one
+# chunk (every proxy: <= 0.45 GB as float64) run the original one-shot code.
+# ---------------------------------------------------------------------------
+_CHUNK_BYTES = 512 * 2 ** 20      # float64 bytes of windows per chunk
+
+
+def _chunk_len(shape):
+    """Windows per chunk for (n, C, T) data: all n when they fit in one."""
+    n, per = int(shape[0]), 8 * int(np.prod(shape[1:]))
+    return max(1, n if n * per <= _CHUNK_BYTES else _CHUNK_BYTES // per)
+
+
+def _row_chunks(rows, size):
+    """Chunks of <= size rows: slices for ``rows`` = a count n (all rows),
+    else pieces of the index array ``rows``."""
+    if isinstance(rows, (int, np.integer)):
+        return [slice(i, min(i + size, rows)) for i in range(0, rows, size)]
+    return [rows[i:i + size] for i in range(0, len(rows), size)]
+
+
+def _oas_shrink(emp, n_samples):
+    """sklearn's OAS shrinkage (covariance._shrunk_covariance._oas) applied to
+    a precomputed centred empirical covariance of ``n_samples`` samples."""
+    p = emp.shape[0]
+    alpha = np.mean(emp ** 2)
+    mu = np.trace(emp) / p
+    num = alpha + mu ** 2
+    den = (n_samples + 1) * (alpha - mu ** 2 / p)
+    shrink = 1.0 if den == 0 else min(num / den, 1.0)
+    out = (1.0 - shrink) * emp
+    out.flat[::p + 1] += shrink * mu
+    return out
+
+
+def _fit_xdawn(nfilter, estimator, get, y, rows, size):
+    """XdawnCovariances fitted on the windows ``get(rows)``: pyriemann's own fit
+    when they are one chunk (bit-identical), else the same filters from chunked
+    statistics: the signal covariance over all samples (Chan et al. pairwise
+    merge of per-chunk means/scatters, then the OAS shrinkage) as
+    ``baseline_cov``, and each class's mean response as its only "trial"."""
+    kw = dict(nfilter=nfilter, estimator=estimator, xdawn_estimator=estimator)
+    chunks = _row_chunks(rows, size)
+    if len(chunks) == 1:
+        return XdawnCovariances(**kw).fit(get(chunks[0]), y[chunks[0]])
+    if estimator not in ("oas", "scm"):
+        raise ValueError(f"chunked xDAWN supports estimator oas|scm, not {estimator!r}")
+    classes = np.unique(y if isinstance(rows, (int, np.integer)) else y[rows])
+    sums, counts = {c: 0.0 for c in classes}, {c: 0 for c in classes}
+    n_tot, mean, M2 = 0, 0.0, 0.0
+    for s in chunks:
+        xb, yb = get(s), y[s]
+        for c in classes:
+            sums[c] = sums[c] + xb[yb == c].sum(axis=0)
+            counts[c] += int(np.sum(yb == c))
+        nb = xb.shape[0] * xb.shape[2]
+        mb = xb.mean(axis=(0, 2)) if estimator == "oas" else np.zeros(xb.shape[1])
+        xc = xb - mb[None, :, None] if estimator == "oas" else xb
+        Sb = np.tensordot(xc, xc, axes=([0, 2], [0, 2]))
+        d, tot = mb - mean, n_tot + nb
+        M2 = M2 + Sb + np.outer(d, d) * (n_tot * nb / tot)
+        mean, n_tot = mean + d * (nb / tot), tot
+    Cx = M2 / n_tot
+    if estimator == "oas":
+        Cx = _oas_shrink(Cx, n_tot)
+    P = np.stack([sums[c] / counts[c] for c in classes])
+    return XdawnCovariances(**kw, baseline_cov=Cx).fit(P, classes)
+
+
+def _window_blocks(parts, get, rows, size):
+    """One chunked pass over the windows ``get(chunk)`` (float64): the
+    per-window input of every feature block before its tangent space (xDAWN,
+    broadband and filter-bank covariances; log-variance; slow bins), as in
+    ``_feature_blocks``."""
+    acc = {}
+    for s in _row_chunks(rows, size):
+        xb = get(s)
+        out = {}
+        if parts.get("xdawn") is not None:
+            out["xdawn"] = parts["xdawn"].transform(xb)
+        out["broad"] = Covariances(estimator=parts["estimator"]).transform(xb)
+        out["logvar"] = np.log(np.var(xb, axis=2) + 1e-12)
+        if parts.get("slow") is not None:
+            out["slow"] = _slow_bins(parts, xb)
+        for band in parts.get("fb_bands") or []:
+            out["fb:" + band] = _band_covs(parts, xb, band)
+        for k, v in out.items():
+            acc.setdefault(k, []).append(v)
+    return {k: v[0] if len(v) == 1 else np.concatenate(v) for k, v in acc.items()}
+
+
+def _fit_tangent(parts, raw, y):
+    """Tangent spaces of the covariance blocks of ``_window_blocks`` output."""
+    def ts(covs):
+        return TangentSpace(metric="riemann").fit(covs, y)
+    if parts.get("xdawn") is not None:
+        parts["xdawn_ts"] = ts(raw["xdawn"])
+    parts["broad_ts"] = ts(raw["broad"])
+    if parts.get("fb_bands"):
+        parts["fb_ts"] = [ts(raw["fb:" + b]) for b in parts["fb_bands"]]
+
+
+def _raw_blocks(parts, raw):
+    """Named feature blocks from ``_window_blocks`` output (the order and
+    values of ``_feature_blocks``)."""
+    blocks = {}
+    if parts.get("xdawn") is not None:
+        blocks["xdawn"] = parts["xdawn_ts"].transform(raw["xdawn"])
+    blocks["broad"] = parts["broad_ts"].transform(raw["broad"])
+    blocks["logvar"] = raw["logvar"]
+    if parts.get("slow") is not None:
+        blocks["slow"] = raw["slow"]
+    if parts.get("fb_ts") is not None:
+        blocks["fb"] = np.concatenate(
+            [ts.transform(raw["fb:" + b]) for b, ts in zip(parts["fb_bands"], parts["fb_ts"])],
+            axis=1)
+    return blocks
+
+
+def feature_blocks_chunked(parts, X):
+    """``_feature_blocks`` for (n, C, T) windows of any float dtype: one call
+    on the float64 windows when they fit in one chunk (exactly the original
+    code), else per chunk of windows (every block is per-window) and
+    concatenated, so float64 memory stays bounded."""
+    n, size = len(X), _chunk_len(X.shape)
+    if size >= n:
+        return _feature_blocks(parts, np.asarray(X, dtype=np.float64))
+    acc = {}
+    for s in _row_chunks(n, size):
+        for k, v in _feature_blocks(parts, np.asarray(X[s], dtype=np.float64)).items():
+            acc.setdefault(k, []).append(v)
+    return {k: np.concatenate(v) for k, v in acc.items()}
+
+
+# ---------------------------------------------------------------------------
+# Shrinkage LDA with a fast solve (identical block in riemann_sealed.py).
+# sklearn's LinearDiscriminantAnalysis(solver="lsqr") solves
+# covariance_ @ coef_.T = means_.T with scipy's SVD lstsq, O(p^3): 70-100 s
+# per fit at p = 5073 features (fb=1 union at 43 ch) on 4 threads. The shrunk
+# covariance is SPD, so a Cholesky solve gives the same coefficients (to
+# ~1e-14 relative) in ~3 s. Above LDA_FAST_P features the fit is sklearn's own
+# fit with only that solve replaced; every proxy has p <= 3175 (3595 with
+# slow_block) and keeps sklearn's lstsq bit-for-bit.
+# ---------------------------------------------------------------------------
+LDA_FAST_P = 4000
+LDA_MAX_RESID = 1e-8      # relative residual above which the solve falls back
+LDA_STATS = {"fast": 0, "fallback": 0}   # diagnostics: fast solves / lstsq fallbacks
+
+try:
+    from sklearn.discriminant_analysis import _class_cov, _class_means
+except ImportError:       # pragma: no cover (a future sklearn): plain fits only
+    _class_cov = _class_means = None
+
+
+class _CholeskyLsqrLDA(LinearDiscriminantAnalysis):
+    """LinearDiscriminantAnalysis whose lsqr step is a Cholesky solve. Used
+    only inside ``fit_shrinkage_lda``, which turns the fitted object back into
+    a plain LinearDiscriminantAnalysis: nothing pickled refers to this class."""
+
+    def _solve_lstsq(self, X, y, shrinkage, covariance_estimator):
+        # sklearn 1.9 LinearDiscriminantAnalysis._solve_lstsq, except the solve
+        import warnings
+        from scipy import linalg
+        self.means_ = _class_means(X, y)
+        self.covariance_ = _class_cov(X, y, self.priors_, shrinkage, covariance_estimator)
+        B = self.means_.T
+        coef = None
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", linalg.LinAlgWarning)   # ill-conditioned
+                coef = linalg.solve(self.covariance_, B, assume_a="pos")
+            resid = np.linalg.norm(self.covariance_ @ coef - B) / np.linalg.norm(B)
+            if not resid <= LDA_MAX_RESID:          # also catches NaN
+                coef = None
+        except (linalg.LinAlgError, linalg.LinAlgWarning, ValueError):
+            coef = None
+        if coef is None:                            # sklearn's own solve
+            LDA_STATS["fallback"] += 1
+            coef = linalg.lstsq(self.covariance_, B)[0]
+        else:
+            LDA_STATS["fast"] += 1
+        self.coef_ = coef.T
+        self.intercept_ = -0.5 * np.diag(np.dot(self.means_, self.coef_.T)) + np.log(
+            self.priors_
+        )
+
+
+def fit_shrinkage_lda(X, y, priors=None, fast=None):
+    """LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto", priors)
+    fitted on (X, y), returned as a plain sklearn object (it unpickles
+    anywhere sklearn does). Up to LDA_FAST_P features: sklearn's own fit.
+    Above: the same fit (validation, classes_, priors_, class means,
+    Ledoit-Wolf class covariance, 2-class coef reduction, n_features_in_)
+    with the lstsq step as a Cholesky solve; sklearn's lstsq is kept when the
+    matrix is not numerically SPD / well conditioned or the solve's relative
+    residual exceeds LDA_MAX_RESID. ``fast`` = True / False forces the choice
+    (equivalence checks)."""
+    use_fast = (np.shape(X)[1] > LDA_FAST_P) if fast is None else bool(fast)
+    if not use_fast or _class_cov is None:
+        return LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto",
+                                          priors=priors).fit(X, y)
+    lda = _CholeskyLsqrLDA(solver="lsqr", shrinkage="auto", priors=priors)
+    try:
+        lda.fit(X, y)
+    finally:
+        lda.__class__ = LinearDiscriminantAnalysis
+    return lda
+
+
 class RiemannStepTypeModel:
 
     def __init__(self, parts=None, nfilter=4, estimator="oas",
@@ -218,9 +438,14 @@ class RiemannStepTypeModel:
         for i, (X, y, _info) in enumerate(train_loader):
             if self.max_batches is not None and i >= self.max_batches:
                 break
-            Xs.append(self._prep(X))
+            Xs.append(self._prep(X, np.float32))
             ys.append(to_numpy(y))
-        X, y = np.concatenate(Xs), np.concatenate(ys)
+        X = Xs[0] if len(Xs) == 1 else np.concatenate(Xs)
+        y = np.concatenate(ys)
+        del Xs
+        if _chunk_len(X.shape) < len(X):    # > one chunk (500 Hz): float32 + chunks
+            return self._fit_chunked(X, y)
+        X = X.astype(np.float64)             # the same values as a float64 _prep
 
         # Only plain values and pyriemann/sklearn objects go into parts.
         sfreq = self.preproc.sfreq
@@ -254,24 +479,70 @@ class RiemannStepTypeModel:
               f"features={feats.shape[1]} ({sizes})", flush=True)
 
         n_classes = len(np.unique(y))
-        lda = LinearDiscriminantAnalysis(
-            solver="lsqr", shrinkage="auto",
-            priors=np.full(n_classes, 1.0 / n_classes))
-        parts["lda"] = lda.fit(feats, y)
+        parts["lda"] = fit_shrinkage_lda(feats, y, np.full(n_classes, 1.0 / n_classes))
         self.parts = parts
         return self
 
-    def _prep(self, X):
-        """Per-window preprocessing on CPU, then float64 for pyriemann."""
+    def _fit_chunked(self, X, y):
+        """``fit`` for a float32 training set larger than one chunk: the same
+        parts from chunked passes (float64 per chunk); xDAWN from chunked
+        statistics (~1e-12 relative vs pyriemann's one-shot fit, as the
+        Riemann-Sealed solver), every other block per window as in ``fit``."""
+        n, size = len(X), _chunk_len(X.shape)
+        sfreq = self.preproc.sfreq
+        t0 = time.time()
+
+        def lap(stage):         # heartbeat: long 500 Hz fits keep the log growing
+            print(f"[Riemann-StepType] [{time.strftime('%H:%M:%S')}] chunked fit: "
+                  f"{stage} ({time.time() - t0:.0f} s)", flush=True)
+
+        def get(s):
+            return np.asarray(X[s], dtype=np.float64)
+        parts = {"estimator": self.estimator, "xdawn": None, "sfreq": sfreq}
+        if self.use_xdawn:
+            parts["xdawn"] = _fit_xdawn(self.nfilter, self.estimator, get, y, n, size)
+            lap("xDAWN")
+        if self.slow_block:
+            start, width = round(0.5 * sfreq), round(0.25 * sfreq)
+            n_bins = min(14, (X.shape[2] - start) // width)   # 0.5-4.0 s
+            if n_bins < 1:
+                raise ValueError(f"window too short for slow_block: T={X.shape[2]}")
+            parts["slow"] = {"band": "0.1to4", "start": start,
+                             "width": width, "n_bins": n_bins}
+        if self.filterbank:
+            parts["fb_bands"] = list(FB_BANDS)
+        raw = _window_blocks(parts, get, n, size)
+        lap("window blocks")
+        _fit_tangent(parts, raw, y)
+        blocks = _raw_blocks(parts, raw)
+        del raw
+        lap("tangent spaces")
+        sizes = " + ".join(f"{k} {v.shape[1]}" for k, v in blocks.items())
+        feats = np.concatenate(list(blocks.values()), axis=1)
+        del blocks
+        print(f"[Riemann-StepType] fitting on X={X.shape}, "
+              f"classes={np.unique(y).tolist()}, "
+              f"features={feats.shape[1]} ({sizes}), chunked {size}/{n} windows",
+              flush=True)
+        n_classes = len(np.unique(y))
+        parts["lda"] = fit_shrinkage_lda(feats, y, np.full(n_classes, 1.0 / n_classes))
+        lap("LDA")
+        self.parts = parts
+        return self
+
+    def _prep(self, X, dtype=np.float64):
+        """Per-window preprocessing on CPU, then float64 for pyriemann
+        (``dtype=np.float32``: the preprocessing output as is, for chunking)."""
         X = torch.as_tensor(X, dtype=torch.float32).cpu()
         if self.preproc is not None:
             with torch.no_grad():
                 X = self.preproc(X)
-        return X.numpy().astype(np.float64)
+        return X.numpy().astype(dtype, copy=dtype != np.float32)
 
     def predict(self, X):
-        X = self._prep(X)
-        return torch.as_tensor(self.parts["lda"].predict(_features(self.parts, X)))
+        feats = np.concatenate(list(feature_blocks_chunked(
+            self.parts, self._prep(X, np.float32)).values()), axis=1)
+        return torch.as_tensor(self.parts["lda"].predict(feats))
 
 
 class Solver(CompetSolver):

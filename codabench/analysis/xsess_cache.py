@@ -17,10 +17,28 @@ Output: ~/neuralbench/xsess_cache/<study>/
     split.npy    (n,) int NeuralBench split of the task default (0 train, 1 val, 2 test)
     onset.npy    (n,) float trigger onset in its recording (s)
     code.npy     (n,) str raw event code (the label name)
-    meta.json    sfreq, ch_names, classes, subjects, sessions, counts, config
+    meta.json    sfreq, ch_names, ch_types, classes, subjects, sessions, counts,
+                 config
+    context.npy  (n,) str context per window, only when the study has one
+                 (``load_context``; the sealed Graz / BrainHero contexts)
 
 Rows are sorted by (subject, session, run, onset) = recording order, which is
 the order the Track 2 test loader delivers windows in (shuffle=False).
+
+meta["ch_types"] ("eeg" | "emg" | "eog" | "ecg" per channel) comes from the
+submission's own name rule (riemann_sealed._channel_types: a name containing
+EMG / EOG / ECG), so the harness's --chans and the solver's ``chans`` pick
+the same channels. ``--picks eeg,emg,eog`` overrides the neuro extractor's
+channel types (NeuralBench default: eeg only), e.g. for an EMG/EOG EDA cache
+under a second study key.
+
+Release structure (the sealed Graz + BrainHero data: a study with a context
+column, or ``--sealed``): meta also gets hidden_split (split 2 rows = the
+organisers' hidden test sessions, whose labels are not the true ones),
+hidden_rows, eval_subjects (subjects with split 2 rows, else those with fewer
+sessions than the most; ``--eval_subjects`` overrides), full_subjects and
+calib_sessions (``--calib_sessions``, default 3). The harness keeps hidden
+rows out of every training set (xsess_lib.xsess_split).
 """
 
 import json
@@ -32,8 +50,10 @@ from pathlib import Path
 import numpy as np
 
 HOME = Path.home()
-CACHE_ROOT = HOME / "neuralbench/xsess_cache"
+# XSESS_CACHE_ROOT (opt-in, e.g. a scratch folder for a test build)
+CACHE_ROOT = Path(os.environ.get("XSESS_CACHE_ROOT") or HOME / "neuralbench/xsess_cache")
 sys.path.insert(0, str(HOME / "codabench/2026-competition/tracks/bci_decoding"))
+sys.path.insert(0, str(HOME / "codabench/solvers/bci_decoding"))
 
 # study key -> (modality, task, dataset overlay or None)
 STUDIES = {
@@ -56,7 +76,37 @@ def _session_key(s):
     return (int(digits) if digits else 0, s)
 
 
-def build(study):
+def release_structure(subj, session, split, eval_subjects=None, calib_sessions=3):
+    """meta keys of the sealed release structure: hidden_split / hidden_rows
+    (split 2 = the organisers' hidden test rows), eval_subjects (``eval_subjects``
+    if given, else the subjects with split 2 rows, else the subjects with fewer
+    sessions than the most; none of these -> no eval_subjects key),
+    full_subjects (the rest) and calib_sessions."""
+    subjects = np.unique(subj)
+    hidden = split == 2
+    ev = eval_subjects
+    if ev is None and hidden.any():
+        ev = np.unique(subj[hidden]).tolist()
+    if ev is None:
+        n_sess = np.array([len(np.unique(session[subj == s])) for s in subjects])
+        if 0 < (n_sess < n_sess.max()).sum() < len(subjects):
+            ev = subjects[n_sess < n_sess.max()].tolist()
+    out = {"hidden_split": True, "hidden_rows": int(hidden.sum()),
+           "calib_sessions": int(calib_sessions)}
+    if ev is not None:
+        ev = sorted(int(s) for s in ev)
+        out.update(eval_subjects=ev,
+                   full_subjects=[int(s) for s in subjects if int(s) not in ev])
+    return out
+
+
+def build(study, picks=None, sealed=False, eval_subjects=None, calib_sessions=3,
+          hidden_labelled=False):
+    """``picks``: neuro extractor channel types (e.g. ("eeg", "emg", "eog");
+    None = the task's, NeuralBench's default eeg only). ``sealed`` (or a
+    context column): record the release structure in meta (module doc);
+    ``hidden_labelled``: its split 2 rows carry their true labels (meta
+    hidden_labelled: the harness may then test on them)."""
     import torch
     from neuralbench.data import Data
     from benchmark_utils.nb_task import _quiet_neuro_logs, _task_data_config
@@ -69,11 +119,14 @@ def build(study):
     out.mkdir(parents=True, exist_ok=True)
     data_dir = Path(os.environ["BENCHOPT_DATA_HOME"]) / "neural_compet"
     _quiet_neuro_logs()
-    cfg = _task_data_config(modality, task, overlay, data_dir, {
-        "batch_size": 256, "seed": 33, "num_workers": 0,
-        "pin_memory": False, "persistent_workers": False})
+    over = {"batch_size": 256, "seed": 33, "num_workers": 0,
+            "pin_memory": False, "persistent_workers": False}
+    if picks:
+        over["neuro.picks"] = tuple(picks)
+    cfg = _task_data_config(modality, task, overlay, data_dir, over)
     log(f"{study}: preparing {modality}/{task} overlay={overlay} "
-        f"start={cfg.get('start')} duration={cfg.get('duration')}")
+        f"start={cfg.get('start')} duration={cfg.get('duration')}"
+        + (f" picks={list(picks)}" if picks else ""))
     t0 = time.time()
     loaders = Data(**cfg).prepare()
     log(f"{study}: prepared in {time.time() - t0:.0f} s")
@@ -171,34 +224,87 @@ def build(study):
             arrays["context"] = df[col].astype(str).to_numpy()[order]
             meta["context_column"] = col
             break
+    # channel types by the submission's own rule (the extractor keeps names only)
+    import riemann_sealed
+    meta["ch_types"] = riemann_sealed._channel_types(ch_names)
+    meta["ch_types_source"] = "names"
+    if picks:
+        meta["picks"] = list(picks)
+    if sealed or "context" in arrays:
+        meta.update(release_structure(subj, session, split, eval_subjects, calib_sessions))
+        if hidden_labelled:
+            meta["hidden_labelled"] = True
+        log(f"{study}: release structure: hidden (split 2) rows={meta['hidden_rows']} "
+            f"eval_subjects={meta.get('eval_subjects')} full_subjects="
+            f"{meta.get('full_subjects')} calib_sessions={meta['calib_sessions']}")
     for k, v in arrays.items():
         np.save(out / f"{k}.npy", v)
     (out / "meta.json").write_text(json.dumps(meta, indent=1))
+    types = {t: meta["ch_types"].count(t) for t in sorted(set(meta["ch_types"]))}
     log(f"{study}: X={X.shape} subjects={len(subjects)} "
         f"sessions/subject={[len(v) for v in sess_map.values()]} "
-        f"classes={classes} counts={np.bincount(y).tolist()} -> {out}")
+        f"classes={classes} counts={np.bincount(y).tolist()} ch_types={types} "
+        f"context={meta.get('context_column')} -> {out}")
 
 
-def load(study):
-    """(X, y, subj, session, run, meta) from a built cache."""
+def load(study, mmap=False):
+    """(X, y, subj, session, run, meta) from a built cache. ``mmap``: X is a
+    read-only memory map (np.load mmap_mode="r"; the 500 Hz sealed data is
+    ~5.4 GB), read on demand; the values are the same."""
     d = CACHE_ROOT / study
     meta = json.loads((d / "meta.json").read_text())
-    arrs = [np.load(d / f"{k}.npy", allow_pickle=True)
+    arrs = [np.load(d / f"{k}.npy", allow_pickle=True,
+                    mmap_mode="r" if (mmap and k == "X") else None)
             for k in ("X", "y", "subj", "session", "run")]
     return (*arrs, meta)
 
 
+def load_context(study):
+    """(n,) str context label per window (e.g. "graz" / "brainhero"), in the
+    cache's row order, or None when the study has no context column (every
+    proxy). The sealed metric averages over subject x session x context."""
+    p = CACHE_ROOT / study / "context.npy"
+    return np.load(p, allow_pickle=True).astype(str) if p.exists() else None
+
+
+def load_split(study):
+    """(n,) int NeuralBench split code per window (0 train, 1 val, 2 test; on
+    the sealed release 2 = the organisers' hidden test rows), in the cache's
+    row order, or None when the cache has no split.npy."""
+    p = CACHE_ROOT / study / "split.npy"
+    return np.load(p) if p.exists() else None
+
+
 if __name__ == "__main__":
     # New study without editing STUDIES (e.g. the Graz + BrainHero release):
-    #   python xsess_cache.py graz2026 --task eeg/<task> [--overlay <name>]
+    #   python xsess_cache.py graz2026 --task eeg/<task> [--overlay <name>] [--sealed]
+    #   EMG/EOG EDA cache under a second key:
+    #   python xsess_cache.py graz2026_exg --task eeg/<task> --overlay <name> \
+    #       --picks eeg,emg,eog --sealed
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("studies", nargs="*", default=["zhou2016"])
     ap.add_argument("--task", default=None, help="modality/task, e.g. eeg/motor_imagery")
     ap.add_argument("--overlay", default=None, help="dataset overlay in the task's datasets/")
+    ap.add_argument("--picks", default=None,
+                    help="neuro extractor channel types, e.g. eeg,emg,eog (default: the "
+                         "task's, i.e. eeg)")
+    ap.add_argument("--sealed", action="store_true",
+                    help="record the release structure in meta (automatic with a context column)")
+    ap.add_argument("--eval_subjects", default=None,
+                    help="comma list of evaluation-participant indices (default: subjects "
+                         "with split 2 rows)")
+    ap.add_argument("--calib_sessions", type=int, default=3)
+    ap.add_argument("--hidden_labelled", action="store_true",
+                    help="the split 2 rows carry their true labels (the harness may test "
+                         "on them)")
     a = ap.parse_args()
+    ev = (None if a.eval_subjects is None
+          else [int(s) for s in a.eval_subjects.split(",") if s != ""])
     for s in a.studies:
         if a.task is not None:
             mod, task = a.task.split("/")
             STUDIES[s] = (mod, task, a.overlay)
-        build(s)
+        build(s, picks=a.picks.split(",") if a.picks else None,
+              sealed=a.sealed or ev is not None, eval_subjects=ev,
+              calib_sessions=a.calib_sessions, hidden_labelled=a.hidden_labelled)
