@@ -1287,3 +1287,39 @@ proxies (tags `f0929p`, `f0929p5`), plus the reverse-time replication
 - **The 21:30 union rule is moot.** icoh is not ADOPT, so bpt4+icoh is not
   run as a pre-registered candidate. It runs below as post-hoc information
   only.
+
+**Phase 3 final** (lane B ended 23:39:32; `logs/sealed_f0929/RESULTS_confirm.md`).
+The pre-registered union **tseg3+icoh** also meets ADOPT by the letter:
+- Scherer 3-cl. +3.2 (+1.6, +5.1) 8/9;
+- Tangermann +0.5, Scherer 5-cl. +1.5, Zhou −1.8: mean +0.07, none < −2.0.
+
+It is **not deployed**:
+- bpt4 is better on every proxy: +4.4 vs +3.2, +1.5 vs +0.5, +2.7 vs +1.5,
+  +2.2 vs −1.8.
+- At 43 ch the union is ~20 k features. That is the sizing problem of tseg3,
+  which the brief's Phase 4 gate would fail without a dual LDA solve.
+- The brief's tie rule ("keep the single block") covers only a tie between a
+  union and one of its own blocks; this is a clear loss to another adopted
+  block.
+- It is recorded as "ADOPT, dominated by bpt4".
+
+The CIs above come from one bootstrap RNG run over all rows in table order, so
+an interval can move in the last digit as rows are added (tseg3's lower bound
+read −0.0 at 21:33 and −0.1 at 23:40); the verdicts did not change.
+
+**Incident, 22:10:** lane A was stopped by hand before its online-64 info
+steps, to free the CPU slot for the 500 Hz sizing. The killed first online
+step (`p3_s3on_1d2f9d19`) left no END row; its `.start`/`.pid` were removed so
+the watchdog would not report DEAD. The step is resumable with `LANES=A`.
+
+### Phase 4 — sizing at the sealed size (`scripts/sprint0929_f4.sh`, `analysis/xblocks_sizing.py`)
+
+Riemann-Sealed on `mock_sealed_500` through the mock's own dataset class, so
+it gets session and context ids: 10,800 training windows, 43 EEG ch × 2000
+samples, `blend_w="auto"` with 6 LOSO folds, 10 threads, with one other lane
+running.
+
+| Time | Variant | Estimate | Fit | Peak RSS | Features | Predict | Gate (≤ 1.5× fit, ≤ 16 GiB) |
+|---|---|---|---|---|---|---|---|
+| 22:10:43–22:44:03 | recipe (none) | 35 min | 1,961 s (dress rehearsal alone: 1,826 s) | 11.32 GB | 5,073 | 27.7 ms/window | reference |
+| 22:44:03–23:19:14 | bpt4 | 45 min | 2,073 s = **1.06×** | 11.97 GB | 5,761 | 24.4 ms/window | **PASS** |

@@ -54,3 +54,57 @@
 | 20:40:16 | f3 spec 2d8e93fe = riemann:xd=1,fb=1,x=icoh |
 | 20:40:16 | f3 spec b449f1d0 = riemann:xd=1,fb=1,x=tseg3+icoh |
 | 20:40:16 | START p3_tg_1d2f9d19 (ETA 25 min) |
+| 20:44:18 | END p3_s3_a88d9676 rc=0 |
+| 20:44:18 | START p3_s3_614774f1 (ETA 20 min) |
+| 20:46:26 | END p3_tg_1d2f9d19 rc=0 |
+| 20:46:26 | START p3_tg_a88d9676 (ETA 25 min) |
+| 20:56:33 | END p3_s3_614774f1 rc=0 |
+| 20:56:33 | START p3_s3_2d8e93fe (ETA 20 min) |
+| 21:02:45 | END p3_s3_2d8e93fe rc=0 |
+| 21:02:45 | START p3_s3_b449f1d0 (ETA 20 min) |
+| 21:03:34 | END p3_tg_a88d9676 rc=0 |
+| 21:03:34 | START p3_tg_614774f1 (ETA 25 min) |
+| 21:11:54 | END p3_tg_614774f1 rc=0 |
+| 21:11:54 | START p3_tg_2d8e93fe (ETA 25 min) |
+| 21:28:17 | END p3_tg_2d8e93fe rc=0 |
+| 21:28:17 | START p3_tg_b449f1d0 (ETA 25 min) |
+| 21:28:21 | END p3_s3_b449f1d0 rc=0 |
+| 21:28:21 | START p3_zh_1d2f9d19 (ETA 5 min) |
+| 21:29:05 | END p3_zh_1d2f9d19 rc=0 |
+| 21:29:05 | START p3_zh_a88d9676 (ETA 5 min) |
+| 21:31:18 | END p3_zh_a88d9676 rc=0 |
+| 21:31:18 | START p3_zh_614774f1 (ETA 5 min) |
+| 21:32:15 | END p3_zh_614774f1 rc=0 |
+| 21:32:15 | START p3_zh_2d8e93fe (ETA 5 min) |
+| 21:33:11 | END p3_zh_2d8e93fe rc=0 |
+| 21:33:11 | START p3_zh_b449f1d0 (ETA 5 min) |
+| 21:35:57 | END p3_zh_b449f1d0 rc=0 |
+| 21:35:57 | START p3_rev (ETA 35 min) |
+| 21:43:21 | END p3_tg_b449f1d0 rc=0 |
+| 21:43:21 | START p3_s5_1d2f9d19 (ETA 25 min) |
+| 22:00:10 | END p3_s5_1d2f9d19 rc=0 |
+| 22:00:10 | START p3_s5_a88d9676 (ETA 25 min) |
+| 22:10:36 | END p3_rev rc=0 |
+| 22:10:36 | START p3_s3on_1d2f9d19 (ETA 15 min) |
+| 22:10:41 | f3 lane A stopped by hand after p3_rev (online-64 info steps deferred: CPU slot for the Phase 4 500 Hz sizing) |
+| 22:10:41 | ETA f4 sizing (sz_none ~35 min, sz_bpt4 ~40 min at 500 Hz) ~75 min, done by ~23:25 |
+| 22:10:43 | START sz_none (ETA 35 min) |
+| 22:10:57 | END p3_s3on_1d2f9d19 killed with lane A (deferred, no .done; rerun LANES=A to resume) |
+| 22:28:16 | END p3_s5_a88d9676 rc=0 |
+| 22:28:16 | START p3_s5_614774f1 (ETA 25 min) |
+| 22:44:03 | END sz_none rc=0 |
+| 22:44:03 | START sz_bpt4 (ETA 45 min) |
+| 22:52:31 | END p3_s5_614774f1 rc=0 |
+| 22:52:31 | START p3_s5_2d8e93fe (ETA 25 min) |
+| 23:05:30 | END p3_s5_2d8e93fe rc=0 |
+| 23:05:30 | START p3_s5_b449f1d0 (ETA 25 min) |
+| 23:19:14 | END sz_bpt4 rc=0 |
+| 23:19:14 | f4 sizing finished (2 SIZING lines) |
+| 23:19:26 | ETA f4 sizing bpt4_icoh ~40 min, done by ~23:59 |
+| 23:19:28 | skip sz_none (done) |
+| 23:19:28 | skip sz_bpt4 (done) |
+| 23:19:28 | START sz_bpt4_icoh (ETA 45 min) |
+| 23:39:32 | END p3_s5_b449f1d0 rc=0 |
+| 23:39:35 | f3 LANES=B finished; p3_s3on_1d2f9d19 not done |
+| 23:39:46 | ETA f5 verification (zhou regression ~5, mock bpt4 flow ~15, mock ablations xb/xa ~20, summary ~1) ~40 min |
+| 23:39:59 | START v_zhou (ETA 5 min) |

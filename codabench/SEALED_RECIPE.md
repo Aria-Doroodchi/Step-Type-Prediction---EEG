@@ -162,6 +162,7 @@ class information.
 | **bpt4** | log band power, 4 bands × 4 one-second bins × channel (ERD/ERS time course) | +2.6 (+0.4, +5.0) 8/9 | **+4.4 (+2.0, +6.7)** / +1.5 (+0.1, +3.1) / +2.7 (+1.2, +4.6) / +2.2 | **ADOPT** (recipe default for release day) |
 | icoh | imaginary coherence per band: lagged connectivity, blind to volume conduction | +2.6 (+0.9, +4.2) 7/9 | +2.2 (+0.3, +4.4) / +1.3 / +2.0 (+0.6, +3.6) / **−3.5** | PROMISING → release-day ablation `xa` |
 | tseg3 | FB covariances of 3 time segments → TS | +3.3 (+1.5, +5.7) 9/9 | +2.0 (−0.0, +4.1) / −0.2 / +1.0 / −1.5 | no gain under the deployed recipe (and +11 k features at 43 ch) |
+| tseg3+icoh (pre-registered union) | both | — | +3.2 (+1.6, +5.1) / +0.5 / +1.5 / −1.8 | ADOPT by the letter, **dominated by bpt4 on every proxy**; ~20 k features at 43 ch: not deployed |
 | tcut1000, tseg2, acm3x2, fbd | cue-second split; 2 segments; time-delay-embedded covariance; 1–4 Hz TS | +1.0 to +2.8 | (not advanced: same family as tseg3, or lower) | — |
 | fbfrom1000 (control) | the FB without the cue second | +1.6 | — | the FB does **not** depend on the cue second |
 | csp8, fblv, fbrlv, reg, fb8, acm2x4, slow block | CSP subspace, band-power topography, regional covariances, 8 bands, … | −0.2 to +0.6 | — | no gain |
