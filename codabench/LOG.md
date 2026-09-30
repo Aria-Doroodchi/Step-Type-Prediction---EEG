@@ -1323,3 +1323,24 @@ running.
 |---|---|---|---|---|---|---|---|
 | 22:10:43–22:44:03 | recipe (none) | 35 min | 1,961 s (dress rehearsal alone: 1,826 s) | 11.32 GB | 5,073 | 27.7 ms/window | reference |
 | 22:44:03–23:19:14 | bpt4 | 45 min | 2,073 s = **1.06×** | 11.97 GB | 5,761 | 24.4 ms/window | **PASS** |
+| 23:19:28–00:10:55 | bpt4+icoh | 45 min | 3,061 s = **1.56×** | 12.99 GB | 9,373 | 24.2 ms/window | borderline FAIL: measured while 2 other jobs ran (the reference had 1); the extra time is in the LDAs (the 6 LOSO folds 2,235 s vs 1,460). icoh is only the release-day ablation `xa`, so this does not block anything. If the replica adds it, budget ~+20 min per 500 Hz flow, or re-measure alone |
+
+**Phase 4 verification** (`scripts/sprint0929_f5.sh`, 23:39:59–00:12:02, 32 min
+vs ~40 estimated; 0 ERROR rows):
+- **Regression gate with defaults:** `train_sealed.sh` on zhou2016_xsess gives
+  train 0.770000 = replay 0.770000, harness 0.778333 (w = 0.75), gap 0.0083 OK.
+  This is the committed flow exactly, and the candidate bakes `xblocks=none`
+  (2.6 min).
+- **The flow with `RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4`** on mock_sealed_s
+  (organisers' split): the candidate bakes `xblocks=bpt4` (5,761 features).
+  Benchopt train 0.512500 = replay 0.512500 = harness 0.512500, gap 0.0000
+  (16 min). The zip is local and was **not uploaded**. The wrapper step showed
+  STALLED at 12 min; that is the known wrapper trap, and the inner log was
+  growing.
+- **`release_ablations.sh` rehearsal** on mock_sealed_s: the release replica
+  (calib:3, full participants), `SPEC=…,x=bpt4 XB=icoh`, steps base / xb / xa.
+  - The summarizer prints "keep the blocks" (xb +0.56 < +1.0) and "ADD icoh"
+    (xa +1.94, contexts +2.22 / +1.67).
+  - The final line is `RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4+icoh` for
+    `train_sealed.sh`, which turns the `+` into `xblocks="bpt4_icoh"`.
+  - The mock's accuracies mean nothing; this checks the machinery.

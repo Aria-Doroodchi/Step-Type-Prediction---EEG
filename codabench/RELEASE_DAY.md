@@ -863,6 +863,22 @@ solver fit (~10,800 windows, up to 6 folds) is the size measured here.
 at 10 threads and ≤ 30 min at 2 threads): the recipe **passes at 500 Hz** with a
 wide margin: 30.4 min, 11.8 GiB, 77 s and 66 s.
 
+**With the feature blocks (sprint 2026-09-29, `analysis/xblocks_sizing.py`,
+`mock_sealed_500`, `auto`, 10 threads, one or two other jobs running;
+`logs/sealed_f0929/RESULTS_sizing.md`):**
+
+| xblocks | fit | vs recipe | peak RSS | features | predict |
+|---|---|---|---|---|---|
+| none (recipe, re-measured) | 1,961 s | 1.00× | 11.3 GB | 5,073 | 27.7 ms/window |
+| **bpt4** (the default since 2026-09-29) | 2,073 s | **1.06×** | 12.0 GB | 5,761 | 24.4 ms/window |
+| bpt4 + icoh (step `xa`) | 3,061 s | 1.56× (2 other jobs ran) | 13.0 GB | 9,373 | 24.2 ms/window |
+
+If rule 3b adds icoh, budget ~+20 min per 500 Hz flow. At 120 Hz the LDAs
+dominate the extra cost in the same proportion. The `xb` and `xa` steps add two
+`sealed_personal` runs to § 5 (a). On `mock_sealed_s` at 5 threads per lane,
+base took 5.6 min, xb 4.3 and xa 9.3. At full size, expect xb ≈ one base run
+(10–14 min) and xa ≈ 1.7× that.
+
 The fast shrinkage LDA (sprint Phase 1) is what makes this feasible:
 - one 5,073-feature fit took 38.7 s with sklearn's solve and 3.8 s with the
   Cholesky solve;

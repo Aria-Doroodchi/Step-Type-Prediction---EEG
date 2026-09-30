@@ -108,3 +108,30 @@
 | 23:39:35 | f3 LANES=B finished; p3_s3on_1d2f9d19 not done |
 | 23:39:46 | ETA f5 verification (zhou regression ~5, mock bpt4 flow ~15, mock ablations xb/xa ~20, summary ~1) ~40 min |
 | 23:39:59 | START v_zhou (ETA 5 min) |
+| 23:42:35 | END v_zhou rc=0 |
+| 23:42:35 | START v_mock_bpt4 (ETA 15 min) |
+| 23:55:10 | ETA revised: v_mock_bpt4 ~30 min (inner flow healthy: validate 7 min, personal_none running; STALLED = the wrapper-step trap, the inner log grows) |
+| 23:58:18 | END v_mock_bpt4 rc=0 |
+| 23:58:18 | START v_abl (ETA 20 min) |
+| 00:11:02 | END sz_bpt4_icoh rc=0 |
+| 00:11:02 | f4 sizing finished (3 SIZING lines) |
+| 00:11:25 | ETA f3 post-hoc lane A (bpt4+icoh on s3 ~15, zh ~3; online-64 info x3 ~45) ~65 min, done by ~01:16 |
+| 00:11:27 | f3 spec 1d2f9d19 = riemann:xd=1,fb=1 |
+| 00:11:27 | f3 spec 614774f1 = riemann:xd=1,fb=1,x=bpt4 |
+| 00:11:27 | f3 spec 3dfff2ed = riemann:xd=1,fb=1,x=bpt4+icoh |
+| 00:11:27 | skip p3_s3_1d2f9d19 (done) |
+| 00:11:27 | skip p3_s3_614774f1 (done) |
+| 00:11:27 | START p3_s3_3dfff2ed (ETA 20 min) |
+| 00:11:59 | END v_abl rc=0 |
+| 00:11:59 | START v_abl_sum (ETA 3 min) |
+| 00:12:02 | END v_abl_sum rc=0 |
+| 00:12:02 | regress_f0929:  23:42:32  gate: train 0.770000 replay 0.770000 EQUAL; harness blend_calib pooled 0.778333 (w=0.75), gap 0.0083 OK  0 ERROR rows |
+| 00:12:02 | f0929_mock_bpt4:  23:58:15  gate: train 0.512500 replay 0.512500 EQUAL; harness blend_calib pooled 0.512500 (w=0.5), gap 0.0000 OK  0 ERROR rows |
+| 00:12:02 | f5 verification finished |
+| 00:12:47 | ETA f3 post-hoc lane B (bpt4+icoh on tg ~20, s5 ~20) ~40 min, done by ~00:52 |
+| 00:12:49 | f3 spec 1d2f9d19 = riemann:xd=1,fb=1 |
+| 00:12:49 | f3 spec 614774f1 = riemann:xd=1,fb=1,x=bpt4 |
+| 00:12:49 | f3 spec 3dfff2ed = riemann:xd=1,fb=1,x=bpt4+icoh |
+| 00:12:49 | skip p3_tg_1d2f9d19 (done) |
+| 00:12:49 | skip p3_tg_614774f1 (done) |
+| 00:12:49 | START p3_tg_3dfff2ed (ETA 25 min) |
