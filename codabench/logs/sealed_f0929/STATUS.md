@@ -135,3 +135,24 @@
 | 00:12:49 | skip p3_tg_1d2f9d19 (done) |
 | 00:12:49 | skip p3_tg_614774f1 (done) |
 | 00:12:49 | START p3_tg_3dfff2ed (ETA 25 min) |
+| 00:21:53 | END p3_s3_3dfff2ed rc=0 |
+| 00:21:53 | skip p3_zh_1d2f9d19 (done) |
+| 00:21:53 | skip p3_zh_614774f1 (done) |
+| 00:21:53 | START p3_zh_3dfff2ed (ETA 5 min) |
+| 00:23:56 | END p3_zh_3dfff2ed rc=0 |
+| 00:23:56 | skip p3_rev (done) |
+| 00:23:56 | START p3_s3on_1d2f9d19 (ETA 15 min) |
+| 00:34:09 | END p3_tg_3dfff2ed rc=0 |
+| 00:34:09 | skip p3_s5_1d2f9d19 (done) |
+| 00:34:09 | skip p3_s5_614774f1 (done) |
+| 00:34:09 | START p3_s5_3dfff2ed (ETA 25 min) |
+| 00:35:35 | END p3_s3on_1d2f9d19 rc=0 |
+| 00:35:35 | START p3_s3on_614774f1 (ETA 15 min) |
+| 00:47:02 | ETA gates after the review fixes (selftest + xblocks_gate defaults/bpt4/icoh) ~12 min |
+| 00:55:35 | END p3_s3on_614774f1 rc=0 |
+| 00:55:35 | START p3_s3on_3dfff2ed (ETA 15 min) |
+| 00:58:28 | END p3_s5_3dfff2ed rc=0 |
+| 00:58:33 | f3 LANES=B finished; p3_s3on_3dfff2ed not done |
+| 00:58:36 | START v_mock_default (defaults gate, mock arm; ETA 8 min) |
+| 01:04:30 | END p3_s3on_3dfff2ed rc=0 |
+| 01:04:36 | f3 ALL DONE (RESULTS_confirm.md written) |
