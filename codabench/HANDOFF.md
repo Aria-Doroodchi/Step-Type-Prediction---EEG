@@ -7,7 +7,7 @@ pushed to `personal` after every commit. Logs: `~/codabench/logs/sealed_f0929/`
 (STATUS.md, `RESULTS_*.md`, per-study `results_<study>.jsonl`). The lanes
 `scripts/sprint0929_f*.sh` are resumable.
 
-## State of this sprint (updated 2026-09-30 01:05)
+## State of this sprint (updated 2026-09-30 02:10): sprint complete
 
 **Outcome:**
 - **The band-power time course `bpt4` is adopted** into the release-day recipe
@@ -18,7 +18,9 @@ pushed to `personal` after every commit. Logs: `~/codabench/logs/sealed_f0929/`
   - It passes the 500 Hz sizing gate (1.06×).
   - Caveat: the confirmation reuses the screen's test sessions.
 - **Imaginary coherence `icoh` (lagged connectivity) is PROMISING.** It becomes
-  the release-day ablation `xa`. Post-hoc, bpt4+icoh gave +6.51.
+  the release-day ablation `xa`. Post-hoc, bpt4+icoh gave +6.51. But it
+  **fails the 500 Hz sizing gate**: 1.78× the recipe's fit measured alone
+  (34 vs 19 min), so rule 3b keeps it out on a 500 Hz cache for now.
 - **No gain under the deployed recipe:**
   - time-segment covariances (`tseg3`);
   - topography-type spatial blocks: CSP, regional covariances, band-power maps,
@@ -31,20 +33,15 @@ pushed to `personal` after every commit. Logs: `~/codabench/logs/sealed_f0929/`
 | 1 build (workflow, 5 agents) | ✅ 9b3719b | 12 verified blocks + 2 EDA-motivated (`tcut1000`, `fbfrom1000`); activation EDA in `reports/features_0929/`; baseline bit-exact; slow block / CAR / Laplacian: no gain |
 | 2 screen | ✅ fe0efe4 | tseg3 +3.33, bpt4 +2.59, icoh +2.59 on Scherer 3-cl.; `RESULTS_screen.md` |
 | 3 confirm | ✅ 4562ac4 | bpt4 ADOPT, icoh PROMISING, tseg3 NO GAIN (+1.96), tseg3+icoh ADOPT by the letter but not deployed; reverse split: no downgrade; `RESULTS_confirm.md`, `RESULTS_reverse.md` |
-| 4 integrate + verify | ✅ e1b7402 | solver opt-in `xblocks` (tseg<K>, bpt<K>, icoh): defaults \|dP\| = 0, harness parity exact. `train_sealed.sh` bakes `RECIPE_SPEC … x=`. `release_ablations.sh` steps `xb` / `xa` (env `XB`), summarizer rule 3b. zhou regression 0.770000 = replay. Mock bpt4 flow: train = replay = harness 0.5125. 500 Hz sizing: bpt4 1.06× PASS; bpt4+icoh 1.56× **FAIL** (contended) |
-| 4 extras (post-hoc, information) | ✅ | bpt4+icoh: +6.51 / +1.81 / +2.16 / +3.33; online-64 Scherer 3-cl.: recipe 0.561, bpt4 0.592 |
+| 4 integrate + verify | ✅ e1b7402 | solver opt-in `xblocks` (tseg<K>, bpt<K>, icoh): defaults \|dP\| = 0, harness parity exact. `train_sealed.sh` bakes `RECIPE_SPEC … x=`. `release_ablations.sh` steps `xb` / `xa` (env `XB`), summarizer rule 3b. zhou regression 0.770000 = replay. Mock bpt4 flow: train = replay = harness 0.5125. Mock default flow 0.483333 = committed. 500 Hz sizing: bpt4 1.06× PASS; bpt4+icoh **FAIL** (1.56× contended, **1.78× alone**: 2,062 vs 1,157 s) |
+| 4 extras (post-hoc, information) | ✅ e6af308 | bpt4+icoh: +6.51 / +1.81 / +2.16 / +3.33; online-64 Scherer 3-cl.: recipe 0.561, bpt4 0.592, bpt4+icoh 0.599 |
 | 5 review (workflow, 6 agents) | ✅ eb39e70, 80d4da3 | 36 confirmed findings fixed. Two majors: the release-day summarizer lost `x=bpt4` (fixed and hardened: reads `config.txt`), and rule 3b's reading of the brief (documented; the icoh rule is now literal). LOG "Corrections" block, brief erratum |
 
 ## What is running
 
-- **The 500 Hz sizing re-measured alone** (`PREFIX=sz2 XBS=bpt4_icoh
-  scripts/sprint0929_f4.sh`, started after the last lane). It gives the recipe
-  and then bpt4+icoh, ~85 min.
-- Check it: `tail ~/codabench/logs/sealed_f0929/STATUS.md`, then
-  `cat ~/codabench/logs/sealed_f0929/RESULTS_sizing.md` (the `sz2_*` lines).
-- If the chain died, rerun
-  `PREFIX=sz2 XBS=bpt4_icoh bash ~/codabench/scripts/sprint0929_f4.sh` in WSL.
-  Done steps are skipped.
+Nothing. The last job, the 500 Hz sizing re-measured alone, ended at 02:03
+(`logs/sealed_f0929/RESULTS_sizing.md`). No uploads were made. The zips under
+`logs/` (mock, regression) are local only; never upload them.
 
 ## Facts a resumer needs (this sprint)
 
@@ -61,7 +58,7 @@ pushed to `personal` after every commit. Logs: `~/codabench/logs/sealed_f0929/`
 - **Harness `x=` blocks** run per 512 MiB chunk. Stateless blocks skip the
   full-array fit, and chunked = one-shot exactly.
 
-## What the user needs to do (unchanged from the previous sprint, plus one)
+## What the user needs to do (the previous sprint's items, plus 3 and 4)
 
 1. Post the organiser question (SEALED_RECIPE § 5 step 1).
 2. A warm-up deployment-test upload before 2026-10-25 (SUBMISSIONS.md). The
@@ -69,7 +66,12 @@ pushed to `personal` after every commit. Logs: `~/codabench/logs/sealed_f0929/`
    plain numpy arrays for it.
 3. Review rule 3b (RELEASE_DAY § 6), in particular the ADOPT reading: bpt4
    stays unless the replica is ≥ +1.0 without it.
-4. Optional: review / merge `docs/sprint0928-consistency`; approve REVE /
+4. Decide the icoh sizing policy for a 500 Hz release: it fails the brief's
+   relative gate (1.78×) but meets the older absolute rule (fit 34 ≤ 45 min).
+   Either accept the absolute rule, or keep icoh out at 500 Hz. The other way
+   to lift the block is a restricted icoh (2 bands) or a dual LDA solve, which
+   is sprint work.
+5. Optional: review / merge `docs/sprint0928-consistency`; approve REVE /
    LaBraM weights (still parked).
 
 The sections below are the previous sprints' handoffs (2026-09-28/29,

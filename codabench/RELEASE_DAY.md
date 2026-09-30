@@ -575,10 +575,13 @@ These rules were written before any Graz + BrainHero number existed.
      is worse**. That is the brief's rule, literally.
    - **If both fire,** only the single change with the larger gain is applied
      (both were tested alone).
-   - **On a 500 Hz cache,** adding icoh also needs a fit ≤ 1.5× the recipe's.
-     bpt4 + icoh measured 1.56× on the mock under contention (§ 8), a FAIL.
-     Re-measure it alone first, or record the deviation and budget ~+20 min per
-     flow.
+   - **On a 500 Hz cache,** adding icoh also needs a fit ≤ 1.5× the recipe's,
+     and bpt4 + icoh **fails** that gate. It measured 1.78× on an idle machine:
+     34 min vs 19 min on the full-size mock (§ 8).
+     - There, keep icoh out unless the user accepts the older absolute rule
+       (fit ≤ 45 min, which it meets).
+     - Or icoh is restricted (e.g. to 8–13 and 13–30 Hz) and re-gated.
+     - At 120 Hz the same ratio applies to much smaller absolute times.
    - The summarizer prints both lines and the resulting `RECIPE_SPEC`. It
      reads `spec=` / `xb=` from the run's `config.txt`, and refuses a
      `--spec` / `--xb` that differs.
@@ -889,7 +892,13 @@ wide margin: 30.4 min, 11.8 GiB, 77 s and 66 s.
 |---|---|---|---|---|---|---|
 | none (recipe, re-measured with 1 other job) | 1,961 s | 1.00× (2026-09-28 rehearsal: 1,826 s) | 11.3 | 5,073 | 27.7 ms/window | reference |
 | **bpt4** (the default since 2026-09-29) | 2,073 s | **1.06×** (1.14× vs the rehearsal) | 12.0 | 5,761 | 24.4 ms/window | PASS |
-| bpt4 + icoh (step `xa`) | 3,061 s | **1.56×** (1.68× vs the rehearsal; 2 other jobs ran) | 13.0 | 9,373 | 24.2 ms/window | **FAIL** (re-measure alone; rule 3b) |
+| bpt4 + icoh (step `xa`) | 3,061 s | **1.56×** (1.68× vs the rehearsal; 2 other jobs ran) | 13.0 | 9,373 | 24.2 ms/window | **FAIL** |
+| *re-measured alone (2026-09-30 01:08–02:03):* none | 1,157 s (19.3 min) | 1.00× | 11.2 | 5,073 | 11.8 ms/window | reference |
+| *alone:* bpt4 + icoh | 2,062 s (34.4 min) | **1.78×** | 13.3 | 9,373 | 17.3 ms/window | **FAIL** of the relative gate (within the older absolute rule, fit ≤ 45 min) |
+
+Contention inflated the recipe's fit 1.7× (1,961 s vs 1,157 s), so compare
+ratios only within one series. bpt4 alone was not re-measured: its 1.06× came
+from a run under the same conditions as its reference.
 
 If rule 3b adds icoh, budget ~+20 min per 500 Hz flow. At 120 Hz the LDAs
 dominate the extra cost in the same proportion. The `xb` and `xa` steps add two

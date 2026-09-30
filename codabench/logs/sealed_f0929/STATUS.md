@@ -156,3 +156,10 @@
 | 00:58:36 | START v_mock_default (defaults gate, mock arm; ETA 8 min) |
 | 01:04:30 | END p3_s3on_3dfff2ed rc=0 |
 | 01:04:36 | f3 ALL DONE (RESULTS_confirm.md written) |
+| 01:08:46 | END v_mock_default rc=0  01:08:44  gate: train 0.483333 replay 0.483333 EQUAL; harness blend_calib pooled 0.483333 (w=0.75), gap 0.0000 OK  |
+| 01:08:46 | ETA f4 sizing ALONE (sz2_none ~33 min, sz2_bpt4_icoh ~51 min) ~85 min, done by ~02:33 |
+| 01:08:47 | START sz2_none (ETA 35 min) |
+| 01:28:20 | END sz2_none rc=0 |
+| 01:28:21 | START sz2_bpt4_icoh (ETA 55 min) |
+| 02:03:06 | END sz2_bpt4_icoh rc=0 |
+| 02:03:06 | f4 sizing finished (5 SIZING lines) |

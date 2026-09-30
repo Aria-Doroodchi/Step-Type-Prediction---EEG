@@ -173,7 +173,7 @@ class information.
 | icoh | imaginary coherence per band: lagged connectivity, blind to volume conduction | +2.59 (+0.96, +4.27) 7/9 | +2.17 (+0.29, +4.43) / +1.27 / +1.97 (+0.56, +3.61) / **−3.50** | PROMISING → release-day ablation `xa` |
 | tseg3 | FB covariances of 3 time segments → TS | +3.33 (+1.52, +5.76) 9/9 | +1.96 (+0.00, +4.19) / −0.23 / +1.02 / −1.50 | no gain under the deployed recipe (and +11 k features at 43 ch) |
 | tseg3+icoh (pre-registered union) | both | — | +3.20 (+1.65, +5.09) / +0.50 / +1.47 / −1.83 | ADOPT by the letter; bpt4 has the higher point estimate on every proxy (paired CI crosses 0 on 3 of 4); ~20 k features at 43 ch: not deployed (post-hoc, on cost and parsimony) |
-| *bpt4+icoh (post-hoc, not pre-registered)* | *both* | — | *+6.51 (+4.34, +9.11) 9/9 / +1.81 (+0.77, +3.12) / +2.16 / +3.33* | *information: supports the release-day `xa` step; 1.56× fit at 500 Hz* |
+| *bpt4+icoh (post-hoc, not pre-registered)* | *both* | — | *+6.51 (+4.34, +9.11) 9/9 / +1.81 (+0.77, +3.12) / +2.16 / +3.33* | *information: supports the release-day `xa` step; fails the 500 Hz sizing gate (1.78× alone)* |
 | tcut1000, tseg2, acm3x2, fbd | cue-second split; 2 segments; time-delay-embedded covariance; 1–4 Hz TS | +1.04 to +2.82 | (not advanced: same family as tseg3, or lower) | — |
 | fbfrom1000 (control) | the FB without the cue second | +1.55 | — | the FB does **not** depend on the cue second |
 | csp8, fblv, fbrlv, reg, fb8, acm2x4, slow block | CSP subspace, band-power topography, regional covariances, 8 bands, … | −0.35 to +0.56 | — | no gain |
@@ -259,7 +259,7 @@ scripts refuse it on any other cache.
 | **Three calibration sessions per evaluation participant** | Tangermann and Scherer have one; only Zhou has two training sessions | Blend weight by leave-one-calibration-session-out (`--wcv loso` / `blend_w="auto"`, implemented 2026-09-28). With one calibration session the router degrades fast on later sessions (0.72 → 0.35 on Zhou): check router accuracy per test session 4, 5, 6 (`analysis/release_eda.py` section 4; 0.997 on the full-size mock with three calibration sessions). Offline training with session ids also allows per-(subject, session) training alignment: on Zhou it added +2.4 per-subject (train-only, Riemannian) |
 | **Ten training participants with all six sessions** | no proxy has extra fully labelled people | Pooled model and router trained on everyone vs on the test subjects only (`pool_test`, harness `--pool test`). On the replica the ten fully labelled participants stand in for the evaluation participants. The one ablation restricts the pooled model and the router together; there is no separate router-only ablation. The solver has no option to train on a subset yet, so a `pool = test` decision cannot be deployed (`release_summarize.py` prints a NOTE) |
 | **xDAWN and class-specific cues** | Scherer's window starts at the visual cue | EDA: evoked response to the cue per class; ablate xDAWN on the replica split |
-| **Extra feature blocks: bpt4 (default), icoh (candidate)** (sprint 2026-09-29) | 4–9 subjects per proxy; bpt4's first bin holds the cue response; icoh was −3.5 on Zhou (4 subjects) | `release_ablations.sh` with `SPEC=riemann:xd=1,fb=1,x=bpt4 XB=icoh`: step `xb` drops bpt4 only if the replica is ≥ +1.0 without it; step `xa` adds icoh only if ≥ +1.0 and no context worse, and on a 500 Hz cache only after a fit ≤ 1.5× the recipe (bpt4 + icoh measured 1.56× under contention). RELEASE_DAY rule 3b |
+| **Extra feature blocks: bpt4 (default), icoh (candidate)** (sprint 2026-09-29) | 4–9 subjects per proxy; bpt4's first bin holds the cue response; icoh was −3.5 on Zhou (4 subjects) | `release_ablations.sh` with `SPEC=riemann:xd=1,fb=1,x=bpt4 XB=icoh`: step `xb` drops bpt4 only if the replica is ≥ +1.0 without it; step `xa` adds icoh only if ≥ +1.0 and no context worse, and on a 500 Hz cache only after a fit ≤ 1.5× the recipe (bpt4 + icoh measured 1.78× alone: fails). RELEASE_DAY rule 3b |
 | **Test window order and batch composition** | proxies are in recording order by construction | The clean recipe routes per window and does not care. The online upgrade needs windows of one subject to arrive near each other; the Dreyer test loader delivers recording order (81 % of batches single-subject). Measured 2026-09-28 (Phase 3): with subjects interleaved the online gain drops to 58–85 % of its recording-order value (still significant on Tangermann and Scherer), and no lag at a session change |
 | **Class balance per cell** | proxies are balanced | Report per-cell class counts in the EDA; uniform LDA priors already match the balanced-accuracy metric |
 
@@ -333,12 +333,16 @@ It is also the release-day regression gate (RELEASE_DAY § 0).
   default. The replica decides whether it stays and whether icoh joins. The
   post-hoc union bpt4+icoh (+6.51 on Scherer 3-class, positive on all four
   proxies) makes `xa` the ablation most likely to change the recipe.
-- **Before release day: re-measure the bpt4+icoh fit at 500 Hz alone.** It
-  measured 1.56× the recipe under contention, a FAIL of the 1.5× gate. A
-  re-measure on an idle machine closed the sprint (`logs/sealed_f0929/
-  RESULTS_sizing.md`, `sz2_*` rows; LOG 2026-09-30). If it still fails, rule
-  3b on a 500 Hz cache needs either a restricted icoh (e.g. 8–13 and 13–30 Hz
-  only) or a recorded budget deviation.
+- **icoh fails the 500 Hz sizing gate.** Re-measured alone, bpt4 + icoh fits
+  in 34 min vs the recipe's 19 min: 1.78× against a 1.5× gate
+  (`logs/sealed_f0929/RESULTS_sizing.md`, `sz2_*` rows). On a 500 Hz cache,
+  rule 3b keeps it out unless one of these happens:
+  - the user accepts the older absolute rule (fit ≤ 45 min, which it meets);
+  - a restricted icoh (e.g. 8–13 and 13–30 Hz only, about half the features)
+    passes the screen, the confirmation and the gate. That is ~3 h of work
+    before release day.
+  - A dual (n < d) LDA solve would cut most of the cost, since the extra
+    time is in the per-subject LDAs.
 - **If online re-centring is allowed (step 1):** bpt4 kept its gain under
   `online-64` on Scherer 3-class (information run: 0.592 vs 0.561).
 - **Not now: time-segment covariances (tseg3).** They showed no gain under the

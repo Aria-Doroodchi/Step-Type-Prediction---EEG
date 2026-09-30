@@ -1465,3 +1465,23 @@ vs ~40 estimated; 0 ERROR rows):
   but icoh was selected after seeing results.
 - It strengthens the prior for release-day step `xa`. It is not a reason to
   change the pre-registered default.
+| 01:08:46–02:03:06 | 500 Hz sizing re-measured alone | ~85 min | 54 min, under (the idle machine fits 1.7× faster) | recipe **1,157 s** (19.3 min, 11.2 GiB, 11.8 ms/window); bpt4+icoh **2,062 s** (34.4 min, 13.3 GiB, 17.3 ms/window) = **1.78×: FAIL** of the brief's ≤ 1.5× gate. It is within the older absolute rule (fit ≤ 45 min). The extra time is the LDAs: LOSO folds 1,532 vs 829 s, LDA stage 199 vs 51 s at 9,373 vs 5,073 features |
+
+- **icoh stays out on a 500 Hz cache under rule 3b** unless the user accepts
+  the absolute rule, or a restricted icoh (2 bands) or a dual (n < d) LDA
+  solve passes the gate.
+- bpt4 alone was not re-measured. Its 1.06× compared two runs under the same
+  one-other-job condition.
+- Contention inflated the recipe's fit 1.7× (1,961 vs 1,157 s), so sizing
+  ratios are only comparable within one series.
+
+**Sprint wrap-up (02:10).**
+- **Deliverables:** SEALED_RECIPE § 1 / § 2 Phase 7 / § 3 / § 5, RELEASE_DAY
+  (rule 3b, § 5 commands, § 7 zip check, § 8 sizing), HANDOFF, the brief's
+  erratum, and the activation EDA report.
+- **Run bookkeeping:**
+  - every run ended with rc = 0, except the lane-A online step killed by hand
+    at 22:10 (resumed and completed at 00:35);
+  - nothing is running;
+  - no uploads were made.
+- **The data release** was still "coming soon" at 01:10.

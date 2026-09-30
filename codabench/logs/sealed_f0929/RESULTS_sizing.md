@@ -1,3 +1,5 @@
-SIZING xblocks=bpt4 fit_s=2072.6 maxrss_gb=11.97 features=5761 blend_w=0.5 predict_ms_per_window=24.4 (n=1200, finite=True)
-SIZING xblocks=bpt4_icoh fit_s=3060.6 maxrss_gb=12.99 features=9373 blend_w=0.5 predict_ms_per_window=24.2 (n=1200, finite=True)
-SIZING xblocks=none fit_s=1961.3 maxrss_gb=11.32 features=5073 blend_w=0.75 predict_ms_per_window=27.7 (n=1200, finite=True)
+sz2_bpt4_icoh.log:SIZING xblocks=bpt4_icoh fit_s=2061.8 maxrss_gb=13.30 features=9373 blend_w=0.5 predict_ms_per_window=17.3 (n=1200, finite=True)
+sz2_none.log:SIZING xblocks=none fit_s=1156.5 maxrss_gb=11.21 features=5073 blend_w=0.75 predict_ms_per_window=11.8 (n=1200, finite=True)
+sz_bpt4.log:SIZING xblocks=bpt4 fit_s=2072.6 maxrss_gb=11.97 features=5761 blend_w=0.5 predict_ms_per_window=24.4 (n=1200, finite=True)
+sz_bpt4_icoh.log:SIZING xblocks=bpt4_icoh fit_s=3060.6 maxrss_gb=12.99 features=9373 blend_w=0.5 predict_ms_per_window=24.2 (n=1200, finite=True)
+sz_none.log:SIZING xblocks=none fit_s=1961.3 maxrss_gb=11.32 features=5073 blend_w=0.75 predict_ms_per_window=27.7 (n=1200, finite=True)
