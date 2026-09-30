@@ -88,6 +88,16 @@ console logging. Pipeline entry points: `scripts/00_preflight.py` …
   - `scripts/release_ablations.sh`, `analysis/release_summarize.py` (the
     pre-registered rules), `analysis/release_eda.py`;
   - `analysis/sealed_stream.py` (online re-centring under test-order variants).
+- Feature blocks (sprint 2026-09-29):
+  - harness `analysis/xfeat.py` + `xfeat_temporal.py` / `xfeat_spatial.py`,
+    spec `riemann:xd=1,fb=1,x=<id>` (self-test `xfeat_selftest.py`);
+  - `--split first`, the reverse-time replication;
+  - `analysis/f0929_summarize.py` (screen/confirm rules, paired bootstrap);
+  - solver opt-in `xblocks` (tseg<K>, bpt<K>, icoh);
+  - `analysis/xblocks_gate.py` (defaults bit-identity + harness parity);
+  - `analysis/xblocks_sizing.py` (500 Hz sizing through the mock dataset
+    class);
+  - `release_ablations.sh` steps `xb` / `xa` (env `XB`).
 - Runners: `codabench/scripts/sealed_lib.sh`, `watch_run.sh`, `monitor_loop.sh`,
   `sealed_p*.sh` (examples of lane scripts), `train_sealed.sh` (release-day pipeline).
   This skill bundles generic copies in `scripts/`. Quote their path, which contains a
@@ -161,3 +171,7 @@ console logging. Pipeline entry points: `scripts/00_preflight.py` …
 | benchopt caches results by dataset *parameters*, not data: after rebuilding a cache under the same study name a rerun silently returned the old score | Pass `--no-cache` after any cache rebuild (train_sealed.sh does) |
 | A Workflow script interpolates `${VAR}` inside agent prompt template literals (a runbook's `${S}` crashed a launch) | Write shell variables in prompts as `<S>` or escape them as `\${S}` |
 | WSL `git` in `2026-competition` (a Windows checkout) shows ~82 CRLF-only diffs; `git stash` would take them all | Use `git -c core.autocrlf=true` there |
+| A Monitor pipe `wsl.exe … \| tr -d '\r' \| grep --line-buffered …` delivered no events for 30 min: `tr` block-buffers into a pipe (2026-09-29; a lane sat idle 10 min) | `stdbuf -oL tr -d '\r'` (or drop `tr`) in every Monitor pipe |
+| Git Bash rewrites `/mnt/c/…` arguments passed to `wsl.exe bash -lc '…'` (MSYS path conversion), so a scratchpad path arrived empty (2026-09-30) | Pass commands through stdin: `wsl.exe bash -s <<'EOF' … EOF` |
+| Non-ASCII text (—, ×, ≤) in a heredoc piped into `wsl.exe` did not match the file's UTF-8 bytes, and the Bash tool collapsed `\\` to `\` in a heredoc (2026-09-30) | Write patch scripts with the Write tool (UTF-8) and run them from WSL; use the Edit tool for docs with non-ASCII |
+| `python3` / `python -` in Git Bash hung a tool call (the Store alias again) | Never call python outside WSL / the explicit venv path, even for a one-liner |
