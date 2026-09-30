@@ -56,7 +56,7 @@ S=<name>                        # study key: cache name and overlay prefix, e.g.
 DH=~/neuralbench/benchopt_data  # benchopt data home (= $BENCHOPT_DATA_HOME, set by env.sh)
 EVAL=<comma list from § 2>      # the 10 evaluation participants' cache indices
 FULL=$(python -c "import json,os,sys; r=os.environ.get('XSESS_CACHE_ROOT') or os.path.expanduser('~/neuralbench/xsess_cache'); print(','.join(map(str, json.load(open(os.path.join(r, sys.argv[1], 'meta.json')))['full_subjects'])))" "$S" 2>/dev/null)  # set once § 3.3 is done
-DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1 RECIPE_ALIGN=router-psd:riemann WCV=loso"; BW=auto  # § 6 decisions (recipe defaults until then)
+DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4 RECIPE_ALIGN=router-psd:riemann WCV=loso"; BW=auto  # § 6 decisions (recipe defaults until then; x=bpt4 since 2026-09-29)
 ```
 
 - **Long jobs.** Anything longer than ~10 min (cache builds, ablations, § 7 runs)
@@ -504,9 +504,9 @@ When both runs have finished:
 
 ```bash
 python ~/codabench/analysis/release_summarize.py --tag rel_$S --study $S --split calib:3 --test_subjects $FULL \
-    | tee ~/codabench/logs/sealed_rel_$S/RESULTS.md
+    --spec riemann:xd=1,fb=1,x=bpt4 --xb icoh | tee ~/codabench/logs/sealed_rel_$S/RESULTS.md
 python ~/codabench/analysis/release_summarize.py --tag rel_${S}_x --study ${S}_x --split calib:3 --test_subjects $FULL \
-    | tee ~/codabench/logs/sealed_rel_${S}_x/RESULTS.md
+    --spec riemann:xd=1,fb=1,x=bpt4 | tee ~/codabench/logs/sealed_rel_${S}_x/RESULTS.md
 ```
 
 Take the channel lines of the DECISIONS block from `rel_${S}_x` and everything
@@ -559,15 +559,29 @@ These rules were written before any Graz + BrainHero number existed.
      then the pairs, their whitening and the routing are unchanged.
    - **Not with ADAPT=online:** the solver raises NotImplementedError and
      `train_sealed.sh` refuses the combination. See rule 6.
-3. **xDAWN.** Drop it (`RECIPE_SPEC=riemann:xd=0,fb=1`) if `xd=0` is ≥ 1 point
+3. **xDAWN.** Drop it (replace `xd=1` by `xd=0` in RECIPE_SPEC, keeping any `x=`) if `xd=0` is ≥ 1 point
    better. Ties keep the recipe.
-3b. **Extra feature blocks** (added 2026-09-29, before any release number;
-   LOG 2026-09-29 Phase 3). The recipe carries `bpt4`.
-   - Drop it (step `xb`) only if the replica is ≥ 1 point better without it.
-   - Add `icoh` (step `xa`) only if it is ≥ 1 point better with it **and** no
-     context is more than 1 point worse.
-   - The summarizer prints both lines and the resulting `RECIPE_SPEC`.
-   - Sizing on the 500 Hz mock: see § 8.
+3b. **Extra feature blocks** (added 2026-09-29, revised 2026-09-30 after the
+   final review; both before any release number; LOG 2026-09-29/30). The
+   recipe carries `bpt4`.
+   - **Keep it unless** the replica is ≥ 1 point better without it (step
+     `xb`). This is an interpretation of the brief's Phase 4 rule ("adopt on the
+     replica only if ≥ +1.0 and not worse on any context"). The brief also
+     separates ADOPT ("recommended default, still subject to the release
+     ablation") from PROMISING ("a release-day ablation"), so an adopted block
+     starts in the recipe, like xDAWN in rule 3. On a replica difference inside
+     ±1 point, bpt4 stays.
+   - **Add `icoh`** (step `xa`) only if it is ≥ 1 point better **and no context
+     is worse**. That is the brief's rule, literally.
+   - **If both fire,** only the single change with the larger gain is applied
+     (both were tested alone).
+   - **On a 500 Hz cache,** adding icoh also needs a fit ≤ 1.5× the recipe's.
+     bpt4 + icoh measured 1.56× on the mock under contention (§ 8), a FAIL.
+     Re-measure it alone first, or record the deviation and budget ~+20 min per
+     flow.
+   - The summarizer prints both lines and the resulting `RECIPE_SPEC`. It
+     reads `spec=` / `xb=` from the run's `config.txt`, and refuses a
+     `--spec` / `--xb` that differs.
 4. **Blend-weight CV.** Use `WCV=loso` with `BW=auto` unless LOSO is ≥ 2 points
    worse than `last`.
    - With `auto`, the solver chooses w by leave-one-calibration-session-out on all
@@ -614,7 +628,7 @@ These rules were written before any Graz + BrainHero number existed.
      for N in 32 64 128; do
        python ~/codabench/analysis/sealed_personal.py --tag rel_${S}_online --study $S --split calib:3 \
            --test_subjects $FULL --router_cap 0.5 --wvariant calib --chans eeg \
-           --family riemann:xd=1,fb=1 --align online-$N:riemann --wcv loso
+           --family riemann:xd=1,fb=1,x=bpt4 --align online-$N:riemann --wcv loso   # the decided RECIPE_SPEC
      done > ~/codabench/logs/online_N_$S.log 2>&1
      grep "\[done\].*blend_calib|router-id" ~/codabench/logs/online_N_$S.log
      ```
@@ -739,7 +753,7 @@ grep -E "gates blocking|HARNESS_FROM|candidate|END (train|replay)|gate:|blend we
 ```bash
 Z=$(ls -t ~/codabench/logs/final_$S/riemann_sealed_${S}_*.zip | head -1); R=$(mktemp -d)
 python -m zipfile -e "$Z" "$R" && chmod -R a-w "$R" && ls -l "$R"   # WSL has no unzip
-grep -nE '^\s+"(personal|blend_w|adapt|use_xdawn|filterbank|kind|buffer|chans|align|ctx_min)": \[' "$R/submission.py"
+grep -nE '^\s+"(personal|blend_w|adapt|use_xdawn|filterbank|xblocks|kind|buffer|chans|align|ctx_min)": \[' "$R/submission.py"
 cd ~/codabench/2026-competition
 COMPET_SUBMISSION_DIR="$R" benchopt run tracks/bci_decoding -d "BCI[study=${S}_all]" \
     -s "$R/submission.py" --no-plot --no-html --no-cache --output zipcheck_$S > ~/codabench/logs/final_$S/zipcheck.log 2>&1
@@ -758,6 +772,10 @@ Check each of these:
   - `personal ["blend"]`;
   - `blend_w ["auto"]` or the baked number;
   - `use_xdawn` / `filterbank` from RECIPE_SPEC;
+  - `xblocks` from RECIPE_SPEC's `x=` (`+` becomes `_`): `["bpt4"]`, or
+    `["bpt4_icoh"]` if rule 3b added icoh, or `[""]` only if rule 3b dropped
+    the blocks. Copy RECIPE_SPEC verbatim from the summarizer's `train_sealed.sh`
+    line;
   - `kind`;
   - `align ["subject"]`, or `["subject_context"]` under router-psdctx;
   - `chans`;
@@ -791,7 +809,7 @@ All of these are properties of the mock, not evidence.
 
 ```bash
 S=mock_sealed_s; DH=~/neuralbench/benchopt_data; FULL=0,1,2,3,4,5,6,7,8,9
-DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1 RECIPE_ALIGN=router-psdctx:riemann WCV=loso"; BW=auto   # § 6 on mock_sealed_s
+DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1 RECIPE_ALIGN=router-psdctx:riemann WCV=loso"; BW=auto   # § 6 on mock_sealed_s (the 2026-09-29 rehearsal, before bpt4; on the release, DEC carries x=)
 env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$BW GATE=replica RUN_NAME=replica_$S XS_THREADS=6 \
     DATASET="../datasets/mock_sealed.py[study=$S,split=replica_full]" bash ~/codabench/scripts/train_sealed.sh $DH $S
 env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$BW GATE=final RUN_NAME=final_$S HARNESS_FROM=replica_$S XS_THREADS=6 \
@@ -867,11 +885,11 @@ wide margin: 30.4 min, 11.8 GiB, 77 s and 66 s.
 `mock_sealed_500`, `auto`, 10 threads, one or two other jobs running;
 `logs/sealed_f0929/RESULTS_sizing.md`):**
 
-| xblocks | fit | vs recipe | peak RSS | features | predict |
-|---|---|---|---|---|---|
-| none (recipe, re-measured) | 1,961 s | 1.00× | 11.3 GB | 5,073 | 27.7 ms/window |
-| **bpt4** (the default since 2026-09-29) | 2,073 s | **1.06×** | 12.0 GB | 5,761 | 24.4 ms/window |
-| bpt4 + icoh (step `xa`) | 3,061 s | 1.56× (2 other jobs ran) | 13.0 GB | 9,373 | 24.2 ms/window |
+| xblocks | fit | vs recipe | peak RSS (GiB, solver maxrss) | features | predict | gate (≤ 1.5×) |
+|---|---|---|---|---|---|---|
+| none (recipe, re-measured with 1 other job) | 1,961 s | 1.00× (2026-09-28 rehearsal: 1,826 s) | 11.3 | 5,073 | 27.7 ms/window | reference |
+| **bpt4** (the default since 2026-09-29) | 2,073 s | **1.06×** (1.14× vs the rehearsal) | 12.0 | 5,761 | 24.4 ms/window | PASS |
+| bpt4 + icoh (step `xa`) | 3,061 s | **1.56×** (1.68× vs the rehearsal; 2 other jobs ran) | 13.0 | 9,373 | 24.2 ms/window | **FAIL** (re-measure alone; rule 3b) |
 
 If rule 3b adds icoh, budget ~+20 min per 500 Hz flow. At 120 Hz the LDAs
 dominate the extra cost in the same proportion. The `xb` and `xa` steps add two
@@ -894,14 +912,14 @@ The fast shrinkage LDA (sprint Phase 1) is what makes this feasible:
 | § 2 loader inspection (3×: organisers', `_xsess`, `_all`) | ~5 min | 9 s on zhou2016_xsess; release size untimed |
 | § 3 two caches | 30–60 min (a guess) | not measured at release size; the four proxy caches took 2 min 16 s together |
 | § 4 EDA, two caches | ~6 min | 2 min 38 s per cache |
-| § 5 ablations, (a) and (b) side by side | 1.5–2 h | 6 of 10 steps timed (10–14 min each); (a) lane B holds 5 steps, 4 of them untimed (wcv_loso, pool_test, online, run) |
+| § 5 ablations, (a) and (b) side by side | 2–2.5 h | 6 of 12 steps timed at full size (10–14 min each); (a) lane B holds 7 steps: xb ≈ one base run, xa ≈ 1.7× (mock_sealed_s: base 5.6, xb 4.3, xa 9.3 min), wcv_loso, pool_test, online, run untimed |
 | § 7 step 1 (replica, `auto`) | 40–80 min | upper bound = the replica:3 flow (17 + 38 + 22 min + replay); calib:3 is smaller |
 | § 7 step 2 (final, `HARNESS_FROM`) | ~30 min | solver fit with `auto` on ~10,800 windows: 22 min 13 s; harness rows reused (without `HARNESS_FROM`, +≈ 55 min) |
 | § 7 step 3 zip check | ~5 min | 17 s replay on `mock_sealed_s` |
 | rule 6 online N (only if allowed) | ~35 min | 3 `sealed_personal` runs, untimed |
 
-That is **about 4–5.5 h of compute plus ~1 h of reading and deciding: plan
-5.5–6.5 h**. This is still inside a day, and it assumes the cache build is not
+That is **about 4.5–6 h of compute plus ~1 h of reading and deciding: plan
+6–7 h** (+0.5 h for the xb / xa steps since 2026-09-29). This is still inside a day, and it assumes the cache build is not
 much slower than guessed.
 
 At 500 Hz, add time for serial lanes and larger harness steps (only the solver

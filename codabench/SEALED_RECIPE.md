@@ -16,13 +16,23 @@ log-variance **and** the 4-band filter-bank tangent space) with shrinkage LDA.
 **Since 2026-09-29 it also includes the band-power time course `bpt4`:** per
 filter-bank band, per channel, the log power in 4 one-second bins. That is
 688 features at 43 ch, set with `xblocks="bpt4"`, which `train_sealed.sh` bakes
-from `RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4`. It gained +4.4 points on the
-sealed-like proxy under the deployed blend_calib, and was positive on all four
-proxies (§ 2, Phase 7). The solver's own default stays `xblocks=""`, and so
-does every script default, so the regression gate still reproduces the
-committed flow; the release-day commands pass it explicitly (RELEASE_DAY § 5,
-§ 7). The model is made cross-session-aware in three steps that need **no
-subject or session id at prediction time**:
+from `RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4`.
+- **Evidence (§ 2, Phase 7):** it gained +4.35 points on the sealed-like proxy
+  under the deployed blend_calib (95 % CI +2.05, +6.67), with a positive
+  point estimate on all four proxies and a CI above 0 on three.
+- **Caveat:** that confirmation reuses the test sessions of the screen that
+  selected bpt4 from 17 candidates, so its CI is optimistic. The independent
+  checks are positive but not significant: the reverse split +1.4 and Zhou
+  +2.2.
+- **Defaults:** the solver's own default stays `xblocks=""`, and so does
+  every script default, so the regression gate still reproduces the committed
+  flow.
+- **Release-day commands:** RELEASE_DAY § 5 passes `SPEC=…,x=bpt4` to the
+  ablations; § 7 takes `RECIPE_SPEC` from § 6's DECISIONS via `DEC`, whose
+  default carries `x=bpt4`. The replica decides by rule 3b.
+
+The model is made cross-session-aware in three steps that need **no subject or
+session id at prediction time**:
 
 1. A **subject router** (log-PSD 1–45 Hz per channel, shrinkage LDA over the
    calibration subjects) names the subject of each test window. It identifies
@@ -236,7 +246,7 @@ scripts refuse it on any other cache.
 | **Three calibration sessions per evaluation participant** | Tangermann and Scherer have one; only Zhou has two training sessions | Blend weight by leave-one-calibration-session-out (`--wcv loso` / `blend_w="auto"`, implemented 2026-09-28). With one calibration session the router degrades fast on later sessions (0.72 → 0.35 on Zhou): check router accuracy per test session 4, 5, 6 (`analysis/release_eda.py` section 4; 0.997 on the full-size mock with three calibration sessions). Offline training with session ids also allows per-(subject, session) training alignment: on Zhou it added +2.4 per-subject (train-only, Riemannian) |
 | **Ten training participants with all six sessions** | no proxy has extra fully labelled people | Pooled model and router trained on everyone vs on the test subjects only (`pool_test`, harness `--pool test`). On the replica the ten fully labelled participants stand in for the evaluation participants. The one ablation restricts the pooled model and the router together; there is no separate router-only ablation. The solver has no option to train on a subset yet, so a `pool = test` decision cannot be deployed (`release_summarize.py` prints a NOTE) |
 | **xDAWN and class-specific cues** | Scherer's window starts at the visual cue | EDA: evoked response to the cue per class; ablate xDAWN on the replica split |
-| **Extra feature blocks: bpt4 (default), icoh (candidate)** (sprint 2026-09-29) | 4–9 subjects per proxy; bpt4's first bin holds the cue response; icoh was −3.5 on Zhou (4 subjects) | `release_ablations.sh` with `SPEC=riemann:xd=1,fb=1,x=bpt4 XB=icoh`: step `xb` drops bpt4 only if the replica is ≥ +1.0 without it; step `xa` adds icoh only if ≥ +1.0 and no context < −1.0 (RELEASE_DAY rule 3b) |
+| **Extra feature blocks: bpt4 (default), icoh (candidate)** (sprint 2026-09-29) | 4–9 subjects per proxy; bpt4's first bin holds the cue response; icoh was −3.5 on Zhou (4 subjects) | `release_ablations.sh` with `SPEC=riemann:xd=1,fb=1,x=bpt4 XB=icoh`: step `xb` drops bpt4 only if the replica is ≥ +1.0 without it; step `xa` adds icoh only if ≥ +1.0 and no context worse, and on a 500 Hz cache only after a fit ≤ 1.5× the recipe (bpt4 + icoh measured 1.56× under contention). RELEASE_DAY rule 3b |
 | **Test window order and batch composition** | proxies are in recording order by construction | The clean recipe routes per window and does not care. The online upgrade needs windows of one subject to arrive near each other; the Dreyer test loader delivers recording order (81 % of batches single-subject). Measured 2026-09-28 (Phase 3): with subjects interleaved the online gain drops to 58–85 % of its recording-order value (still significant on Tangermann and Scherer), and no lag at a session change |
 | **Class balance per cell** | proxies are balanced | Report per-cell class counts in the EDA; uniform LDA priors already match the balanced-accuracy metric |
 

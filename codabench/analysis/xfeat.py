@@ -129,9 +129,17 @@ class RiemannXModel:
     def fit(self, X, y, **_):
         import riemann_steptype as RS
         self.base.fit(X, y)
-        Xp = self._prep64(X)
-        self.xb = [make_block(n, self.meta).fit(Xp, y) for n in self.xnames]
-        parts = self._parts(X, Xp)
+        self.xb = [make_block(n, self.meta) for n in self.xnames]
+        # only blocks with state (a TS reference, CSP filters) see the whole
+        # float64 training set; stateless ones (bpt, icoh, fblv) skip it, so a
+        # 500 Hz harness run holds no full float64 copy for them (review 2026-09-30)
+        stateful = [b for b in self.xb if type(b).fit is not Block.fit]
+        if stateful:
+            Xp = self._prep64(X)
+            for b in stateful:
+                b.fit(Xp, y)
+            del Xp
+        parts = self._parts(X)
         F = np.concatenate(parts, axis=1)
         k = len(np.unique(y))
         self.lda = RS.fit_shrinkage_lda(F, y, np.full(k, 1 / k))
@@ -140,19 +148,27 @@ class RiemannXModel:
               f"(base {parts[0].shape[1]} + {sizes})", flush=True)
         return self
 
-    def _parts(self, X, Xp=None):
-        """[base union, extra block 1, ...] feature matrices."""
-        Xp = self._prep64(X) if Xp is None else Xp
+    def _parts(self, X):
+        """[base union, extra block 1, ...] feature matrices. The extra blocks
+        are per-window maps, computed per chunk of windows (the solver's 512 MiB
+        float64 chunks: every proxy is one chunk, i.e. one call as before)."""
+        import riemann_steptype as RS
         out = [self.base._feats(X)]
-        for b in self.xb:
-            f = np.asarray(b.transform(Xp), dtype=np.float64)
+        acc = [[] for _ in self.xb]
+        for s in RS._row_chunks(len(X), RS._chunk_len(X.shape)):
+            Xp = self._prep64(X[s])
+            for a, b in zip(acc, self.xb):
+                a.append(np.asarray(b.transform(Xp), dtype=np.float64))
+            del Xp
+        for b, a in zip(self.xb, acc):
+            f = a[0] if len(a) == 1 else np.concatenate(a)
             if f.ndim != 2 or len(f) != len(X) or not np.all(np.isfinite(f)):
                 raise FloatingPointError(f"block {b.name}: bad features {f.shape}")
             out.append(f)
         return out
 
-    def _feats(self, X, Xp=None):
-        return np.concatenate(self._parts(X, Xp), axis=1)
+    def _feats(self, X):
+        return np.concatenate(self._parts(X), axis=1)
 
     def predict_proba(self, X):
         return self.lda.predict_proba(self._feats(X))

@@ -22,6 +22,7 @@ other three >= 0 and none < -2.0; PROMISING = Scherer 3-class delta >= +1.0 and
 
 import argparse
 import sys
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -67,6 +68,11 @@ def family(spec):
     return "-"
 
 
+def ge(x, t):
+    """x >= t, float-safe (the rules test the unrounded value to 1e-6)."""
+    return round(float(x), 6) >= t
+
+
 def boot(d, rng):
     boots = d[rng.integers(0, len(d), (10000, len(d)))].mean(1)
     lo, hi = np.percentile(boots, [2.5, 97.5])
@@ -83,12 +89,15 @@ def per_subject(idx, study, cls, spec, keys):
     return {s: float(np.mean([r["per_subject"][s] for r in rows])) for s in subs}
 
 
-def delta(idx, study, cls, spec, base, keys, rng):
+def delta(idx, study, cls, spec, base, keys):
+    """Paired A - B over subjects; the bootstrap is seeded per comparison (crc32
+    of the comparison), so a CI does not move when other rows are added."""
     a = per_subject(idx, study, cls, spec, keys)
     b = per_subject(idx, study, cls, base, keys)
     if a is None or b is None:
         return None
     subs = sorted(set(a) & set(b), key=int)
+    rng = np.random.default_rng(zlib.crc32(f"{study}|{cls}|{spec}|{base}|{keys}".encode()))
     return boot(np.array([a[s] - b[s] for s in subs]), rng)
 
 
@@ -97,7 +106,7 @@ def fmt(res, pts=True):
         return "missing"
     m, lo, hi, k, n = res
     f = 100 if pts else 1
-    return f"{m * f:+.1f} ({lo * f:+.1f}, {hi * f:+.1f}) {k}/{n}"
+    return f"{m * f:+.2f} ({lo * f:+.2f}, {hi * f:+.2f}) {k}/{n}"
 
 
 def cell(idx, study, cls, spec, mode, align):
@@ -105,14 +114,15 @@ def cell(idx, study, cls, spec, mode, align):
     return "—" if r is None else f"{r['cell']:.3f}"
 
 
-def screen(idx):
-    rng = np.random.default_rng(0)
+def screen(idx, reverse=False):
     keys_r = [("pooled", AL), ("persubject", AL)]
     keys_n = [("pooled", "none"), ("persubject", "none")]
     specs = sorted({k[2] for k in idx if k[:2] == S3 and k[2].startswith("riemann")
                     and "/" not in k[2]},            # not sealed_personal's family/variant rows
                    key=lambda s: (family(s), label(s)))
-    print("## Phase 2 screen — Scherer 3-class (WORD / SUB / HAND), last session\n")
+    print("## " + ("Reverse-time split (--split first): Scherer 3-class (WORD / SUB / HAND), "
+                   "train on the later session, test on the first\n" if reverse else
+                   "Phase 2 screen — Scherer 3-class (WORD / SUB / HAND), last session\n"))
     print("Cell-averaged balanced accuracy. Δ in points vs the recipe union "
           f"(`{BASE}`), paired over the 9 subjects: mean (95 % bootstrap CI) "
           "subjects improved. Screen = mean of pooled and persubject under the "
@@ -122,12 +132,14 @@ def screen(idx):
     print("|---|---|---|---|---|---|---|---|")
     d3 = {}
     for s in specs:
-        d3[s] = delta(idx, *S3, s, BASE, keys_r, rng)
-        dn = delta(idx, *S3, s, BASE, keys_n, rng)
+        d3[s] = delta(idx, *S3, s, BASE, keys_r)
+        dn = delta(idx, *S3, s, BASE, keys_n)
         print(f"| {label(s)} | {family(s)} | {cell(idx, *S3, s, 'pooled', 'none')} | "
               f"{cell(idx, *S3, s, 'persubject', 'none')} | {cell(idx, *S3, s, 'pooled', AL)} | "
               f"{cell(idx, *S3, s, 'persubject', AL)} | {fmt(d3[s]) if s != BASE else '—'} | "
               f"{fmt(dn) if s != BASE else '—'} |")
+    if reverse:
+        return []
     print("\n## Phase 2 screen — replication on the other proxies (router, screen score)\n")
     print("| block | " + " | ".join(NAMES[o] for o in OTHERS) + " | mean Δ others | "
           "Scherer 3-cl. Δ | pass |")
@@ -136,26 +148,26 @@ def screen(idx):
     for s in specs:
         if s == BASE:
             continue
-        ds = [delta(idx, st, c, s, BASE, keys_r, rng) for st, c in OTHERS]
+        ds = [delta(idx, st, c, s, BASE, keys_r) for st, c in OTHERS]
         have = [x[0] for x in ds if x is not None]
         mo = float(np.mean(have)) if len(have) == len(OTHERS) else None
         m3 = d3[s][0] if d3[s] else None
-        ok = m3 is not None and mo is not None and m3 >= 0.010 and mo >= -0.005
+        ok = m3 is not None and mo is not None and ge(m3, 0.010) and ge(mo, -0.005)
         if ok and family(s) != "control":
             passing.append((m3, s))
         print(f"| {label(s)} | " + " | ".join(fmt(x) for x in ds) +
-              f" | {'missing' if mo is None else f'{mo * 100:+.1f}'} | "
-              f"{'missing' if m3 is None else f'{m3 * 100:+.1f}'} | "
+              f" | {'missing' if mo is None else f'{mo * 100:+.2f}'} | "
+              f"{'missing' if m3 is None else f'{m3 * 100:+.2f}'} | "
               f"{'**PASS**' if ok else ('incomplete' if mo is None or m3 is None else 'no')} |")
     passing.sort(reverse=True)
     print("\nPassing (ranked by Scherer 3-class Δ; the brief advances at most 3, "
-          "plus the best-T ∪ best-S union if both families pass): "
-          + (", ".join(f"`{label(s)}` ({m * 100:+.1f})" for m, s in passing) or "none"))
+          "plus the best-T ∪ best-S union if both families pass; a tie goes to fewer "
+          "features, applied by hand: rows carry no feature count): "
+          + (", ".join(f"`{label(s)}` ({m * 100:+.2f})" for m, s in passing) or "none"))
     return passing
 
 
 def confirm(idx):
-    rng = np.random.default_rng(0)
     fams = sorted({k[2].rsplit("/", 1)[0] for k in idx
                    if k[2].endswith("/blend_calib") and k[3] == "router-id" and k[4] == AL})
     if BASE not in fams:
@@ -173,15 +185,15 @@ def confirm(idx):
         if f == BASE:
             print(f"| baseline | " + " | ".join(cells) + " | — |")
             continue
-        ds = [delta(idx, st, c, f + "/blend_calib", BASE + "/blend_calib", keys, rng)
+        ds = [delta(idx, st, c, f + "/blend_calib", BASE + "/blend_calib", keys)
               for st, c in [S3] + OTHERS]
         d3, do = ds[0], ds[1:]
         if d3 is None or any(x is None for x in do):
             verdict = "incomplete"
-        elif (d3[0] >= 0.020 and d3[1] > 0 and np.mean([x[0] for x in do]) >= 0
-              and min(x[0] for x in do) >= -0.020):
+        elif (ge(d3[0], 0.020) and round(d3[1], 6) > 0 and ge(np.mean([x[0] for x in do]), 0)
+              and ge(min(x[0] for x in do), -0.020)):
             verdict = "**ADOPT**"
-        elif d3[0] >= 0.010 and sum(x[0] >= 0 for x in do) >= 2:
+        elif ge(d3[0], 0.010) and sum(ge(x[0], 0) for x in do) >= 2:
             verdict = "PROMISING"
         else:
             verdict = "NO GAIN"
@@ -197,11 +209,13 @@ def confirm(idx):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", default="both", choices=["screen", "confirm", "both"])
+    ap.add_argument("--reverse", action="store_true",
+                    help="the rows are the reverse-time split (--split first): Scherer 3-cl. only")
     ap.add_argument("--tags", nargs="+", default=["f0929", "f0929s5", "f0929p", "f0929p5"])
     args = ap.parse_args()
     idx = load_rows(args.tags)
     if args.phase in ("screen", "both"):
-        screen(idx)
+        screen(idx, reverse=args.reverse)
     if args.phase in ("confirm", "both"):
         confirm(idx)
 

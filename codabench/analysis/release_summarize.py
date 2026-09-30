@@ -31,10 +31,12 @@ last), and prints:
               and is what SEALED_RECIPE describes);
     pool      all unless test-only is >= 2 points better AND the CI excludes 0;
     online-64 rule-dependent: reported in its own line, never adopted here.
-    blocks    (sprint 2026-09-29) step xb: a recipe with x=<blocks> drops them
-              only if the row without them is >= 1 point better; step xa
-              (--xb <blocks>): the blocks are added only if the row with them
-              is >= 1 point better AND no context is > 1 point worse.
+    blocks    (sprint 2026-09-29, RELEASE_DAY rule 3b) step xb: a recipe with
+              x=<blocks> (an adopted block) drops them only if the row without
+              them is >= 1 point better; step xa (--xb <blocks>): the blocks
+              are added only if the row with them is >= 1 point better AND no
+              context is worse; if both fire, only the larger single change is
+              applied. --spec / --xb default to the TAG's config.txt.
 A missing row (a step not run, or failed) prints a loud "MISSING: <step> ..."
 line and keeps the recipe's setting (for wcv that is loso: nothing measured
 says it is worse); a summary MISSING line after the result lists every such
@@ -134,15 +136,32 @@ def main():
     ap.add_argument("--tag", required=True)
     ap.add_argument("--study", required=True)
     ap.add_argument("--split", default=None, help="default: the rows' only split")
-    ap.add_argument("--spec", default="riemann:xd=1,fb=1")
+    ap.add_argument("--spec", default=None,
+                    help="the recipe family of the run (default: spec= of the TAG's "
+                         "config.txt, else riemann:xd=1,fb=1)")
     ap.add_argument("--align", default="router-psd:riemann")
     ap.add_argument("--wcv", default="last", help="the recipe row's blend-weight CV")
     ap.add_argument("--cap", default="0.5", help="router cap of the rows; none = uncapped")
     ap.add_argument("--test_subjects", default="",
                     help="comma list the rows were run with (default: the split's own)")
-    ap.add_argument("--xb", default="",
-                    help="extra blocks step xb added (e.g. bpt4) when --spec has no x=")
+    ap.add_argument("--xb", default=None,
+                    help="the blocks step xa added, e.g. icoh (default: xb= of the TAG's "
+                         "config.txt, else none)")
     args = ap.parse_args()
+    # 2026-09-30 (review): the run's own settings are in config.txt; a spec or
+    # xb omitted on the command line used to fall back to the plain recipe and
+    # silently skip rule 3b (and drop x=bpt4 from the final RECIPE_SPEC)
+    conf = LOGS / f"sealed_{args.tag}" / "config.txt"
+    ctext = conf.read_text() if conf.is_file() else ""
+    c_spec = re.search(r"(?:^| )spec=(\S+)", ctext)
+    c_xb = re.search(r"(?:^| )xb=(\S+)", ctext)
+    for name, given, found in (("spec", args.spec, c_spec), ("xb", args.xb, c_xb)):
+        if given is not None and found is not None and given != found.group(1):
+            sys.exit(f"--{name} {given} differs from {conf}: {name}={found.group(1)}")
+        if given is not None and found is None and ctext and given:
+            print(f"NOTE: --{name} {given} given, {conf} has no {name}= (older run?)")
+    args.spec = args.spec or (c_spec.group(1) if c_spec else "riemann:xd=1,fb=1")
+    args.xb = args.xb if args.xb is not None else (c_xb.group(1) if c_xb else "")
     cap = None if args.cap == "none" else float(args.cap)
     ts = ",".join(map(str, sorted({int(s) for s in args.test_subjects.split(",") if s}))) or None
     rows, dirs, split = load_rows(args.tag, args.study, args.split, cap, ts)
@@ -298,36 +317,37 @@ def main():
         return txt + ctx_txt, dlt, dc
     if xb_alt is None and xa_alt is None:
         print("blocks    not applicable (recipe has no x=, no --xb) -> none")
-    drop = False
+    drop, d_xb = False, None
     if xb_alt is not None:
         r = find(spec=xb_alt)
         if r is None:
             miss("xb")
             print(f"blocks    row {xb_alt} missing -> keep the recipe's blocks")
         else:
-            txt, dlt, dc = blocks_cmp(r)
-            drop = ok(dlt, 0.01)
+            txt, d_xb, dc = blocks_cmp(r)
+            drop = ok(d_xb, 0.01)
             print(f"blocks    without vs with the recipe's x=: {txt} -> "
                   f"{'DROP the blocks' if drop else 'keep the blocks'} "
-                  "(drop only if >= +1.0 without them)")
-    add = False
+                  "(an adopted block stays unless the replica is >= +1.0 without it)")
+    add, d_xa = False, None
     if xa_alt is not None:
         r = find(spec=xa_alt)
         if r is None:
             miss("xa")
             print(f"blocks    row {xa_alt} missing -> do not add {args.xb}")
         else:
-            txt, dlt, dc = blocks_cmp(r)
-            add = ok(dlt, 0.01) and all(round(v, 6) >= -0.01 for v in dc)
+            txt, d_xa, dc = blocks_cmp(r)
+            # the brief's rule (section 5 Phase 4): >= +1.0 and not worse on any context
+            add = ok(d_xa, 0.01) and all(round(v, 6) >= 0 for v in dc)
             print(f"blocks    adding {args.xb} vs the recipe: {txt} -> "
                   f"{'ADD ' + args.xb if add else 'do not add ' + args.xb} "
-                  "(add only if >= +1.0 and no context < -1.0)")
-    if drop and add:     # both single changes won: take the larger gain only
-        print("blocks    both rules fired: dropping the recipe's blocks and adding "
-              f"{args.xb} were each tested alone; keep the recipe's blocks, add "
-              f"{args.xb} (the tested xa row) and re-check the combination in "
-              "train_sealed.sh's harness steps")
-        drop = False
+                  "(add only if >= +1.0 and no context worse)")
+    if drop and add:     # both single changes won: apply only the larger one
+        drop = round(d_xb, 6) > round(d_xa, 6)
+        add = not drop
+        print(f"blocks    both rules fired (without {100 * d_xb:+.2f}, adding {args.xb} "
+              f"{100 * d_xa:+.2f}): only the larger single change is applied -> "
+              + ("DROP the blocks" if drop else f"ADD {args.xb}"))
     if drop:
         spec = re.sub(r",x=[^,]*", "", spec)
     if add:
