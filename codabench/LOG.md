@@ -1211,7 +1211,7 @@ alignment. Δ is in points vs the recipe union, paired over subjects, with a
 | acm3x2 | augmented (time-delay) covariance | +1.5 | −1.7 (−3.8, −0.0) | +1.6 | +0.4 | pass (hurts MI) |
 | fbd | 1–4 Hz band TS | +1.0 | −0.4 | +0.8 | +0.3 | pass (marginal) |
 | fbfrom1000 | control: FB without the cue second | +1.6 | +0.5 | +0.8 | +1.0 | the FB does **not** depend on the cue second |
-| fb8, acm2x4, bpt, csp8, fblv, fbrlv, reg, slow, CAR, Laplacian | | −1.8 to +0.6 | | | | no gain |
+| fb8, acm2x4, csp8, fblv, fbrlv, reg, slow, CAR, Laplacian | | −1.8 to +0.6 | | | | no gain |
 
 - **Temporal structure is where the missing information was.** Splitting the
   4 s window in time, as covariance structure (tseg / tcut) or as band power
@@ -1226,3 +1226,22 @@ alignment. Δ is in points vs the recipe union, paired over subjects, with a
   consistent with the affine-invariance argument.
 - The EDA's prediction for bpt4 ("≈ 0 on top of the FB TS") was wrong
   cross-session; within-session CV rankings did not transfer.
+
+**Added 21:30, before any number for this union exists:** if `bpt4` and
+`icoh` are both ADOPT in Phase 3, their union `bpt4+icoh` runs through the same
+Phase 3 configs. It is post-hoc and labelled so. The recommended default is
+the union only if **both** of these hold:
+- on Scherer 3-class blend_calib it beats the better single block by ≥ +1.0;
+- on the mean of the other three proxies it is not worse than that block.
+
+Otherwise the default is the better single block. Either way the release-day
+ablation tests the chosen default's blocks against the recipe on the replica.
+
+Sizing smoke test (21:15–21:25, `analysis/xblocks_sizing.py`, mock_sealed_s,
+bpt4_icoh, fixed w, 2 threads while two lanes ran): 9,373 features. The LDA
+stage took 463 s of 589: 21 LDAs, about 92 % of the cost in the 20
+per-subject fits, which solve a d × d system from ~100 windows each. So:
+- bpt4 (+688 features at 43 ch) should cost ~nothing at the sealed size;
+- icoh (+3,612) is expected to add ~5–10 min to the 30.4 min 500 Hz auto fit;
+- tseg3 (+11,352) is expected to fail the 1.5× gate without a dual (n < d)
+  LDA solve.

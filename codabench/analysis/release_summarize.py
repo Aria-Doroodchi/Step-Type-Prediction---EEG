@@ -31,6 +31,10 @@ last), and prints:
               and is what SEALED_RECIPE describes);
     pool      all unless test-only is >= 2 points better AND the CI excludes 0;
     online-64 rule-dependent: reported in its own line, never adopted here.
+    blocks    (sprint 2026-09-29, step xb) a recipe with x=<blocks> drops them
+              only if the row without them is >= 1 point better; a recipe
+              without them (--xb <blocks>) adds them only if the row with them
+              is >= 1 point better AND no context is > 1 point worse.
 A missing row (a step not run, or failed) prints a loud "MISSING: <step> ..."
 line and keeps the recipe's setting (for wcv that is loso: nothing measured
 says it is worse); a summary MISSING line after the result lists every such
@@ -41,6 +45,7 @@ BLEND_W=harness for wcv last (RELEASE_DAY rule 4).
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -135,6 +140,8 @@ def main():
     ap.add_argument("--cap", default="0.5", help="router cap of the rows; none = uncapped")
     ap.add_argument("--test_subjects", default="",
                     help="comma list the rows were run with (default: the split's own)")
+    ap.add_argument("--xb", default="",
+                    help="extra blocks step xb added (e.g. bpt4) when --spec has no x=")
     args = ap.parse_args()
     cap = None if args.cap == "none" else float(args.cap)
     ts = ",".join(map(str, sorted({int(s) for s in args.test_subjects.split(",") if s}))) or None
@@ -144,6 +151,11 @@ def main():
                  f"test_subjects={ts} in {[str(d) for d in dirs]}")
     kind = args.align.split(":")[1]
     nx = args.spec.replace("xd=1", "xd=0") if "xd=1" in args.spec else None
+    # step xb (release_ablations.sh): the recipe without its x=<blocks>, or
+    # with x=<--xb> when it has none (same string rule as the shell)
+    has_x = ",x=" in args.spec
+    xb_alt = (re.sub(r",x=[^,]*", "", args.spec) if has_x
+              else (f"{args.spec},x={args.xb}" if args.xb else None))
     wcv_alt = "loso" if args.wcv == "last" else "last"
 
     def find(spec=args.spec, align=args.align, chans="eeg", pool="all", wcv=args.wcv,
@@ -159,6 +171,9 @@ def main():
     variants += [(f"chans {c}", find(chans=c)) for c in CHAN_ALTS]
     variants += [(f"align router-psdctx:{kind}", find(align=f"router-psdctx:{kind}"))]
     variants += [("no xDAWN (" + (nx or "n/a") + ")", find(spec=nx) if nx else None)]
+    if xb_alt is not None:
+        variants += [(("without" if has_x else "with") + f" blocks ({xb_alt})",
+                      find(spec=xb_alt))]
     variants += [(f"wcv {wcv_alt}", find(wcv=wcv_alt)), ("pool test", find(pool="test"))]
     online = find(align=f"online-64:{kind}")
     base = variants[0][1]
@@ -270,6 +285,32 @@ def main():
         print(f"xDAWN     xd=0 vs xd=1: {txt} -> "
               f"{'DROP xDAWN' if drop else 'keep xDAWN'} (drop if xd=0 >= +1.0)")
         spec = nx if drop else spec
+    # extra feature blocks (sprint 2026-09-29)
+    if xb_alt is None:
+        print("blocks    not applicable (recipe has no x=, no --xb) -> none")
+    else:
+        r = find(spec=xb_alt)
+        if r is None:
+            miss("xb")
+            print(f"blocks    row {xb_alt} missing -> keep the recipe's "
+                  f"({'with' if has_x else 'without'} blocks)")
+        else:
+            txt, dlt, lo, hi = fmt_cmp(r, base)          # alternative - recipe
+            dc = [a - b for a, b in zip(cc.get(r["key"], []), cc.get(base["key"], []))]
+            ctx_txt = (" (per context " + ", ".join(f"{100 * v:+.2f}" for v in dc) + ")"
+                       if dc else "")
+            if has_x:
+                drop = ok(dlt, 0.01)
+                print(f"blocks    without vs with x=: {txt}{ctx_txt} -> "
+                      f"{'DROP the blocks' if drop else 'keep the blocks'} "
+                      "(drop only if >= +1.0 without them)")
+                spec = re.sub(r",x=[^,]*", "", spec) if drop else spec
+            else:
+                add = ok(dlt, 0.01) and all(round(v, 6) >= -0.01 for v in dc)
+                print(f"blocks    with x={args.xb} vs without: {txt}{ctx_txt} -> "
+                      f"{'ADD the blocks' if add else 'no blocks'} "
+                      "(add only if >= +1.0 and no context < -1.0)")
+                spec = f"{spec},x={args.xb}" if add else spec
     # blend-weight CV (rule 4: loso unless measured >= 2 points worse; with no
     # loso-vs-last pair measured nothing says it is worse, so loso, i.e. the
     # recipe's BLEND_W=auto; RELEASE_DAY section 9, V1 2026-09-29)

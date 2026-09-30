@@ -36,6 +36,9 @@
 #                                    routing per (subject, context); only for a
 #                                    cache with a context column
 #   lane B:
+#     xb                             extra feature blocks (sprint 2026-09-29): the
+#                                    recipe without its x=<blocks> when SPEC has
+#                                    them, else with x=$XB (env XB, e.g. bpt4)
 #     xd0                            the family without xDAWN (xd=1 -> xd=0)
 #     wcv_loso (wcv_last)            the other blend-weight CV (6 folds on the
 #                                    sealed structure: the slowest step)
@@ -55,7 +58,8 @@
 # Env: TAG, STUDY (required); SPLIT, TEST_SUBJECTS (comma list, harness
 # --test_subjects; on the released data the replica is SPLIT=calib:3
 # TEST_SUBJECTS=<the fully labelled participants>), SPEC (riemann:xd=1,fb=1), ALIGN
-# (router-psd:riemann), WCV (last), CAP (0.5; "none" = uncapped), LANES (AB),
+# (router-psd:riemann), WCV (last), CAP (0.5; "none" = uncapped), XB (extra blocks
+# for step xb when SPEC has none, e.g. bpt4; sprint 2026-09-29), LANES (AB),
 # STEPS (space-separated step names: run only those, e.g. to keep each call
 # under a time limit; a name that is no step here, or a requested step, i.e. of
 # STEPS or else of LANES, without its .done marker at the end, is an ERROR row
@@ -99,12 +103,19 @@ CAP=${CAP:-0.5}
 KIND=${ALIGN##*:}
 if [ "$WCV" = last ]; then WCV_ALT=loso; else WCV_ALT=last; fi
 case $SPEC in *xd=1*) SPEC_NX=${SPEC/xd=1/xd=0};; *) SPEC_NX=;; esac
+# extra feature blocks (sprint 2026-09-29): step xb runs the recipe WITHOUT
+# its x=<blocks> when SPEC has them, else WITH x=$XB when XB is set (e.g.
+# XB=bpt4); release_summarize.py applies the rule (--xb)
+case $SPEC in
+  *,x=*) SPEC_XB=$(echo "$SPEC" | sed 's/,x=[^,]*//');;
+  *) SPEC_XB=${XB:+$SPEC,x=$XB};;
+esac
 HAS_CTX=$([ -f "$CACHE/context.npy" ] && echo 1)
 # the steps of each lane on this cache / SPEC / WCV; LANES and STEPS must name
 # them (a typo used to end like a finished chunk, and the summary then silently
 # applied the recipe default for the step that never ran)
 STEPS_A="base ch_eeg_eog ch_eeg_emg ch_all${HAS_CTX:+ al_ctx}"
-STEPS_B="${SPEC_NX:+xd0 }wcv_$WCV_ALT pool_test online run"
+STEPS_B="${SPEC_NX:+xd0 }${SPEC_XB:+xb }wcv_$WCV_ALT pool_test online run"
 LANES=${LANES:-AB}
 if ! [[ $LANES =~ ^[AB]{1,2}$ ]]; then
   echo "| $(date +%T) | ERROR: LANES=$LANES: expected A, B or AB |" >> "$STATUS"; exit 1
@@ -142,6 +153,7 @@ PY
 ) || { echo "| $(date +%T) | ERROR: no readable cache at $CACHE |" >> "$STATUS"; exit 1; }
 CONF="study=$STUDY split=$SPLIT test_subjects=${TEST_SUBJECTS:-default} spec=$SPEC"
 CONF="$CONF align=$ALIGN wcv=$WCV cap=$CAP cache=$FP"
+[ -n "${XB:-}" ] && CONF="$CONF xb=$XB"     # (only when set: older config.txt lines stay equal)
 if [ -f "$LOGDIR/config.txt" ] && [ "$(cat "$LOGDIR/config.txt")" != "$CONF" ]; then
   echo "| $(date +%T) | ERROR: settings or cache build differ from the ones logs/sealed_$TAG" \
        "ran with ($(cat "$LOGDIR/config.txt")); use another TAG, or move logs/sealed_$TAG" \
@@ -178,6 +190,9 @@ laneA() {
   fi
 }
 laneB() {
+  if [ -n "$SPEC_XB" ]; then
+    pers B xb 20 --family "$SPEC_XB" --align "$ALIGN" --wcv "$WCV" --chans eeg
+  fi
   if [ -n "$SPEC_NX" ]; then
     pers B xd0 15 --family "$SPEC_NX" --align "$ALIGN" --wcv "$WCV" --chans eeg
   fi
@@ -212,5 +227,5 @@ for s in $STEPS_A $STEPS_B; do
 done
 python "$HOME/codabench/analysis/release_summarize.py" --tag "$TAG" --study "$STUDY" \
     --split "$SPLIT" --test_subjects "$TEST_SUBJECTS" --spec "$SPEC" --align "$ALIGN" \
-    --wcv "$WCV" --cap "$CAP" > "$LOGDIR/RESULTS.md" 2>&1
+    --wcv "$WCV" --cap "$CAP" --xb "${XB:-}" > "$LOGDIR/RESULTS.md" 2>&1
 echo "| $(date +%T) | ALL DONE (RESULTS.md written) |" >> "$STATUS"
