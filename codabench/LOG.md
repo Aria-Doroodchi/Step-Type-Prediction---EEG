@@ -1344,3 +1344,111 @@ vs ~40 estimated; 0 ERROR rows):
   - The final line is `RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4+icoh` for
     `train_sealed.sh`, which turns the `+` into `xblocks="bpt4_icoh"`.
   - The mock's accuracies mean nothing; this checks the machinery.
+
+### Phase 5 — final review (workflow `sprint0929-final-review`, 00:10–00:40, 6 agents) and fixes
+
+- **Review:** three lenses (ML correctness/evidence, deployment path, doc
+  claims), each followed by a skeptic who tried to refute every finding.
+  45 findings, 36 confirmed (ml 11/13, deploy 5/8, docs 20/24); the rest
+  were refuted.
+- **Two majors,** each found by two lenses:
+  - **The release-day summarizer commands in RELEASE_DAY § 5 did not pass
+    `--spec …,x=bpt4 --xb icoh`.** The documented flow ends on those manual
+    commands, so the final DECISIONS would have silently scored the xb row as
+    "base" and dropped bpt4 from `RECIPE_SPEC`.
+    Fixed:
+    - the commands now pass `--spec` / `--xb`;
+    - `release_summarize.py` also reads `spec=` / `xb=` from the run's
+      `config.txt` and exits on a mismatch;
+    - tested: an old run is unchanged vs HEAD except the blocks line, a new run
+      reads its config, and a mismatched `--spec` exits.
+  - **Rule 3b departed from the brief's Phase 4 rule without saying so.** The
+    brief reads: adopt on the replica only if ≥ +1.0 and not worse on any
+    context.
+    Resolved (00:45, before any release number exists):
+    - **bpt4 (ADOPT):** it starts in the recipe and is dropped only if the
+      replica is ≥ +1.0 better without it. This is an interpretation: the
+      brief itself separates ADOPT ("recommended default, still subject to the
+      release ablation") from PROMISING ("a release-day ablation"), and it
+      mirrors the xDAWN rule.
+    - **icoh (PROMISING):** the brief's rule literally, ≥ +1.0 **and no
+      context worse**. It was "no context < −1.0".
+    - **Both fire:** only the larger single change is applied (the previous
+      code always kept the blocks).
+    - **On a 500 Hz cache,** icoh additionally needs a fit ≤ 1.5× the recipe.
+- **Minors fixed:**
+  - bpt4+icoh sizing is labelled **FAIL** (1.56×; 1.68× vs the rehearsal).
+    It is being re-measured alone (below).
+  - RELEASE_DAY:
+    - the `DEC` default and the rule 6 sweep now carry `x=bpt4`;
+    - the rule 3 example keeps `x=`;
+    - the § 7 zip check greps and lists `xblocks`;
+    - the § 8 budget covers 12 steps (plan 6–7 h).
+  - **Harness memory at 500 Hz:** `RiemannXModel` computed the extra blocks on
+    a full float64 copy of the training set. The extra blocks are now computed
+    per 512 MiB chunk, and stateless blocks (bpt, icoh) skip the full-array
+    fit. Chunked = one-shot: max |dF| = 0.0 over 15 forced chunks. Parity
+    re-gated: bpt4 and icoh |dF| = |dP| = 0; defaults |dP| = 0 vs the
+    pre-sprint solver, now logged after the icoh port
+    (`logs/sealed_f0929/RESULTS_gates_0930.md`).
+  - **`f0929_summarize.py`:**
+    - per-comparison bootstrap seeds, so a CI no longer moves when rows are
+      added;
+    - float-safe thresholds and 2-dp output;
+    - a `--reverse` header for the reverse-split table.
+    - All verdicts unchanged.
+  - **The invariance explanation of the spatial nulls was wrong.** sklearn's
+    `shrinkage="auto"` LDA standardises the features before Ledoit-Wolf, so
+    its target is diag(var), not μI. The skeptic measured up to 0.90 change in
+    predict_proba under an orthogonal rotation. The spatial nulls are
+    **empirical findings**; the invariance argument at most motivates why
+    re-referencing was expected to do little. SEALED_RECIPE and this LOG are
+    corrected (next block); the brief carries an erratum.
+
+**Corrections to earlier statements in this sprint's entries** (review
+2026-09-30; the entries above are left as written):
+- *Phase 0/1 controls table:* the CIs are from the 18:22 f1 summary. The final
+  values are in `RESULTS_screen.md` and differ in the last digit.
+- *Phase 1:* "every `x=` config costs ≥ 2× the baseline" should read
+  "~1–3× per config in the contended screen (up to ~4× for tseg2/tcut1000 on
+  Tangermann)".
+- *Controls read:* "TS + shrinkage LDA is affine-invariant in exact arithmetic"
+  is wrong for sklearn's standardised Ledoit-Wolf LDA (see above). The
+  Laplacian's loss is measured; the explanation is not.
+- *Phase 2 read:* "consistent with the affine-invariance argument" is
+  withdrawn. The CSP / regional / topography nulls are empirical; the argument
+  never covered them (they are not fixed full-rank filters).
+- *Phase 3 set decision:* the set was fixed when the Phase 3 lane launched
+  (20:14:46 per STATUS) and written up at 20:16, before icoh's Scherer 5-class
+  rows (20:22–20:27). A consequence of the tcut1000 dedupe: icoh got a
+  single-block confirmation, and with it the release-day ablation xa.
+- *Phase 3:*
+  - tseg3 on Scherer 3-cl. is **+1.96** (+0.00, +4.19): below +2.0 *and* the
+    CI touches 0. Its others' mean is −0.24; only 1 of 3 ≥ 0.
+  - The union's others' mean is **+0.05**.
+  - "bpt4's gain grows under blend_calib" should read "holds under blend_calib
+    (a different metric on the same test sessions; that confirmation reuses
+    the screen's test sessions, so its CI is optimistic)".
+  - "Dominated by bpt4 on every proxy" should read "bpt4 has the higher point
+    estimate on every proxy; the paired CI crosses 0 on 3 of 4; the union was
+    not sized, projected from bpt4+icoh at 1.56×; chosen on cost and
+    parsimony, post-hoc".
+  - "tseg3: router whitening plus the per-subject LDA already capture most of
+    what the segment covariances add" is a hypothesis. It is *consistent with*
+    +6.7 (none) → +3.3 (router) → +1.96 (blend_calib); it was not tested.
+- *Phase 3 incident:* the killed online step left no `.done` and no lane END
+  row; a manual END row was added at 22:10:57.
+- *Phase 4 sizing:*
+  - the reference is "1,961 s re-measured with 1 other job (the 2026-09-28
+    rehearsal also ran contended: 1,826 s)";
+  - bpt4 is 1.06× vs the re-measure (1.14× vs the rehearsal);
+  - the RSS columns are GiB (the solver's maxrss);
+  - the 21:30 prediction for icoh (+5–10 min) came out at +16.5 min
+    (under heavier contention);
+  - the smoke-test output (21:15–21:25) was not kept.
+- *Process deviation, not disclosed at the time:* the solver port (18534b2,
+  d245478) was started during Phase 2, before the Phase 3 verdicts, to overlap
+  with compute. Its defaults were verified bit-identical, and no Phase 2/3
+  number uses the solver.
+- *Brief § 5 (reverse split):* "added 18:10" should read "added ~18:03
+  (7e0d008), before any reverse-split number and before any x= block number".

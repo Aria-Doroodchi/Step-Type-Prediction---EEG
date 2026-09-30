@@ -8,10 +8,11 @@ TAG=f0929
 export XS_THREADS=${XS_THREADS:-10}
 source "$HOME/codabench/scripts/sealed_lib.sh"
 XBS=${XBS:-bpt4}
+P=${PREFIX:-sz}     # PREFIX=sz2: a second series (e.g. re-measured alone), its own .done markers
 SZ="$HOME/codabench/analysis/xblocks_sizing.py"
-step sz_none 35 120m python "$SZ" --xblocks ""
+step "${P}_none" 35 120m python "$SZ" --xblocks ""
 for xb in $XBS; do
-  step "sz_$xb" 45 150m python "$SZ" --xblocks "$xb"
+  step "${P}_$xb" 55 150m python "$SZ" --xblocks "$xb"
 done
-grep -h "^SIZING" "$LOGDIR"/sz_*.log > "$LOGDIR/RESULTS_sizing.md"
+grep -H "^SIZING" "$LOGDIR"/sz*_*.log | sed "s|^$LOGDIR/||" > "$LOGDIR/RESULTS_sizing.md"
 echo "| $(date +%T) | f4 sizing finished ($(grep -c . "$LOGDIR/RESULTS_sizing.md") SIZING lines) |" >> "$STATUS"

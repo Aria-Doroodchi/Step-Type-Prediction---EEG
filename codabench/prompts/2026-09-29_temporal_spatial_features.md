@@ -267,3 +267,20 @@ reference), bit-identity and deployment path, and doc accuracy.
   cache change). Never screen against a baseline that moved.
 - **Anything needing the user** (uploads, forum post, weights): skip it and
   list it under "needs you".
+
+## Erratum (2026-09-30, final review; the text above is left as pre-registered)
+
+- **§ 1, "Why spatial filtering alone cannot help this model":** the argument
+  is wrong for the LDA actually used. sklearn's `shrinkage="auto"` LDA
+  standardises the features before Ledoit-Wolf, so its shrinkage target is
+  diag(feature variances), not μI, and the pipeline is not rotation-invariant
+  even in exact arithmetic. The log-variance block and the OAS covariance
+  shrinkage break invariance too. The spatial and re-referencing nulls of
+  Phase 2 are empirical findings, not consequences of invariance.
+- **§ 5 Phase 3, the reverse-split addition:** it was written at ~18:03
+  (commit 7e0d008), not 18:10. That was still before any reverse-split number
+  and before any `x=` block number.
+- **§ 5 Phase 4, the release-day rule:** it was implemented as RELEASE_DAY rule
+  3b. The ADOPT block (bpt4) starts in the recipe and is dropped only if the
+  replica is ≥ +1.0 without it (an interpretation; see LOG Phase 5). The
+  PROMISING block (icoh) follows this brief literally.
