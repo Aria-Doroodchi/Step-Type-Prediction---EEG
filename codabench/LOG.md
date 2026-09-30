@@ -1167,3 +1167,30 @@ estimated; 5 agents, 0 errors).**
    It measures how much of the FB's accuracy depends on the cue second. It is
    information for release-day decisions (the sealed windows' cue content is
    unknown) and will not be adopted on the screen score alone.
+
+### Phase 2 — screen (18:23–~20:35; `scripts/sprint0929_f2.sh` FAM=T, `sprint0929_f2b.sh` FAM=SE)
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 18:23:00–19:27:51 | f2 FAM=T: 7 temporal blocks × 4 proxies | 65 min | 65 min, on estimate | tseg3, bpt4, tseg2, acm3x2, fbd pass |
+| 19:13–19:23 | lane A idle 10 min | — | — | **incident:** the watchdog pipe `… \| tr -d '\r' \| grep` block-buffered in `tr`, so END rows never reached the Monitor. Fixed with `stdbuf -oL tr`. The f2b guard was narrowed to its own lane so lane A could start before lane B's s5_T ended |
+| 19:23:43– | f2b FAM=SE lane A; lane B from 19:27:56 | 55 / 60 min | (see Phase 2 results) | |
+| 19:31–19:36 | solver port gates (`analysis/xblocks_gate.py`) | ~8 min | 4 min 54 s, under | defaults max \|dP\| = 0.0; harness parity for tseg3_bpt4: max \|dF\| = 0, max \|dP\| = 0 |
+
+**Decision on the Phase 3 set (recorded 20:16, before Phase 3 and before the
+Scherer 5-class rows of the S/E blocks).**
+- By Scherer 3-class Δ the ranking is: tseg3 +3.3, tcut1000 +2.8, bpt4 +2.6,
+  icoh +2.6 (the tie goes to fewer features: bpt4).
+- The literal top-3 would be tseg3, tcut1000 and bpt4, with icoh only inside
+  the union.
+- **Deviation:** tcut1000 is the same block family as tseg3: filter-bank
+  covariances over time segments, differing only in where the cuts fall.
+  Advancing both spends a Phase 3 slot, about an hour of compute, on a
+  near-duplicate, against the premise of the top-3 rule (test the strongest
+  *distinct* candidates). So the family advances once, with its better member
+  (tseg3), and tcut1000's screen result is reported as corroboration.
+- **Phase 3 set:**
+  - `tseg3`, `bpt4` and `icoh` (icoh subject to its replication check once the
+    Scherer 5-class rows land);
+  - the pre-registered union of the best temporal and best spatial blocks,
+    `tseg3+icoh`.

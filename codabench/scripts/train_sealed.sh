@@ -40,7 +40,7 @@
 #   CHANS      eeg (default) | eeg+eog | eeg+emg | all: harness and candidate
 #   RECIPE_SPEC   harness family (riemann:xd=1,fb=1); xd / fb are baked into the
 #              candidate as use_xdawn / filterbank, and x=<ids> (the harness's
-#              extra blocks, analysis/xfeat.py; the solver has tseg<K> and
+#              extra blocks, analysis/xfeat.py; the solver has tseg<K>, icoh and
 #              bpt<K>) as xblocks, e.g. riemann:xd=1,fb=1,x=bpt4 (sprint 2026-09-29)
 #   RECIPE_ALIGN  harness alignment (router-psd:riemann; online-64:riemann under
 #              ADAPT=online); its kind (and online buffer) is baked in.
@@ -269,8 +269,8 @@ for kv in $(echo "${RECIPE_SPEC#riemann}" | tr ':,' '  '); do
     xd=*) XD=${kv#xd=};; fb=*) FB=${kv#fb=};;
     x=*) XB=$(echo "${kv#x=}" | tr '+' '_')
          for b in $(echo "$XB" | tr '_' ' '); do
-           echo "$b" | grep -qE '^(tseg|bpt)[1-9][0-9]*$' \
-             || { note "ERROR: RECIPE_SPEC block $b: the solver's xblocks has tseg<K> / bpt<K> only"; exit 1; }
+           echo "$b" | grep -qE '^((tseg|bpt)[1-9][0-9]*|icoh)$' \
+             || { note "ERROR: RECIPE_SPEC block $b: the solver's xblocks has tseg<K> / bpt<K> / icoh only"; exit 1; }
          done;;
     *) note "ERROR: RECIPE_SPEC option $kv has no Riemann-Sealed parameter"; exit 1;;
   esac

@@ -6,15 +6,15 @@ Resume from this file alone. Plan of record:
 every commit. Logs: `~/codabench/logs/sealed_f0929/` (STATUS.md, per-study
 `results_<study>.jsonl`; lanes `scripts/sprint0929_f*.sh` are resumable).
 
-## State of this sprint (updated 2026-09-29 18:05)
+## State of this sprint (updated 2026-09-29 19:40)
 
 | Phase | Status | Result |
 |---|---|---|
-| 0 brief + harness hook | ✅ | `analysis/xfeat.py` (block registry, `RiemannXModel`), spec keys `x=` / `sl=` in `xsess_lib.make_model`; `xfeat_selftest.py` passes |
-| 1 build (workflow) | running | f1 lanes (baseline reproduction + slow/ref controls) started 17:55 |
-| 2 screen | — | |
-| 3 confirm | — | |
-| 4 integrate / fallback | — | |
+| 0 brief + harness hook | ✅ 8c50541, 7e0d008 | `analysis/xfeat.py` (block registry, `RiemannXModel`), spec keys `x=` / `sl=`, `--split first` |
+| 1 build (workflow, 5 agents) | ✅ 9b3719b | 12 verified blocks + 2 EDA-motivated (`tcut1000`, `fbfrom1000`); activation EDA in `reports/features_0929/`; baseline bit-exact; slow block / CAR / Laplacian: no gain |
+| 2 screen | T done; S + E running (`sprint0929_f2b.sh`, ETA 20:27) | T passes: tseg3 +3.3 (9/9), bpt4 +2.6 (+2.1 on the others), tseg2 +1.7, acm3x2 +1.5, fbd +1.0 — `python ~/codabench/analysis/f0929_summarize.py --phase screen` |
+| 3 confirm | next (`CANDS=... sprint0929_f3.sh`) | blend_calib on 4 proxies + reverse split + online (info) |
+| 4 integrate | prep ✅ 18534b2 | solver opt-in `xblocks` (tseg<K>, bpt<K>); gates: defaults \|dP\| = 0, harness parity exact (`analysis/xblocks_gate.py`); `train_sealed.sh` bakes `RECIPE_SPEC ... x=`; 500 Hz sizing still to do |
 | 5 review | — | |
 
 The sections below are the previous sprint's handoff (2026-09-28/29, sealed-release

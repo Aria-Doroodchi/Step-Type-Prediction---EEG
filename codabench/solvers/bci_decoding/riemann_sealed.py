@@ -302,7 +302,11 @@ def _band_covs(parts, X, band):
 #            segments (remainder dropped), OAS covariance each -> one tangent
 #            space per (band, segment); 4 * K * C(C+1)/2 features;
 #   bpt<K>   per FB band: band-pass, square, mean over K equal contiguous time
-#            bins per channel, log(. + 1e-12) (stateless); 4 * K * C features.
+#            bins per channel, log(. + 1e-12) (stateless); 4 * K * C features;
+#   icoh     per FB band imaginary coherence of every channel pair (i < j,
+#            signed; Welch within the window: 1 s periodic-Hann segments, 50 %
+#            overlap, per-segment mean removed, band = the FFT bins in [lo, hi])
+#            (stateless); 4 * C(C-1)/2 features.
 # Appended after the filter bank, in ``xblocks`` order. Default "" = none (the
 # model is then exactly the recipe).
 # ---------------------------------------------------------------------------
@@ -314,8 +318,8 @@ def _parse_xblocks(xblocks):
     ("_" is the separator to use on a benchopt command line.)"""
     names = [s for s in re.split(r"[_+,]", str(xblocks or "")) if s]
     for s in names:
-        if not _XBLOCK_RX.fullmatch(s):
-            raise ValueError(f"xblocks: unknown block {s!r} (expected tseg<K> / bpt<K>)")
+        if not (s == "icoh" or _XBLOCK_RX.fullmatch(s)):
+            raise ValueError(f"xblocks: unknown block {s!r} (expected tseg<K> / bpt<K> / icoh)")
     if len(set(names)) != len(names):
         raise ValueError(f"xblocks: duplicate block in {xblocks!r}")
     return names
@@ -328,18 +332,61 @@ def _seg_slices(T, k):
     return [slice(i * w, (i + 1) * w) for i in range(k)]
 
 
+def _icoh(X, sfreq, chunk_bytes=256 * 2 ** 20):
+    """(n, C, T) float64 -> (n, 4 C(C-1)/2) imaginary coherence per FB band
+    (the harness's analysis/xfeat_spatial.ImagCoherence, same values):
+    icoh_ij = Im(S_ij) / sqrt(S_ii S_jj), S_ij = sum over Welch segments and
+    in-band FFT bins of conj(Z_i) Z_j; band-major, pairs in triu order."""
+    from numpy.lib.stride_tricks import sliding_window_view
+    from scipy.signal import get_window
+    n, C, T = X.shape
+    nper = min(int(round(sfreq)), T)
+    step = max(1, nper // 2)
+    win = get_window("hann", nper)
+    f = np.fft.rfftfreq(nper, 1.0 / sfreq)
+    sel = []
+    for band in FB_BANDS:
+        lo, hi = (float(v) for v in band.split("to"))
+        sel.append(np.flatnonzero((f >= lo) & (f <= hi)))
+    iu = np.triu_indices(C, 1)
+    n_seg = (T - nper) // step + 1
+    rows = max(1, chunk_bytes // (8 * C * n_seg * nper * 3))
+    out = []
+    for i in range(0, n, rows):
+        seg = sliding_window_view(X[i:i + rows], nper, axis=2)[:, :, ::step]
+        seg = seg - seg.mean(axis=-1, keepdims=True)
+        Z = np.fft.rfft(seg * win, axis=-1)                      # (b, C, S, F)
+        blk = []
+        for m in sel:
+            Zb = Z[..., m].reshape(len(seg), C, -1)
+            S = np.conj(Zb) @ Zb.transpose(0, 2, 1)
+            p = np.real(np.einsum("nii->ni", S))
+            den = np.sqrt(p[:, :, None] * p[:, None, :])
+            ic = np.divide(S.imag, den, out=np.zeros_like(den), where=den > 0)
+            blk.append(ic[:, iu[0], iu[1]])
+        out.append(np.concatenate(blk, axis=1))
+    return np.concatenate(out)
+
+
 def _xblock_raw(parts, X):
     """Per-window inputs of the extra blocks for (n, C, T) float64 windows:
-    "<tsegK>:<band>:<i>" -> (n, C, C) covariances, "<bptK>" -> (n, 4 K C)."""
+    "<tsegK>:<band>:<i>" -> (n, C, C) covariances, "<bptK>" -> (n, 4 K C),
+    "icoh" -> (n, 4 C(C-1)/2)."""
     out = {}
     names = parts.get("xblocks") or []
     if not names:
         return out
+    if "icoh" in names:
+        out["icoh"] = _icoh(X, parts["sfreq"])
     cov = Covariances(estimator=parts["estimator"])
     bpt = {s: [] for s in names if s.startswith("bpt")}
     for band in FB_BANDS:
+        if not any(_XBLOCK_RX.fullmatch(s) for s in names):
+            break
         Xb = np.concatenate(list(_band_chunks(X, parts["sfreq"], band)))
         for s in names:
+            if s == "icoh":
+                continue
             k = int(_XBLOCK_RX.fullmatch(s).group(2))
             segs = _seg_slices(Xb.shape[-1], k)
             if s.startswith("tseg"):
