@@ -1452,3 +1452,16 @@ vs ~40 estimated; 0 ERROR rows):
   number uses the solver.
 - *Brief § 5 (reverse split):* "added 18:10" should read "added ~18:03
   (7e0d008), before any reverse-split number and before any x= block number".
+
+### 2026-09-30 (night) — closing runs after the review
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 00:12–01:04 | post-hoc bpt4+icoh (4 proxies) + online-64 info (baseline, bpt4, bpt4+icoh) | ~65 min | 52 min | bpt4+icoh blend_calib Δ +6.51 (+4.34, +9.11) 9/9 / +1.81 (+0.77, +3.12) / +2.16 (−1.09, +5.43) / +3.33 (−0.67, +8.67). Online-64, Scherer 3-cl. blend_calib: recipe **0.561** (= SEALED_RECIPE), bpt4 **0.592**, bpt4+icoh **0.599** (rule-dependent; information only) |
+| 00:58:36–01:08:46 | defaults gate, mock arm: `train_sealed.sh` default flow on mock_sealed_s | 8 min | 10 min | train 0.483333 = replay = harness 0.483333 (w 0.75), gap 0.0000. That equals the committed flow (`logs/train_sealed_mock_sealed_s`), so the solver defaults stay bit-identical on the context / 43-ch path as well |
+| 01:08– | 500 Hz sizing re-measured **alone** (`PREFIX=sz2`, recipe then bpt4+icoh) | ~85 min | (running) | |
+
+- **bpt4+icoh is post-hoc and not a candidate.** It would meet the ADOPT rule,
+  but icoh was selected after seeing results.
+- It strengthens the prior for release-day step `xa`. It is not a reason to
+  change the pre-registered default.
