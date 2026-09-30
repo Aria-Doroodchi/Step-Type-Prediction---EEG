@@ -36,9 +36,10 @@
 #                                    routing per (subject, context); only for a
 #                                    cache with a context column
 #   lane B:
-#     xb                             extra feature blocks (sprint 2026-09-29): the
-#                                    recipe without its x=<blocks> when SPEC has
-#                                    them, else with x=$XB (env XB, e.g. bpt4)
+#     xb / xa                        extra feature blocks (sprint 2026-09-29):
+#                                    xb = the recipe without its x=<blocks> (when
+#                                    SPEC has them), xa = with the blocks of env
+#                                    XB added (when XB is set, e.g. XB=icoh)
 #     xd0                            the family without xDAWN (xd=1 -> xd=0)
 #     wcv_loso (wcv_last)            the other blend-weight CV (6 folds on the
 #                                    sealed structure: the slowest step)
@@ -59,7 +60,7 @@
 # --test_subjects; on the released data the replica is SPLIT=calib:3
 # TEST_SUBJECTS=<the fully labelled participants>), SPEC (riemann:xd=1,fb=1), ALIGN
 # (router-psd:riemann), WCV (last), CAP (0.5; "none" = uncapped), XB (extra blocks
-# for step xb when SPEC has none, e.g. bpt4; sprint 2026-09-29), LANES (AB),
+# that step xa adds to SPEC, e.g. icoh; sprint 2026-09-29), LANES (AB),
 # STEPS (space-separated step names: run only those, e.g. to keep each call
 # under a time limit; a name that is no step here, or a requested step, i.e. of
 # STEPS or else of LANES, without its .done marker at the end, is an ERROR row
@@ -103,19 +104,21 @@ CAP=${CAP:-0.5}
 KIND=${ALIGN##*:}
 if [ "$WCV" = last ]; then WCV_ALT=loso; else WCV_ALT=last; fi
 case $SPEC in *xd=1*) SPEC_NX=${SPEC/xd=1/xd=0};; *) SPEC_NX=;; esac
-# extra feature blocks (sprint 2026-09-29): step xb runs the recipe WITHOUT
-# its x=<blocks> when SPEC has them, else WITH x=$XB when XB is set (e.g.
-# XB=bpt4); release_summarize.py applies the rule (--xb)
+# extra feature blocks (sprint 2026-09-29; release_summarize.py applies the
+# rules): step xb = the recipe WITHOUT its x=<blocks> (only when SPEC has
+# them); step xa = the recipe WITH the blocks $XB added (only when XB is set,
+# e.g. XB=icoh: x=bpt4 -> x=bpt4+icoh, or x=icoh on a SPEC without blocks)
 case $SPEC in
-  *,x=*) SPEC_XB=$(echo "$SPEC" | sed 's/,x=[^,]*//');;
-  *) SPEC_XB=${XB:+$SPEC,x=$XB};;
+  *,x=*) SPEC_XB=$(echo "$SPEC" | sed 's/,x=[^,]*//')
+         SPEC_XA=${XB:+$(echo "$SPEC" | sed "s/\(,x=[^,]*\)/\1+$XB/")};;
+  *) SPEC_XB=; SPEC_XA=${XB:+$SPEC,x=$XB};;
 esac
 HAS_CTX=$([ -f "$CACHE/context.npy" ] && echo 1)
 # the steps of each lane on this cache / SPEC / WCV; LANES and STEPS must name
 # them (a typo used to end like a finished chunk, and the summary then silently
 # applied the recipe default for the step that never ran)
 STEPS_A="base ch_eeg_eog ch_eeg_emg ch_all${HAS_CTX:+ al_ctx}"
-STEPS_B="${SPEC_NX:+xd0 }${SPEC_XB:+xb }wcv_$WCV_ALT pool_test online run"
+STEPS_B="${SPEC_NX:+xd0 }${SPEC_XB:+xb }${SPEC_XA:+xa }wcv_$WCV_ALT pool_test online run"
 LANES=${LANES:-AB}
 if ! [[ $LANES =~ ^[AB]{1,2}$ ]]; then
   echo "| $(date +%T) | ERROR: LANES=$LANES: expected A, B or AB |" >> "$STATUS"; exit 1
@@ -192,6 +195,9 @@ laneA() {
 laneB() {
   if [ -n "$SPEC_XB" ]; then
     pers B xb 20 --family "$SPEC_XB" --align "$ALIGN" --wcv "$WCV" --chans eeg
+  fi
+  if [ -n "$SPEC_XA" ]; then
+    pers B xa 25 --family "$SPEC_XA" --align "$ALIGN" --wcv "$WCV" --chans eeg
   fi
   if [ -n "$SPEC_NX" ]; then
     pers B xd0 15 --family "$SPEC_NX" --align "$ALIGN" --wcv "$WCV" --chans eeg

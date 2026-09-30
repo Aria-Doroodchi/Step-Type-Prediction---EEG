@@ -31,9 +31,9 @@ last), and prints:
               and is what SEALED_RECIPE describes);
     pool      all unless test-only is >= 2 points better AND the CI excludes 0;
     online-64 rule-dependent: reported in its own line, never adopted here.
-    blocks    (sprint 2026-09-29, step xb) a recipe with x=<blocks> drops them
-              only if the row without them is >= 1 point better; a recipe
-              without them (--xb <blocks>) adds them only if the row with them
+    blocks    (sprint 2026-09-29) step xb: a recipe with x=<blocks> drops them
+              only if the row without them is >= 1 point better; step xa
+              (--xb <blocks>): the blocks are added only if the row with them
               is >= 1 point better AND no context is > 1 point worse.
 A missing row (a step not run, or failed) prints a loud "MISSING: <step> ..."
 line and keeps the recipe's setting (for wcv that is loso: nothing measured
@@ -151,11 +151,14 @@ def main():
                  f"test_subjects={ts} in {[str(d) for d in dirs]}")
     kind = args.align.split(":")[1]
     nx = args.spec.replace("xd=1", "xd=0") if "xd=1" in args.spec else None
-    # step xb (release_ablations.sh): the recipe without its x=<blocks>, or
-    # with x=<--xb> when it has none (same string rule as the shell)
+    # steps xb / xa (release_ablations.sh, same string rules as the shell):
+    # xb = the recipe without its x=<blocks>; xa = with the --xb blocks added
     has_x = ",x=" in args.spec
-    xb_alt = (re.sub(r",x=[^,]*", "", args.spec) if has_x
-              else (f"{args.spec},x={args.xb}" if args.xb else None))
+    xb_alt = re.sub(r",x=[^,]*", "", args.spec) if has_x else None
+    xa_alt = None
+    if args.xb:
+        xa_alt = (re.sub(r"(,x=[^,]*)", lambda m: m.group(1) + "+" + args.xb, args.spec)
+                  if has_x else f"{args.spec},x={args.xb}")
     wcv_alt = "loso" if args.wcv == "last" else "last"
 
     def find(spec=args.spec, align=args.align, chans="eeg", pool="all", wcv=args.wcv,
@@ -172,8 +175,9 @@ def main():
     variants += [(f"align router-psdctx:{kind}", find(align=f"router-psdctx:{kind}"))]
     variants += [("no xDAWN (" + (nx or "n/a") + ")", find(spec=nx) if nx else None)]
     if xb_alt is not None:
-        variants += [(("without" if has_x else "with") + f" blocks ({xb_alt})",
-                      find(spec=xb_alt))]
+        variants += [(f"without blocks ({xb_alt})", find(spec=xb_alt))]
+    if xa_alt is not None:
+        variants += [(f"with blocks ({xa_alt})", find(spec=xa_alt))]
     variants += [(f"wcv {wcv_alt}", find(wcv=wcv_alt)), ("pool test", find(pool="test"))]
     online = find(align=f"online-64:{kind}")
     base = variants[0][1]
@@ -285,32 +289,50 @@ def main():
         print(f"xDAWN     xd=0 vs xd=1: {txt} -> "
               f"{'DROP xDAWN' if drop else 'keep xDAWN'} (drop if xd=0 >= +1.0)")
         spec = nx if drop else spec
-    # extra feature blocks (sprint 2026-09-29)
-    if xb_alt is None:
+    # extra feature blocks (sprint 2026-09-29): xb (drop the recipe's), xa (add)
+    def blocks_cmp(r):
+        txt, dlt, lo, hi = fmt_cmp(r, base)              # alternative - recipe
+        dc = [a - b for a, b in zip(cc.get(r["key"], []), cc.get(base["key"], []))]
+        ctx_txt = (" (per context " + ", ".join(f"{100 * v:+.2f}" for v in dc) + ")"
+                   if dc else "")
+        return txt + ctx_txt, dlt, dc
+    if xb_alt is None and xa_alt is None:
         print("blocks    not applicable (recipe has no x=, no --xb) -> none")
-    else:
+    drop = False
+    if xb_alt is not None:
         r = find(spec=xb_alt)
         if r is None:
             miss("xb")
-            print(f"blocks    row {xb_alt} missing -> keep the recipe's "
-                  f"({'with' if has_x else 'without'} blocks)")
+            print(f"blocks    row {xb_alt} missing -> keep the recipe's blocks")
         else:
-            txt, dlt, lo, hi = fmt_cmp(r, base)          # alternative - recipe
-            dc = [a - b for a, b in zip(cc.get(r["key"], []), cc.get(base["key"], []))]
-            ctx_txt = (" (per context " + ", ".join(f"{100 * v:+.2f}" for v in dc) + ")"
-                       if dc else "")
-            if has_x:
-                drop = ok(dlt, 0.01)
-                print(f"blocks    without vs with x=: {txt}{ctx_txt} -> "
-                      f"{'DROP the blocks' if drop else 'keep the blocks'} "
-                      "(drop only if >= +1.0 without them)")
-                spec = re.sub(r",x=[^,]*", "", spec) if drop else spec
-            else:
-                add = ok(dlt, 0.01) and all(round(v, 6) >= -0.01 for v in dc)
-                print(f"blocks    with x={args.xb} vs without: {txt}{ctx_txt} -> "
-                      f"{'ADD the blocks' if add else 'no blocks'} "
-                      "(add only if >= +1.0 and no context < -1.0)")
-                spec = f"{spec},x={args.xb}" if add else spec
+            txt, dlt, dc = blocks_cmp(r)
+            drop = ok(dlt, 0.01)
+            print(f"blocks    without vs with the recipe's x=: {txt} -> "
+                  f"{'DROP the blocks' if drop else 'keep the blocks'} "
+                  "(drop only if >= +1.0 without them)")
+    add = False
+    if xa_alt is not None:
+        r = find(spec=xa_alt)
+        if r is None:
+            miss("xa")
+            print(f"blocks    row {xa_alt} missing -> do not add {args.xb}")
+        else:
+            txt, dlt, dc = blocks_cmp(r)
+            add = ok(dlt, 0.01) and all(round(v, 6) >= -0.01 for v in dc)
+            print(f"blocks    adding {args.xb} vs the recipe: {txt} -> "
+                  f"{'ADD ' + args.xb if add else 'do not add ' + args.xb} "
+                  "(add only if >= +1.0 and no context < -1.0)")
+    if drop and add:     # both single changes won: take the larger gain only
+        print("blocks    both rules fired: dropping the recipe's blocks and adding "
+              f"{args.xb} were each tested alone; keep the recipe's blocks, add "
+              f"{args.xb} (the tested xa row) and re-check the combination in "
+              "train_sealed.sh's harness steps")
+        drop = False
+    if drop:
+        spec = re.sub(r",x=[^,]*", "", spec)
+    if add:
+        spec = (re.sub(r"(,x=[^,]*)", lambda m: m.group(1) + "+" + args.xb, spec)
+                if ",x=" in spec else f"{spec},x={args.xb}")
     # blend-weight CV (rule 4: loso unless measured >= 2 points worse; with no
     # loso-vs-last pair measured nothing says it is worse, so loso, i.e. the
     # recipe's BLEND_W=auto; RELEASE_DAY section 9, V1 2026-09-29)
