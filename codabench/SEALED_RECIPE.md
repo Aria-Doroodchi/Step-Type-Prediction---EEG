@@ -169,26 +169,39 @@ class information.
 
 | block | what it adds | screen Δ, Scherer 3-cl. | blend_calib Δ: Scherer 3-cl. / Tangermann / Scherer 5-cl. / Zhou | verdict |
 |---|---|---|---|---|
-| **bpt4** | log band power, 4 bands × 4 one-second bins × channel (ERD/ERS time course) | +2.6 (+0.4, +5.0) 8/9 | **+4.4 (+2.0, +6.7)** / +1.5 (+0.1, +3.1) / +2.7 (+1.2, +4.6) / +2.2 | **ADOPT** (recipe default for release day) |
-| icoh | imaginary coherence per band: lagged connectivity, blind to volume conduction | +2.6 (+0.9, +4.2) 7/9 | +2.2 (+0.3, +4.4) / +1.3 / +2.0 (+0.6, +3.6) / **−3.5** | PROMISING → release-day ablation `xa` |
-| tseg3 | FB covariances of 3 time segments → TS | +3.3 (+1.5, +5.7) 9/9 | +2.0 (−0.0, +4.1) / −0.2 / +1.0 / −1.5 | no gain under the deployed recipe (and +11 k features at 43 ch) |
-| tseg3+icoh (pre-registered union) | both | — | +3.2 (+1.6, +5.1) / +0.5 / +1.5 / −1.8 | ADOPT by the letter, **dominated by bpt4 on every proxy**; ~20 k features at 43 ch: not deployed |
-| tcut1000, tseg2, acm3x2, fbd | cue-second split; 2 segments; time-delay-embedded covariance; 1–4 Hz TS | +1.0 to +2.8 | (not advanced: same family as tseg3, or lower) | — |
-| fbfrom1000 (control) | the FB without the cue second | +1.6 | — | the FB does **not** depend on the cue second |
-| csp8, fblv, fbrlv, reg, fb8, acm2x4, slow block | CSP subspace, band-power topography, regional covariances, 8 bands, … | −0.2 to +0.6 | — | no gain |
-| CAR, Laplacian (controls) | fixed spatial filters | −0.1, −1.8 (Tangermann −3.4) | — | no gain (Laplacian hurts) |
+| **bpt4** | log band power, 4 bands × 4 one-second bins × channel (ERD/ERS time course) | +2.59 (+0.42, +4.95) 8/9 | **+4.35 (+2.05, +6.67)** / +1.50 (+0.12, +3.05) / +2.70 (+1.13, +4.68) / +2.17 (−1.50, +6.33) | **ADOPT** (recipe default for release day) |
+| icoh | imaginary coherence per band: lagged connectivity, blind to volume conduction | +2.59 (+0.96, +4.27) 7/9 | +2.17 (+0.29, +4.43) / +1.27 / +1.97 (+0.56, +3.61) / **−3.50** | PROMISING → release-day ablation `xa` |
+| tseg3 | FB covariances of 3 time segments → TS | +3.33 (+1.52, +5.76) 9/9 | +1.96 (+0.00, +4.19) / −0.23 / +1.02 / −1.50 | no gain under the deployed recipe (and +11 k features at 43 ch) |
+| tseg3+icoh (pre-registered union) | both | — | +3.20 (+1.65, +5.09) / +0.50 / +1.47 / −1.83 | ADOPT by the letter; bpt4 has the higher point estimate on every proxy (paired CI crosses 0 on 3 of 4); ~20 k features at 43 ch: not deployed (post-hoc, on cost and parsimony) |
+| *bpt4+icoh (post-hoc, not pre-registered)* | *both* | — | *+6.51 (+4.34, +9.11) 9/9 / +1.81 (+0.77, +3.12) / +2.16 / +3.33* | *information: supports the release-day `xa` step; 1.56× fit at 500 Hz* |
+| tcut1000, tseg2, acm3x2, fbd | cue-second split; 2 segments; time-delay-embedded covariance; 1–4 Hz TS | +1.04 to +2.82 | (not advanced: same family as tseg3, or lower) | — |
+| fbfrom1000 (control) | the FB without the cue second | +1.55 | — | the FB does **not** depend on the cue second |
+| csp8, fblv, fbrlv, reg, fb8, acm2x4, slow block | CSP subspace, band-power topography, regional covariances, 8 bands, … | −0.35 to +0.56 | — | no gain |
+| CAR, Laplacian (controls) | fixed spatial filters | −0.05, −1.84 (Tangermann −3.43) | — | no gain (Laplacian hurts) |
 
 Read:
-- **The missing information was temporal.** Where in the trial the power
-  changes (bpt4) matters across sessions. The segment covariances (tseg) help
-  pooled models without alignment (+6.7), but personalisation and router
-  whitening already capture most of it.
-- **The one spatial gain is lagged connectivity (icoh).** Topography-type
-  blocks (CSP, regional covariances, band-power maps, re-referencing) add
-  nothing over the tangent space: TS + shrinkage LDA is invariant to fixed
-  full-rank spatial filters up to the covariance shrinkage.
-- The reverse-time replication kept every sign (bpt4 +1.4, icoh +2.2, tseg3
-  +3.4).
+- **Temporal blocks gave the largest and most consistent gains under the
+  deployed recipe.** bpt4, where in the trial the band power changes, holds
+  across sessions.
+  - The segment covariances (tseg3) gain +6.66 without alignment (pooled and
+    per-subject; pooled alone +9.2), +3.33 under the router, and +1.96 under
+    blend_calib.
+  - That pattern is *consistent with* router whitening and personalisation
+    absorbing most of what they add. It was not tested directly.
+- **The one spatial gain is lagged connectivity (icoh).** The structural
+  spatial blocks gained nothing in the screen: CSP subspace, regional
+  covariances and band-power topography. Neither did re-referencing (the
+  Laplacian hurts).
+  - These are empirical findings. The invariance argument once given for them
+    was wrong: sklearn's shrinkage LDA standardises features, so the pipeline
+    is not rotation-invariant (brief erratum).
+- **Selection caveat:** the Scherer 3-class confirmation reuses the test
+  sessions of the screen that picked these blocks from 17, so its CIs are
+  optimistic. The reverse-time replication (train on the later session, test
+  on the first) kept every sign: bpt4 +1.44 (−0.42, +3.33), icoh +2.22
+  (+0.56, +4.72), tseg3 +3.43 (+1.53, +5.51).
+- **Under online-64** (rule-dependent, information only): bpt4 keeps its gain,
+  Scherer 3-cl. blend_calib 0.592 vs 0.561 for the recipe.
 - A training-sessions-only activation EDA
   (`reports/features_0929/activation_eda.md`) located the information:
   - alpha, posterior-right, after ~1.5 s;
@@ -317,10 +330,17 @@ It is also the release-day regression gate (RELEASE_DAY § 0).
 
 - **Release day:** run the ablations with `SPEC=riemann:xd=1,fb=1,x=bpt4
   XB=icoh` (steps `xb`, `xa`; RELEASE_DAY § 5, rule 3b). bpt4 is the
-  default. The replica decides whether it stays and whether icoh joins.
-- **If online re-centring is allowed (step 1):** re-check bpt4 under
-  `online-64`. Its gain was measured under the clean router only; the online
-  information runs were deferred (`scripts/sprint0929_f3.sh` lane A, resumable).
+  default. The replica decides whether it stays and whether icoh joins. The
+  post-hoc union bpt4+icoh (+6.51 on Scherer 3-class, positive on all four
+  proxies) makes `xa` the ablation most likely to change the recipe.
+- **Before release day: re-measure the bpt4+icoh fit at 500 Hz alone.** It
+  measured 1.56× the recipe under contention, a FAIL of the 1.5× gate. A
+  re-measure on an idle machine closed the sprint (`logs/sealed_f0929/
+  RESULTS_sizing.md`, `sz2_*` rows; LOG 2026-09-30). If it still fails, rule
+  3b on a 500 Hz cache needs either a restricted icoh (e.g. 8–13 and 13–30 Hz
+  only) or a recorded budget deviation.
+- **If online re-centring is allowed (step 1):** bpt4 kept its gain under
+  `online-64` on Scherer 3-class (information run: 0.592 vs 0.561).
 - **Not now: time-segment covariances (tseg3).** They showed no gain under the
   deployed recipe and add 11 k features at 43 ch. At that size, 20 per-subject
   LDAs would solve 16 k × 16 k systems from ~500 windows each; a dual (n < d)

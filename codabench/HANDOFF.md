@@ -2,31 +2,78 @@
 
 Resume from this file alone. Plan of record:
 [prompts/2026-09-29_temporal_spatial_features.md](prompts/2026-09-29_temporal_spatial_features.md)
-(17:46 → 05:45). Branch `feat/codabench-track2`, pushed to `personal` after
-every commit. Logs: `~/codabench/logs/sealed_f0929/` (STATUS.md, per-study
-`results_<study>.jsonl`; lanes `scripts/sprint0929_f*.sh` are resumable).
+(17:46 → 05:45, with an erratum at the end). Branch `feat/codabench-track2`,
+pushed to `personal` after every commit. Logs: `~/codabench/logs/sealed_f0929/`
+(STATUS.md, `RESULTS_*.md`, per-study `results_<study>.jsonl`). The lanes
+`scripts/sprint0929_f*.sh` are resumable.
 
-## State of this sprint (updated 2026-09-30 00:15)
+## State of this sprint (updated 2026-09-30 01:05)
 
-**Outcome so far:** the band-power time course **`bpt4` is adopted** into the
-recipe for release day. It gains +4.4 points blend_calib on the sealed-like
-proxy and is positive on all 4 proxies. Imaginary coherence **`icoh`** is
-PROMISING and becomes the release-day ablation `xa`. Time-segment covariances
-(`tseg3`) showed no gain under the deployed recipe. Topography-type spatial
-blocks showed no gain. Tables: SEALED_RECIPE § 2 "Phase 7"; LOG 2026-09-29.
+**Outcome:**
+- **The band-power time course `bpt4` is adopted** into the release-day recipe
+  (`RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4`).
+  - Blend_calib on the sealed-like proxy (Scherer WORD / SUB / HAND): +4.35
+    (95 % CI +2.05, +6.67).
+  - Positive point estimates on all 4 proxies, with the CI above 0 on 3.
+  - It passes the 500 Hz sizing gate (1.06×).
+  - Caveat: the confirmation reuses the screen's test sessions.
+- **Imaginary coherence `icoh` (lagged connectivity) is PROMISING.** It becomes
+  the release-day ablation `xa`. Post-hoc, bpt4+icoh gave +6.51.
+- **No gain under the deployed recipe:**
+  - time-segment covariances (`tseg3`);
+  - topography-type spatial blocks: CSP, regional covariances, band-power maps,
+    re-referencing.
+- Tables: SEALED_RECIPE § 2 "Phase 7"; LOG 2026-09-29/30.
 
 | Phase | Status | Result |
 |---|---|---|
 | 0 brief + harness hook | ✅ 8c50541, 7e0d008 | `analysis/xfeat.py` (block registry, `RiemannXModel`), spec keys `x=` / `sl=`, `--split first` |
 | 1 build (workflow, 5 agents) | ✅ 9b3719b | 12 verified blocks + 2 EDA-motivated (`tcut1000`, `fbfrom1000`); activation EDA in `reports/features_0929/`; baseline bit-exact; slow block / CAR / Laplacian: no gain |
-| 2 screen | ✅ fe0efe4 | tseg3 +3.3, bpt4 +2.6, icoh +2.6 on Scherer 3-cl.; `logs/sealed_f0929/RESULTS_screen.md` |
-| 3 confirm | ✅ 4562ac4 | bpt4 ADOPT, icoh PROMISING, tseg3 NO GAIN, tseg3+icoh ADOPT but dominated by bpt4; reverse split: no downgrade; `RESULTS_confirm.md`, `RESULTS_reverse.md` |
-| 4 integrate | ✅ | solver opt-in `xblocks` (tseg<K>, bpt<K>, icoh), defaults \|dP\| = 0, harness parity exact; `train_sealed.sh` bakes `RECIPE_SPEC=…,x=bpt4`; `release_ablations.sh` steps `xb` / `xa` (env `XB`) + summarizer rule 3b; 500 Hz sizing: bpt4 **1.06×** PASS, bpt4+icoh 1.56× (borderline, measured under contention); zhou regression 0.770000 = replay; mock bpt4 flow train = replay = harness 0.5125 |
-| 4 extras (post-hoc, info) | running | bpt4+icoh on the proxies; online-64 for the baseline / bpt4 / bpt4+icoh (`CANDS="riemann:xd=1,fb=1,x=bpt4 riemann:xd=1,fb=1,x=bpt4+icoh" sprint0929_f3.sh`) |
-| 5 review | next | workflow, 3 lenses + skeptics |
+| 2 screen | ✅ fe0efe4 | tseg3 +3.33, bpt4 +2.59, icoh +2.59 on Scherer 3-cl.; `RESULTS_screen.md` |
+| 3 confirm | ✅ 4562ac4 | bpt4 ADOPT, icoh PROMISING, tseg3 NO GAIN (+1.96), tseg3+icoh ADOPT by the letter but not deployed; reverse split: no downgrade; `RESULTS_confirm.md`, `RESULTS_reverse.md` |
+| 4 integrate + verify | ✅ e1b7402 | solver opt-in `xblocks` (tseg<K>, bpt<K>, icoh): defaults \|dP\| = 0, harness parity exact. `train_sealed.sh` bakes `RECIPE_SPEC … x=`. `release_ablations.sh` steps `xb` / `xa` (env `XB`), summarizer rule 3b. zhou regression 0.770000 = replay. Mock bpt4 flow: train = replay = harness 0.5125. 500 Hz sizing: bpt4 1.06× PASS; bpt4+icoh 1.56× **FAIL** (contended) |
+| 4 extras (post-hoc, information) | ✅ | bpt4+icoh: +6.51 / +1.81 / +2.16 / +3.33; online-64 Scherer 3-cl.: recipe 0.561, bpt4 0.592 |
+| 5 review (workflow, 6 agents) | ✅ eb39e70, 80d4da3 | 36 confirmed findings fixed. Two majors: the release-day summarizer lost `x=bpt4` (fixed and hardened: reads `config.txt`), and rule 3b's reading of the brief (documented; the icoh rule is now literal). LOG "Corrections" block, brief erratum |
 
-The sections below are the previous sprint's handoff (2026-09-28/29, sealed-release
-readiness); every fact in them still holds.
+## What is running
+
+- **The 500 Hz sizing re-measured alone** (`PREFIX=sz2 XBS=bpt4_icoh
+  scripts/sprint0929_f4.sh`, started after the last lane). It gives the recipe
+  and then bpt4+icoh, ~85 min.
+- Check it: `tail ~/codabench/logs/sealed_f0929/STATUS.md`, then
+  `cat ~/codabench/logs/sealed_f0929/RESULTS_sizing.md` (the `sz2_*` lines).
+- If the chain died, rerun
+  `PREFIX=sz2 XBS=bpt4_icoh bash ~/codabench/scripts/sprint0929_f4.sh` in WSL.
+  Done steps are skipped.
+
+## Facts a resumer needs (this sprint)
+
+- **The recipe is `x=bpt4` only through the release-day commands.**
+  - Every script default and the solver default stay `xblocks=""`, so the
+    regression gate still reproduces 0.770000.
+  - RELEASE_DAY § 5 passes `SPEC=…,x=bpt4 XB=icoh`.
+  - § 7 takes `RECIPE_SPEC` from the DECISIONS; the `DEC` default carries
+    `x=bpt4`.
+- **benchopt:** blocks are joined with `_` (`xblocks="bpt4_icoh"`), because `+`
+  may be parsed as arithmetic. `train_sealed.sh` converts `x=bpt4+icoh`.
+- **`release_summarize.py`** now reads `spec=` / `xb=` from the run's
+  `config.txt` and exits on a mismatching `--spec` / `--xb`.
+- **Harness `x=` blocks** run per 512 MiB chunk. Stateless blocks skip the
+  full-array fit, and chunked = one-shot exactly.
+
+## What the user needs to do (unchanged from the previous sprint, plus one)
+
+1. Post the organiser question (SEALED_RECIPE § 5 step 1).
+2. A warm-up deployment-test upload before 2026-10-25 (SUBMISSIONS.md). The
+   candidate would now carry bpt4 (`xblocks="bpt4"`); the joblib gains only
+   plain numpy arrays for it.
+3. Review rule 3b (RELEASE_DAY § 6), in particular the ADOPT reading: bpt4
+   stays unless the replica is ≥ +1.0 without it.
+4. Optional: review / merge `docs/sprint0928-consistency`; approve REVE /
+   LaBraM weights (still parked).
+
+The sections below are the previous sprints' handoffs (2026-09-28/29,
+sealed-release readiness); every fact in them still holds.
 
 ## State of the previous sprint (updated 2026-09-29 02:30): sprint complete
 
@@ -41,12 +88,12 @@ readiness); every fact in them still holds.
 | 4c runbook fix + literal verification | ✅ ceb3827, 5d39463 | RELEASE_DAY.md followed step by step on the mock; § 9 is the log |
 | 5 final 3-lens review + fixes | ✅ (last commit) | channel-name guard in the solver; silent-failure paths closed; LOSO bias documented |
 
-## What is running
+## What is running (previous sprint)
 
 Nothing. No uploads were made. The zips under `logs/` are mock or regression
 candidates only; never upload them.
 
-## Where things are
+## Where things are (previous sprint)
 
 - **[RELEASE_DAY.md](RELEASE_DAY.md)**: the release-day runbook, from download to
   a checked zip. It holds the pre-registered rules, the dress-rehearsal timings
@@ -81,7 +128,7 @@ candidates only; never upload them.
   `logs/sprint0928_p3/`.
 - **Thesis docs fixes:** branch `docs/sprint0928-consistency` (853f9c5).
 
-## Facts a resumer needs
+## Facts a resumer needs (previous sprint)
 
 - **The release-day replica** is `SPLIT=calib:3 TEST_SUBJECTS=<the 10 fully
   labelled participants>`. `replica:3` is refused on non-mock caches.
@@ -106,7 +153,7 @@ candidates only; never upload them.
 - **WSL calls from the Bash tool:** start the heredoc with `exec 2>&1`.
   Otherwise stderr can overwrite the start of stdout in the captured output.
 
-## What the user needs to do
+## What the user needs to do (previous sprint)
 
 1. **Post the organiser question** (SEALED_RECIPE § 5 step 1). It now also asks
    about test-window **order and batching**: the online gain drops from
