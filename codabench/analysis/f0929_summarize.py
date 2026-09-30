@@ -109,7 +109,8 @@ def screen(idx):
     rng = np.random.default_rng(0)
     keys_r = [("pooled", AL), ("persubject", AL)]
     keys_n = [("pooled", "none"), ("persubject", "none")]
-    specs = sorted({k[2] for k in idx if k[:2] == S3 and k[2].startswith("riemann")},
+    specs = sorted({k[2] for k in idx if k[:2] == S3 and k[2].startswith("riemann")
+                    and "/" not in k[2]},            # not sealed_personal's family/variant rows
                    key=lambda s: (family(s), label(s)))
     print("## Phase 2 screen — Scherer 3-class (WORD / SUB / HAND), last session\n")
     print("Cell-averaged balanced accuracy. Δ in points vs the recipe union "

@@ -1194,3 +1194,35 @@ Scherer 5-class rows of the S/E blocks).**
     Scherer 5-class rows land);
   - the pre-registered union of the best temporal and best spatial blocks,
     `tseg3+icoh`.
+
+**Phase 2 results** (f2b ended 20:40:02; lane A 51 min vs 55 estimated, lane B 72
+vs 60, 1.2× over; full tables in `logs/sealed_f0929/RESULTS_screen.md`). The
+screen metric is the mean of pooled and persubject under the clean router
+alignment. Δ is in points vs the recipe union, paired over subjects, with a
+95 % bootstrap CI.
+
+| block | what | Scherer 3-cl. Δ | Tangermann | Scherer 5-cl. | Zhou | verdict |
+|---|---|---|---|---|---|---|
+| **tseg3** | FB covariances of 3 time segments → TS | **+3.3 (+1.5, +5.7) 9/9** | −0.1 | +2.4 (+1.0, +4.0) | −1.2 | pass |
+| tcut1000 | FB covariances of [0, 1 s) and [1 s, end) | +2.8 (+1.7, +4.5) 9/9 | +0.2 | +2.1 (+0.9, +3.5) | −1.5 | pass (same family as tseg3) |
+| **bpt4** | band-power time course (4 bands × 4 bins × C) | **+2.6 (+0.4, +5.0) 8/9** | +1.1 | +2.3 (+1.5, +3.1) | +2.9 (+0.5, +5.5) 4/4 | pass; the most consistent |
+| **icoh** | imaginary coherence per band (lagged connectivity) | **+2.6 (+0.9, +4.2) 7/9** | +1.2 | +1.7 (+0.6, +2.8) | +0.3 | pass; the only spatial block that helps |
+| tseg2 | 2 segments | +1.7 | −0.4 | +0.5 | −1.2 | pass |
+| acm3x2 | augmented (time-delay) covariance | +1.5 | −1.7 (−3.8, −0.0) | +1.6 | +0.4 | pass (hurts MI) |
+| fbd | 1–4 Hz band TS | +1.0 | −0.4 | +0.8 | +0.3 | pass (marginal) |
+| fbfrom1000 | control: FB without the cue second | +1.6 | +0.5 | +0.8 | +1.0 | the FB does **not** depend on the cue second |
+| fb8, acm2x4, bpt, csp8, fblv, fbrlv, reg, slow, CAR, Laplacian | | −1.8 to +0.6 | | | | no gain |
+
+- **Temporal structure is where the missing information was.** Splitting the
+  4 s window in time, as covariance structure (tseg / tcut) or as band power
+  (bpt4), gains 2.6–3.3 points on the sealed-like classes.
+  - The biggest gains are without alignment (tseg3 +6.7 pooled + persubject).
+    Router whitening absorbs part of it.
+- **The one spatial gain is connectivity, not topography.** Imaginary
+  coherence, the lagged coupling that zero-lag covariances cannot represent,
+  helps (+2.6, and on all 3 other proxies ≥ 0).
+- **Spatial topography blocks add nothing.** CSP, band-power topography,
+  regional covariances and re-referencing gain nothing over the tangent space,
+  consistent with the affine-invariance argument.
+- The EDA's prediction for bpt4 ("≈ 0 on top of the FB TS") was wrong
+  cross-session; within-session CV rankings did not transfer.
