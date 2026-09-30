@@ -6,16 +6,24 @@ Resume from this file alone. Plan of record:
 every commit. Logs: `~/codabench/logs/sealed_f0929/` (STATUS.md, per-study
 `results_<study>.jsonl`; lanes `scripts/sprint0929_f*.sh` are resumable).
 
-## State of this sprint (updated 2026-09-29 19:40)
+## State of this sprint (updated 2026-09-30 00:15)
+
+**Outcome so far:** the band-power time course **`bpt4` is adopted** into the
+recipe for release day. It gains +4.4 points blend_calib on the sealed-like
+proxy and is positive on all 4 proxies. Imaginary coherence **`icoh`** is
+PROMISING and becomes the release-day ablation `xa`. Time-segment covariances
+(`tseg3`) showed no gain under the deployed recipe. Topography-type spatial
+blocks showed no gain. Tables: SEALED_RECIPE § 2 "Phase 7"; LOG 2026-09-29.
 
 | Phase | Status | Result |
 |---|---|---|
 | 0 brief + harness hook | ✅ 8c50541, 7e0d008 | `analysis/xfeat.py` (block registry, `RiemannXModel`), spec keys `x=` / `sl=`, `--split first` |
 | 1 build (workflow, 5 agents) | ✅ 9b3719b | 12 verified blocks + 2 EDA-motivated (`tcut1000`, `fbfrom1000`); activation EDA in `reports/features_0929/`; baseline bit-exact; slow block / CAR / Laplacian: no gain |
-| 2 screen | T done; S + E running (`sprint0929_f2b.sh`, ETA 20:27) | T passes: tseg3 +3.3 (9/9), bpt4 +2.6 (+2.1 on the others), tseg2 +1.7, acm3x2 +1.5, fbd +1.0 — `python ~/codabench/analysis/f0929_summarize.py --phase screen` |
-| 3 confirm | next (`CANDS=... sprint0929_f3.sh`) | blend_calib on 4 proxies + reverse split + online (info) |
-| 4 integrate | prep ✅ 18534b2 | solver opt-in `xblocks` (tseg<K>, bpt<K>); gates: defaults \|dP\| = 0, harness parity exact (`analysis/xblocks_gate.py`); `train_sealed.sh` bakes `RECIPE_SPEC ... x=`; 500 Hz sizing still to do |
-| 5 review | — | |
+| 2 screen | ✅ fe0efe4 | tseg3 +3.3, bpt4 +2.6, icoh +2.6 on Scherer 3-cl.; `logs/sealed_f0929/RESULTS_screen.md` |
+| 3 confirm | ✅ 4562ac4 | bpt4 ADOPT, icoh PROMISING, tseg3 NO GAIN, tseg3+icoh ADOPT but dominated by bpt4; reverse split: no downgrade; `RESULTS_confirm.md`, `RESULTS_reverse.md` |
+| 4 integrate | ✅ | solver opt-in `xblocks` (tseg<K>, bpt<K>, icoh), defaults \|dP\| = 0, harness parity exact; `train_sealed.sh` bakes `RECIPE_SPEC=…,x=bpt4`; `release_ablations.sh` steps `xb` / `xa` (env `XB`) + summarizer rule 3b; 500 Hz sizing: bpt4 **1.06×** PASS, bpt4+icoh 1.56× (borderline, measured under contention); zhou regression 0.770000 = replay; mock bpt4 flow train = replay = harness 0.5125 |
+| 4 extras (post-hoc, info) | running | bpt4+icoh on the proxies; online-64 for the baseline / bpt4 / bpt4+icoh (`CANDS="riemann:xd=1,fb=1,x=bpt4 riemann:xd=1,fb=1,x=bpt4+icoh" sprint0929_f3.sh`) |
+| 5 review | next | workflow, 3 lenses + skeptics |
 
 The sections below are the previous sprint's handoff (2026-09-28/29, sealed-release
 readiness); every fact in them still holds.
