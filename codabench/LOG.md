@@ -1245,3 +1245,45 @@ per-subject fits, which solve a d × d system from ~100 windows each. So:
 - icoh (+3,612) is expected to add ~5–10 min to the 30.4 min 500 Hz auto fit;
 - tseg3 (+11,352) is expected to fail the 1.5× gate without a dual (n < d)
   LDA solve.
+
+### Phase 3 — confirmation under the deployed recipe (20:14–~23:45; `scripts/sprint0929_f3.sh`)
+
+`sealed_personal.py` blend_calib, router ids, clean router alignment, on the 4
+proxies (tags `f0929p`, `f0929p5`), plus the reverse-time replication
+(`sealed_run --split first`, tag `f0929r`).
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 20:14:46–20:26:53 | baseline, Scherer 3-cl. | 20 min | 12 min | blend_calib **0.486** = SEALED_RECIPE (pooled 0.452, calib 0.473, per-subject 0.486, blend 0.499: all reproduced) |
+| 20:26–21:35 | lane A: tseg3 / bpt4 / icoh / union on Scherer 3-cl., then Zhou ×5 | ~70 min | 69 min | |
+| 21:35:57–22:10:36 | reverse split, 5 specs × 4 configs | 35 min | 35 min, on estimate | every Δ ≥ 0: no downgrades |
+| 22:10:41 | lane A stopped by hand before the online-64 info steps | — | — | frees the slot for the 500 Hz sizing; the online steps are resumable |
+| 20:40:06– | lane B: Tangermann ×5, then Scherer 5-cl. ×5 | ~180 min | (running) | the steps slowed by ~1.3× while the sizing ran |
+
+**Blend_calib Δ vs the recipe** (points, paired over subjects, 95 % CI;
+`logs/sealed_f0929/RESULTS_confirm.md`):
+
+| block | Scherer 3-cl. | Tangermann | Scherer 5-cl. | Zhou | reverse split (screen) | verdict |
+|---|---|---|---|---|---|---|
+| **bpt4** | **+4.4 (+2.0, +6.7) 8/9** | +1.5 (+0.1, +3.1) 6/9 | +2.7 (+1.2, +4.6) 8/9 | +2.2 (−1.5, +6.3) 3/4 | +1.4 (−0.4, +3.3) | **ADOPT** |
+| icoh | +2.2 (+0.3, +4.4) 5/9 | +1.3 (−0.2, +2.8) | +2.0 (+0.6, +3.6) 8/9 | **−3.5** (−8.0, +1.2) 1/4 | +2.2 (+0.6, +4.7) | **PROMISING** (the Zhou guard) |
+| tseg3 | +2.0 (−0.0, +4.1) 4/9 | −0.2 | +1.0 | −1.5 | +3.4 (+1.5, +5.5) | **NO GAIN** (the CI touches 0; 2 of 3 others < 0) |
+| tseg3+icoh | +3.2 (+1.6, +5.1) 8/9 | +0.5 | (running) | −1.8 | +4.2 (+1.8, +6.9) | (pending) |
+
+- **bpt4 is the new recipe default:** `RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4`.
+  It is the band-power time course, 4 bands × 4 one-second bins × channels:
+  688 extra features at 43 ch.
+  - It gains on every proxy, and its gain *grows* under the deployed
+    blend_calib (+2.6 in the screen → +4.4).
+  - Release day still decides it: step `xb` of `release_ablations.sh` drops
+    the blocks if the replica shows ≥ +1.0 without them (RELEASE_DAY rule 3b).
+- **icoh becomes the release-day ablation `xa` (`XB=icoh`),** added on top of
+  bpt4 only if the replica shows ≥ +1.0 and no context < −1.0.
+- **tseg3: no gain under the deployed recipe.** Its large pooled/none gains
+  (+6.7) and the reverse split (+3.4) do not survive personalisation and the
+  MI proxies. Router whitening plus the per-subject LDA already capture most of
+  what the segment covariances add. It is also the most expensive
+  (+11.4 k features at 43 ch) and would need a dual LDA solve to pass sizing.
+- **The 21:30 union rule is moot.** icoh is not ADOPT, so bpt4+icoh is not
+  run as a pre-registered candidate. It runs below as post-hoc information
+  only.

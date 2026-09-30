@@ -453,13 +453,16 @@ below, each from its own background call:
 
 ```bash
 # (a) the recipe and every ablation except the channel sets, on the default cache (lanes A + B)
+#     (the recipe carries bpt4 since 2026-09-29; xb = without it, xa = with icoh added)
 TAG=rel_$S STUDY=$S SPLIT=calib:3 TEST_SUBJECTS=$FULL XS_THREADS=6 \
-    STEPS="base al_ctx xd0 wcv_loso pool_test online run" bash ~/codabench/scripts/release_ablations.sh
+    SPEC=riemann:xd=1,fb=1,x=bpt4 XB=icoh \
+    STEPS="base al_ctx xd0 xb xa wcv_loso pool_test online run" bash ~/codabench/scripts/release_ablations.sh
 ```
 
 ```bash
 # (b) the channel sets, on the 47-channel cache (lane A only)
 TAG=rel_${S}_x STUDY=${S}_x SPLIT=calib:3 TEST_SUBJECTS=$FULL XS_THREADS=6 LANES=A \
+    SPEC=riemann:xd=1,fb=1,x=bpt4 \
     STEPS="base ch_eeg_eog ch_eeg_emg ch_all" bash ~/codabench/scripts/release_ablations.sh
 ```
 
@@ -468,17 +471,19 @@ TAG=rel_${S}_x STUDY=${S}_x SPLIT=calib:3 TEST_SUBJECTS=$FULL XS_THREADS=6 LANES
   harness process peaked at ≤ 6.1 GiB in Phase 2.
 - On a cache over 2 GiB (500 Hz), the script runs its own lanes one after the
   other. Run (b) after (a).
-- If § 2 showed 47 channels, run (a) without `STEPS` (all 10 steps; RESULTS.md
+- If § 2 showed 47 channels, run (a) without `STEPS` (all 12 steps with SPEC and XB as in (a); RESULTS.md
   is then written automatically) and skip (b).
 
 **What each step changes** (header of `scripts/release_ablations.sh`):
 
 | Step | Change from `base` |
 |---|---|
-| `base` | none: the recipe (blend_calib with router ids, xDAWN + filter bank, router-psd, chans eeg, pool all, blend-weight CV `last`) |
+| `base` | none: the recipe (blend_calib with router ids, xDAWN + filter bank + bpt4, router-psd, chans eeg, pool all, blend-weight CV `last`) |
 | `ch_*` | `--chans eeg+eog / eeg+emg / all` |
 | `al_ctx` | router-psdctx: routing and whitening per (subject, context) |
 | `xd0` | no xDAWN |
+| `xb` | without the recipe's extra blocks (`x=bpt4` → none) |
+| `xa` | with `XB` added (`x=bpt4` → `x=bpt4+icoh`) |
 | `wcv_loso` | the blend weight by leave-one-calibration-session-out |
 | `pool_test` | pooled model and router trained on the test subjects only |
 | `online` | online-64 (rule-dependent, reported apart) |
@@ -511,7 +516,7 @@ else from `rel_$S`, whose channel lines read `not run -> keep eeg`.
 
 These rules were written before any Graz + BrainHero number existed.
 - **What the summarizer does.** `release_summarize.py` applies the numeric part
-  of rules 1–5 and prints a DECISIONS block. The parts marked *manual* below you
+  of rules 1–5 (with 3b) and prints a DECISIONS block. The parts marked *manual* below you
   check yourself.
 - **Metric.** Every comparison uses the cell-averaged balanced accuracy on the
   replica test sessions (§ 5).
@@ -556,6 +561,13 @@ These rules were written before any Graz + BrainHero number existed.
      `train_sealed.sh` refuses the combination. See rule 6.
 3. **xDAWN.** Drop it (`RECIPE_SPEC=riemann:xd=0,fb=1`) if `xd=0` is ≥ 1 point
    better. Ties keep the recipe.
+3b. **Extra feature blocks** (added 2026-09-29, before any release number;
+   LOG 2026-09-29 Phase 3). The recipe carries `bpt4`.
+   - Drop it (step `xb`) only if the replica is ≥ 1 point better without it.
+   - Add `icoh` (step `xa`) only if it is ≥ 1 point better with it **and** no
+     context is more than 1 point worse.
+   - The summarizer prints both lines and the resulting `RECIPE_SPEC`.
+   - Sizing on the 500 Hz mock: see § 8.
 4. **Blend-weight CV.** Use `WCV=loso` with `BW=auto` unless LOSO is ≥ 2 points
    worse than `last`.
    - With `auto`, the solver chooses w by leave-one-calibration-session-out on all

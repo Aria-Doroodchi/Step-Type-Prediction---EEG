@@ -12,9 +12,17 @@ are in [LOG.md](LOG.md) (2026-09-25 entries); raw tables in
 
 **Riemann-Sealed** (`solvers/bci_decoding/riemann_sealed.py`): the
 Riemann-StepType feature union (xDAWN covariances, broadband tangent space,
-log-variance **and** the 4-band filter-bank tangent space) with shrinkage LDA,
-made cross-session-aware in three steps that need **no subject or session id at
-prediction time**:
+log-variance **and** the 4-band filter-bank tangent space) with shrinkage LDA.
+**Since 2026-09-29 it also includes the band-power time course `bpt4`:** per
+filter-bank band, per channel, the log power in 4 one-second bins. That is
+688 features at 43 ch, set with `xblocks="bpt4"`, which `train_sealed.sh` bakes
+from `RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4`. It gained +4.4 points on the
+sealed-like proxy under the deployed blend_calib, and was positive on all four
+proxies (§ 2, Phase 7). The solver's own default stays `xblocks=""`, and so
+does every script default, so the regression gate still reproduces the
+committed flow; the release-day commands pass it explicitly (RELEASE_DAY § 5,
+§ 7). The model is made cross-session-aware in three steps that need **no
+subject or session id at prediction time**:
 
 1. A **subject router** (log-PSD 1–45 Hz per channel, shrinkage LDA over the
    calibration subjects) names the subject of each test window. It identifies
@@ -137,6 +145,47 @@ channels. REVE / LaBraM remain the documented, not-run next step (2026-09-25
 feasibility on this CPU: 20–24 min frozen embedding pass for Dreyer, 45 min per
 epoch full fine-tune; weights not downloaded, needs the user's approval).
 
+**Phase 7 — temporal and spatial feature blocks** (sprint 2026-09-29, brief
+`prompts/2026-09-29_temporal_spatial_features.md`, LOG 2026-09-29; harness
+blocks in `analysis/xfeat_temporal.py` / `xfeat_spatial.py`, spec
+`riemann:xd=1,fb=1,x=<id>`). Every recipe covariance spans the whole 4 s
+window, so the question was whether time structure or spatial structure adds
+class information.
+- **Screen:** 14 blocks + 3 controls. The metric is the mean of pooled and
+  persubject under the clean router, Δ vs the recipe union, paired 95 % CI.
+- **Confirmation:** the passing blocks under the deployed blend_calib on the 4
+  proxies, plus a reverse-time replication (train on the later session, test
+  on the first).
+
+| block | what it adds | screen Δ, Scherer 3-cl. | blend_calib Δ: Scherer 3-cl. / Tangermann / Scherer 5-cl. / Zhou | verdict |
+|---|---|---|---|---|
+| **bpt4** | log band power, 4 bands × 4 one-second bins × channel (ERD/ERS time course) | +2.6 (+0.4, +5.0) 8/9 | **+4.4 (+2.0, +6.7)** / +1.5 (+0.1, +3.1) / +2.7 (+1.2, +4.6) / +2.2 | **ADOPT** (recipe default for release day) |
+| icoh | imaginary coherence per band: lagged connectivity, blind to volume conduction | +2.6 (+0.9, +4.2) 7/9 | +2.2 (+0.3, +4.4) / +1.3 / +2.0 (+0.6, +3.6) / **−3.5** | PROMISING → release-day ablation `xa` |
+| tseg3 | FB covariances of 3 time segments → TS | +3.3 (+1.5, +5.7) 9/9 | +2.0 (−0.0, +4.1) / −0.2 / +1.0 / −1.5 | no gain under the deployed recipe (and +11 k features at 43 ch) |
+| tcut1000, tseg2, acm3x2, fbd | cue-second split; 2 segments; time-delay-embedded covariance; 1–4 Hz TS | +1.0 to +2.8 | (not advanced: same family as tseg3, or lower) | — |
+| fbfrom1000 (control) | the FB without the cue second | +1.6 | — | the FB does **not** depend on the cue second |
+| csp8, fblv, fbrlv, reg, fb8, acm2x4, slow block | CSP subspace, band-power topography, regional covariances, 8 bands, … | −0.2 to +0.6 | — | no gain |
+| CAR, Laplacian (controls) | fixed spatial filters | −0.1, −1.8 (Tangermann −3.4) | — | no gain (Laplacian hurts) |
+
+Read:
+- **The missing information was temporal.** Where in the trial the power
+  changes (bpt4) matters across sessions. The segment covariances (tseg) help
+  pooled models without alignment (+6.7), but personalisation and router
+  whitening already capture most of it.
+- **The one spatial gain is lagged connectivity (icoh).** Topography-type
+  blocks (CSP, regional covariances, band-power maps, re-referencing) add
+  nothing over the tangent space: TS + shrinkage LDA is invariant to fixed
+  full-rank spatial filters up to the covariance shrinkage.
+- The reverse-time replication kept every sign (bpt4 +1.4, icoh +2.2, tseg3
+  +3.4).
+- A training-sessions-only activation EDA
+  (`reports/features_0929/activation_eda.md`) located the information:
+  - alpha, posterior-right, after ~1.5 s;
+  - WORD beta decrease at F3;
+  - early frontal delta/theta, eye-movement suspect; the FB and bpt4 start at
+    4 Hz;
+  - no EMG signature at 30–45 Hz.
+
 **How sure are we? Paired bootstrap over subjects** (95 % CI of the mean
 per-subject difference, 10,000 resamples; `analysis/sealed_bootstrap.py`):
 
@@ -186,6 +235,7 @@ scripts refuse it on any other cache.
 | **Three calibration sessions per evaluation participant** | Tangermann and Scherer have one; only Zhou has two training sessions | Blend weight by leave-one-calibration-session-out (`--wcv loso` / `blend_w="auto"`, implemented 2026-09-28). With one calibration session the router degrades fast on later sessions (0.72 → 0.35 on Zhou): check router accuracy per test session 4, 5, 6 (`analysis/release_eda.py` section 4; 0.997 on the full-size mock with three calibration sessions). Offline training with session ids also allows per-(subject, session) training alignment: on Zhou it added +2.4 per-subject (train-only, Riemannian) |
 | **Ten training participants with all six sessions** | no proxy has extra fully labelled people | Pooled model and router trained on everyone vs on the test subjects only (`pool_test`, harness `--pool test`). On the replica the ten fully labelled participants stand in for the evaluation participants. The one ablation restricts the pooled model and the router together; there is no separate router-only ablation. The solver has no option to train on a subset yet, so a `pool = test` decision cannot be deployed (`release_summarize.py` prints a NOTE) |
 | **xDAWN and class-specific cues** | Scherer's window starts at the visual cue | EDA: evoked response to the cue per class; ablate xDAWN on the replica split |
+| **Extra feature blocks: bpt4 (default), icoh (candidate)** (sprint 2026-09-29) | 4–9 subjects per proxy; bpt4's first bin holds the cue response; icoh was −3.5 on Zhou (4 subjects) | `release_ablations.sh` with `SPEC=riemann:xd=1,fb=1,x=bpt4 XB=icoh`: step `xb` drops bpt4 only if the replica is ≥ +1.0 without it; step `xa` adds icoh only if ≥ +1.0 and no context < −1.0 (RELEASE_DAY rule 3b) |
 | **Test window order and batch composition** | proxies are in recording order by construction | The clean recipe routes per window and does not care. The online upgrade needs windows of one subject to arrive near each other; the Dreyer test loader delivers recording order (81 % of batches single-subject). Measured 2026-09-28 (Phase 3): with subjects interleaved the online gain drops to 58–85 % of its recording-order value (still significant on Tangermann and Scherer), and no lag at a session change |
 | **Class balance per cell** | proxies are balanced | Report per-cell class counts in the EDA; uniform LDA priors already match the balanced-accuracy metric |
 
@@ -251,6 +301,19 @@ It is also the release-day regression gate (RELEASE_DAY § 0).
   in one calibration session, that fold is oracle-aligned (10–17 points). It has
   not changed a chosen weight so far. RELEASE_DAY rule 4 carries the interim
   guard. Effort: ~2–3 h with the bit-identity gate.
+
+**Added by the feature sprint (2026-09-29):**
+
+- **Release day:** run the ablations with `SPEC=riemann:xd=1,fb=1,x=bpt4
+  XB=icoh` (steps `xb`, `xa`; RELEASE_DAY § 5, rule 3b). bpt4 is the
+  default. The replica decides whether it stays and whether icoh joins.
+- **If online re-centring is allowed (step 1):** re-check bpt4 under
+  `online-64`. Its gain was measured under the clean router only; the online
+  information runs were deferred (`scripts/sprint0929_f3.sh` lane A, resumable).
+- **Not now: time-segment covariances (tseg3).** They showed no gain under the
+  deployed recipe and add 11 k features at 43 ch. At that size, 20 per-subject
+  LDAs would solve 16 k × 16 k systems from ~500 windows each; a dual (n < d)
+  shrinkage-LDA solve would be needed first.
 
 Not recommended now: more participants (warm-up: no gain), REVE/LaBraM on this
 CPU (hours per epoch; revisit on a GPU or with a frozen probe on the release),
