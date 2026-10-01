@@ -168,6 +168,9 @@ Inside the reserve:
 - finish or cleanly stop jobs;
 - write or update the deliverable and the state docs (HANDOFF, LOG summary, next
   steps);
+- update the user's decision brief `codabench/DIRECTIONS.md`: status, decisions
+  pending with a recommendation each, what we know, bottlenecks, ranked next steps,
+  one change-log line. It is the file the user actually reads, so keep it short;
 - commit and push;
 - record durable outcomes in memory.
 

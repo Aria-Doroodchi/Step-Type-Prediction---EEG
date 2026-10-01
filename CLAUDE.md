@@ -24,6 +24,15 @@ This applies throughout the agentic perf/CNN loops. `scripts/09_pooling_comparis
 is **not** checkpointed (writes CSV only at the end), so a stall that runs past estimate
 risks losing the whole run — catching it early matters.
 
+## The user's decision brief: `codabench/DIRECTIONS.md`
+
+The user reads this short file, not the long docs, to choose next directions. At the end
+of any session or sprint that changes a decision, a number, the plan or the competition
+calendar, update it: § 1 status, § 2 decisions pending (with a recommendation each),
+§ 4–6, and one line in its change log. Keep it under ~150 lines, plain words, every
+number matching its source doc (SEALED_RECIPE, RELEASE_DAY, LOG, SUBMISSIONS). Detail
+belongs in those docs, not here.
+
 ## Key context
 
 - Work happens on `perf/agentic-improvements` (XGB/CNN perf loop) and `feat/stim-module`.

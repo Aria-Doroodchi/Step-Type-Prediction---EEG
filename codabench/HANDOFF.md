@@ -1,5 +1,8 @@
 # HANDOFF — sprint 2026-09-29/30: temporal and spatial feature blocks
 
+**The short version for decisions is [DIRECTIONS.md](DIRECTIONS.md)**: status,
+decisions pending, model, next steps. This file is the detailed session handoff.
+
 Resume from this file alone. Plan of record:
 [prompts/2026-09-29_temporal_spatial_features.md](prompts/2026-09-29_temporal_spatial_features.md)
 (17:46 → 05:45, with an erratum at the end). Branch `feat/codabench-track2`,
