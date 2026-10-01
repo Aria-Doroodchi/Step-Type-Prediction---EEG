@@ -34,6 +34,7 @@ def main():
     ap.add_argument("--study", default="mock_sealed_500")
     ap.add_argument("--blend_w", default="auto")
     ap.add_argument("--n_pred", type=int, default=1200)
+    ap.add_argument("--wcv_ref", default="all", help="all | strict (sprint 2026-10-01)")
     args = ap.parse_args()
     p = Path.home() / "codabench/datasets/mock_sealed.py"
     spec = importlib.util.spec_from_file_location("mock_sealed_ds", p)
@@ -46,11 +47,11 @@ def main():
     print(f"[sizing] {args.study}: train {len(data['train_loader'].dataset)} windows, "
           f"test {len(data['test_loader'].dataset)}, {data['n_chans']} ch x "
           f"{data['n_times']} samples @ {data['sfreq']} Hz, xblocks={args.xblocks!r}, "
-          f"blend_w={args.blend_w}, threads={L.N_THREADS}", flush=True)
+          f"blend_w={args.blend_w}, wcv_ref={args.wcv_ref}, threads={L.N_THREADS}", flush=True)
     pre = R.WindowPreproc(names, data["sfreq"], "none", "none")
     m = R.RiemannSealedModel(None, pre, personal="blend", blend_w=args.blend_w,
                              chans="eeg", ch_names=names, chs_info=data["chs_info"],
-                             xblocks=args.xblocks)
+                             xblocks=args.xblocks, wcv_ref=args.wcv_ref)
     t0 = time.time()
     m.fit(data["train_loader"])
     fit_s = time.time() - t0
@@ -65,7 +66,7 @@ def main():
     P = m.predict_proba(X)
     pred_ms = 1000 * (time.time() - t1) / len(X)
     n_feat = m.parts["lda"].coef_.shape[1]
-    print(f"SIZING xblocks={args.xblocks or 'none'} fit_s={fit_s:.1f} "
+    print(f"SIZING xblocks={args.xblocks or 'none'}{'' if args.wcv_ref == 'all' else ' wcv_ref=' + args.wcv_ref} fit_s={fit_s:.1f} "
           f"maxrss_gb={R._maxrss_gb():.2f} features={n_feat} "
           f"blend_w={m.parts.get('blend_w')} predict_ms_per_window={pred_ms:.1f} "
           f"(n={len(X)}, finite={bool(np.isfinite(P).all())})", flush=True)

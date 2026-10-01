@@ -118,9 +118,16 @@ add no solver-harness difference at any size.
 Checked 2026-09-28: identical weights and bit-identical fold scores on
 zhou2016 (with and without contexts, adapt none/online) and mock_sealed_s
 (replica:3, 43 EEG ch, contexts; harness LDAs on the same Cholesky solve).
-The strict alternative, whitening references refitted on each fold's fit
-rows (a held-out session then drifts like a real test session), is not
-implemented: it would no longer equal the harness's weight.
+``wcv_ref="strict"`` (opt-in, sprint 2026-10-01; harness: sealed_personal
+--wref strict) refits the whitening references on each fold's fit rows only:
+a validation session is then whitened with a reference it did not
+contribute to, as a real test session is. A (subject, context) pair with fewer
+than ctx_min fit rows takes its subject's fit-row reference. The default
+"all" keeps the whole-training-set references above (~2 points of CV bias on
+Zhou, and an oracle-aligned fold when a pair lives in one calibration
+session: RELEASE_DAY rule 4). Strict recomputes the per-window blocks in
+every fold (~6 x the features stage). With adapt="online" (references per
+(subject, session) by design) and align="none" it equals "all".
 
 Memory and time (43-47 ch x 500 Hz): training windows are kept as float32
 (exact: the preprocessing output is float32); every float64 step (router PSD,
@@ -677,6 +684,7 @@ LDA_FAST_P = 4000
 LDA_MAX_RESID = 1e-8      # relative residual above which the solve falls back
 LDA_DUAL = True           # n < p above LDA_FAST_P: the n x n form (_DualLsqrLDA)
 # diagnostics: Cholesky solves / lstsq fallbacks / dual solves / dual -> Cholesky
+# (a dual fallback then also counts as fast or fallback: fits = fast + fallback + dual)
 LDA_STATS = {"fast": 0, "fallback": 0, "dual": 0, "dual_fallback": 0}
 
 try:
@@ -751,43 +759,78 @@ def _lw_lowrank(X, y, priors):
     return lam, np.concatenate(Us), np.concatenate(cs)
 
 
+_DUAL_OK = None           # one-time self-check of _lw_lowrank vs sklearn (_dual_selfcheck)
+
+
+def _dual_selfcheck():
+    """_lw_lowrank re-implements sklearn's _class_cov (checked on sklearn
+    1.9.1). Once per process, compare the two on a small random problem with a
+    constant feature and unequal priors; on a disagreement (e.g. a sklearn
+    change to its Ledoit-Wolf / StandardScaler internals) the dual path is
+    switched off with a warning and every fit takes the Cholesky path."""
+    global _DUAL_OK
+    if _DUAL_OK is None:
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((40, 12)) * rng.uniform(0.1, 10.0, 12)
+        X[:, 3] = 1.0
+        y = np.repeat([0, 1, 2], [15, 15, 10])
+        pri = np.array([0.5, 0.3, 0.2])
+        ref = _class_cov(X, y, pri, "auto", None)
+        lam, U, c = _lw_lowrank(X, y, pri)
+        err = float(np.abs(np.diag(lam) + (U.T * c) @ U - ref).max() / np.abs(ref).max())
+        _DUAL_OK = err <= 1e-10
+        if not _DUAL_OK:
+            print(f"[LDA] WARNING: the dual LDA's estimate differs from this sklearn's "
+                  f"_class_cov ({err:.1e}): dual solve disabled, Cholesky used", flush=True)
+    return _DUAL_OK
+
+
+def _dual_coef(X, y, priors):
+    """(means, coef) of the shrinkage LDA in the n x n form (see _DualLsqrLDA),
+    or (means, None) when it cannot be trusted: lam not positive, the n x n
+    solve failing or ill-conditioned, a full-system relative residual (in
+    low-rank form) above LDA_MAX_RESID, or a numerical error. Its n x p and
+    n x n temporaries are freed on return, before any fallback fit."""
+    import warnings
+    from scipy import linalg
+    means = _class_means(X, y)
+    try:
+        B = np.asarray(means.T, dtype=np.float64)
+        lam, V, c = _lw_lowrank(X, y, priors)
+        if not (np.all(np.isfinite(lam)) and lam.min() > 0
+                and np.all(np.isfinite(c)) and c.min() >= 0):
+            return means, None
+        d = 1.0 / np.sqrt(lam)
+        V *= np.sqrt(c)[:, None]
+        V *= d[None, :]
+        Bt = d[:, None] * B
+        M = V @ V.T
+        M.flat[::M.shape[0] + 1] += 1.0
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", linalg.LinAlgWarning)
+            t = linalg.solve(M, V @ Bt, assume_a="pos")
+        del M
+        yv = Bt - V.T @ t                   # Lam^1/2 coef
+        r = (yv + V.T @ (V @ yv)) / d[:, None] - B
+        resid = np.linalg.norm(r) / np.linalg.norm(B)
+        return means, (d[:, None] * yv if resid <= LDA_MAX_RESID else None)   # NaN -> None
+    except (linalg.LinAlgError, linalg.LinAlgWarning, ValueError, ArithmeticError,
+            MemoryError):
+        return means, None
+
+
 class _DualLsqrLDA(_CholeskyLsqrLDA):
     """_CholeskyLsqrLDA for n < p: the same estimate and solve without the
     p x p matrix. With V = C^1/2 U Lam^-1/2 the estimate is
     Lam^1/2 (I + V.T V) Lam^1/2, so coef = Lam^-1/2 (B~ - V.T t) with
     B~ = Lam^-1/2 means_.T and (I_n + V V.T) t = V B~ (Cholesky). Falls back
-    to the Cholesky path when lam is not positive, the n x n solve fails or
-    the full system's relative residual (in low-rank form) exceeds
-    LDA_MAX_RESID. covariance_ is not formed."""
+    to the Cholesky path whenever _dual_coef cannot give a trusted solution.
+    covariance_ is not formed."""
 
     def _solve_lstsq(self, X, y, shrinkage, covariance_estimator):
-        import warnings
-        from scipy import linalg
         coef = None
         if shrinkage == "auto" and covariance_estimator is None:
-            means = _class_means(X, y)
-            B = np.asarray(means.T, dtype=np.float64)
-            lam, V, c = _lw_lowrank(X, y, np.asarray(self.priors_, dtype=np.float64))
-            if (np.all(np.isfinite(lam)) and lam.min() > 0
-                    and np.all(np.isfinite(c)) and c.min() >= 0):
-                d = 1.0 / np.sqrt(lam)
-                V *= np.sqrt(c)[:, None]
-                V *= d[None, :]
-                Bt = d[:, None] * B
-                M = V @ V.T
-                M.flat[::M.shape[0] + 1] += 1.0
-                try:
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("error", linalg.LinAlgWarning)
-                        t = linalg.solve(M, V @ Bt, assume_a="pos")
-                    yv = Bt - V.T @ t               # Lam^1/2 coef
-                    coef = d[:, None] * yv
-                    r = (yv + V.T @ (V @ yv)) / d[:, None] - B
-                    resid = np.linalg.norm(r) / np.linalg.norm(B)
-                    if not resid <= LDA_MAX_RESID:  # also catches NaN
-                        coef = None
-                except (linalg.LinAlgError, linalg.LinAlgWarning, ValueError):
-                    coef = None
+            means, coef = _dual_coef(X, y, np.asarray(self.priors_, dtype=np.float64))
         if coef is None:                            # the Cholesky path
             LDA_STATS["dual_fallback"] += 1
             return super()._solve_lstsq(X, y, shrinkage, covariance_estimator)
@@ -808,15 +851,21 @@ def fit_shrinkage_lda(X, y, priors=None, fast=None, dual=None):
     with the lstsq step as a Cholesky solve; sklearn's lstsq is kept when the
     matrix is not numerically SPD / well conditioned or the solve's relative
     residual exceeds LDA_MAX_RESID. With fewer rows than features (and
-    LDA_DUAL) the solve is the n x n form of _DualLsqrLDA, which does not
-    form covariance_. ``fast`` = True / False forces the first choice and
-    ``dual`` = True / False the second (equivalence checks)."""
+    LDA_DUAL, float64 X, p > LDA_FAST_P) the solve is the n x n form of
+    _DualLsqrLDA, which does not form covariance_. ``fast`` = True / False
+    forces the first choice and ``dual`` = True / False the second
+    (equivalence checks)."""
     use_fast = (np.shape(X)[1] > LDA_FAST_P) if fast is None else bool(fast)
     if not use_fast or _class_cov is None:
         return LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto",
                                           priors=priors).fit(X, y)
-    use_dual = ((LDA_DUAL and np.shape(X)[0] < np.shape(X)[1]) if dual is None
-                else bool(dual))
+    n, p = np.shape(X)
+    # dual only where it is the default fast path's re-route (p > LDA_FAST_P even
+    # when ``fast`` is forced), for float64 features (sklearn computes float32
+    # input in float32), and while the self-check holds
+    use_dual = ((LDA_DUAL and n < p and p > LDA_FAST_P
+                 and np.asarray(X).dtype == np.float64 and _dual_selfcheck())
+                if dual is None else bool(dual))
     lda = (_DualLsqrLDA if use_dual else _CholeskyLsqrLDA)(
         solver="lsqr", shrinkage="auto", priors=priors)
     try:
@@ -1089,8 +1138,13 @@ class RiemannSealedModel:
                  align="subject", kind="riemann", personal="pooled",
                  blend_w=0.5, max_batches=None, adapt="none", buffer=64,
                  chans="eeg", ch_names=None, chs_info=None, ch_types=None,
-                 ctx_min=CTX_MIN_WINDOWS, ch_perm=None, xblocks=""):
+                 ctx_min=CTX_MIN_WINDOWS, ch_perm=None, xblocks="", wcv_ref="all"):
         self.parts, self.preproc = parts, preproc
+        # blend_w="auto": whitening references of the weight search's folds,
+        # "all" (the whole training set's) | "strict" (each fold's fit rows)
+        if wcv_ref not in ("all", "strict"):
+            raise ValueError(f"wcv_ref must be all|strict, got {wcv_ref!r}")
+        self.wcv_ref = wcv_ref
         self.xblocks = _parse_xblocks(xblocks)    # validated early (opt-in, default none)
         self.nfilter, self.estimator = nfilter, estimator
         self.use_xdawn, self.filterbank, self.slow_block = use_xdawn, filterbank, slow_block
@@ -1394,10 +1448,20 @@ class RiemannSealedModel:
                 print("[Riemann-Sealed] WARNING: blend_w='auto' needs session ids, "
                       "which this train loader does not expose; using w=0.5", flush=True)
             else:
-                # overwrites X in place (float32 harness-style whitening)
+                ref = None
+                if self.wcv_ref == "strict":
+                    if align in ("subject", "subject_context") and self.adapt != "online":
+                        ref = {"covs": covs, "sidx": sidx,
+                               "pair_subject": None if pair is None else pair["subject"]}
+                    else:
+                        print("[Riemann-Sealed] wcv_ref='strict' applies to align subject / "
+                              "subject_context without adapt='online': using the "
+                              "whole-training-set references ('all')", flush=True)
+                # "all": overwrites X in place (float32 harness-style whitening)
                 w, cv, how, nf = self._choose_blend_w(parts, X, y, sidx, sess, ctx,
-                                                      gidx, Wset)
-                parts.update(blend_w=w, blend_cv=cv, blend_cv_folds=how)
+                                                      gidx, Wset, ref)
+                parts.update(blend_w=w, blend_cv=cv, blend_cv_folds=how,
+                             blend_wcv_ref="all" if ref is None else "strict")
                 print(f"[Riemann-Sealed] blend_w=auto -> {w} ({how}, {nf} folds, "
                       f"context={'yes' if ctx is not None else 'no'}"
                       + ("" if pair is None else ", pair-whitened") + "; cell scores "
@@ -1410,7 +1474,34 @@ class RiemannSealedModel:
         self.parts = parts
         return self
 
-    def _choose_blend_w(self, parts, X, y, sidx, sess, ctx, gidx, Wset):
+    def _fold_refs(self, ref, gidx, fit_idx, n_groups):
+        """wcv_ref="strict": one fold's whitening references from its fit rows
+        only, as harness choose_w(wref="strict"): per subject (align
+        "subject"), or per (subject, context) pair with >= ctx_min fit rows, a
+        pair below that taking its subject's; a subject without fit rows the
+        global one (fit rows)."""
+        covs, sidx = ref["covs"], ref["sidx"]
+        fit = np.zeros(len(gidx), bool)
+        fit[fit_idx] = True
+        Wg = _inv_sqrtm(_mean_cov(covs[fit], self.kind))
+        Wsub = {}
+
+        def subj_W(k):
+            if k not in Wsub:
+                m = fit & (sidx == k)
+                Wsub[k] = _inv_sqrtm(_mean_cov(covs[m], self.kind)) if m.any() else Wg
+            return Wsub[k]
+        Ws = []
+        for g in range(n_groups):
+            if ref["pair_subject"] is None:
+                Ws.append(subj_W(g))
+                continue
+            m = fit & (gidx == g)
+            Ws.append(_inv_sqrtm(_mean_cov(covs[m], self.kind)) if m.sum() >= self.ctx_min
+                      else subj_W(int(ref["pair_subject"][g])))
+        return np.stack(Ws), Wg
+
+    def _choose_blend_w(self, parts, X, y, sidx, sess, ctx, gidx, Wset, ref=None):
         """blend_w="auto": (w, cell scores per W_GRID, fold kind, n folds).
 
         The harness's choose_w (sealed_personal.py) under ``--wcv loso``, on
@@ -1421,10 +1512,14 @@ class RiemannSealedModel:
         ``xsess_lib.apply_W``. X is overwritten in place with it. The
         stateless blocks (broadband / filter-bank covariances, log-variance,
         slow bins) are computed once; xDAWN, the tangent spaces, the pooled
-        LDA and the per-subject LDAs are refitted on each fold's fit rows."""
+        LDA and the per-subject LDAs are refitted on each fold's fit rows.
+        ``ref`` (wcv_ref="strict": covs, sidx, pair_subject): the references
+        come from each fold's fit rows instead (``_fold_refs``), X is left
+        as it is and every block is recomputed per fold."""
         n, size = len(X), _chunk_len(X.shape)
-        for s in _row_chunks(n, size):
-            X[s] = _whiten_rows(X[s], gidx[s], Wset, parts["W_global"], f32=True)
+        if ref is None:
+            for s in _row_chunks(n, size):
+                X[s] = _whiten_rows(X[s], gidx[s], Wset, parts["W_global"], f32=True)
 
         def get(s):
             return np.asarray(X[s], dtype=np.float64)
@@ -1436,10 +1531,17 @@ class RiemannSealedModel:
         base = {k: parts[k] for k in ("estimator", "sfreq", "slow", "fb_bands", "xblocks")
                 if k in parts}
         base["xdawn"] = None
-        raw = _window_blocks(base, get, n, size)
+        raw = _window_blocks(base, get, n, size) if ref is None else None
         scores = np.zeros(len(W_GRID))
         for i, (fit_idx, val_idx) in enumerate(folds):
             t0 = time.time()
+            if ref is not None:
+                Wf, Wgf = self._fold_refs(ref, gidx, fit_idx, len(Wset))
+
+                def get(s, Wf=Wf, Wgf=Wgf):
+                    return np.asarray(_whiten_rows(X[s], gidx[s], Wf, Wgf, f32=True),
+                                      dtype=np.float64)
+                raw = _window_blocks(base, get, n, size)
             fp = dict(base)
             if self.use_xdawn:
                 fp["xdawn"] = _fit_xdawn(self.nfilter, self.estimator, get, y, fit_idx, size)
@@ -1571,6 +1673,9 @@ class Solver(CompetSolver):
         # (router + W per (subject, context) pair: the harness's router-psdctx)
         "align": ["subject"],
         "ctx_min": [CTX_MIN_WINDOWS],   # subject_context: min windows for a pair's own W
+        # blend_w="auto" fold references: "all" (whole training set) | "strict"
+        # (each fold's fit rows; sprint 2026-10-01, RELEASE_DAY rule 4)
+        "wcv_ref": ["all"],
         "kind": ["riemann"],        # reference mean: "riemann" | "euclid"
         # the recipe: "blend" = blend_calib (SEALED_RECIPE.md): pooled feature
         # extractor + per-subject LDA. blend_w is set per dataset from
@@ -1608,7 +1713,7 @@ class Solver(CompetSolver):
                                   chs_info=meta.get("chs_info"),
                                   ch_types=meta.get("ch_types"),
                                   ctx_min=self.ctx_min, ch_perm=perm,
-                                  xblocks=self.xblocks)
+                                  xblocks=self.xblocks, wcv_ref=self.wcv_ref)
 
     def fit(self, model, train_loader):
         model.fit(train_loader)

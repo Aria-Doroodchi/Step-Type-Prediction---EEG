@@ -369,6 +369,7 @@ LDA_FAST_P = 4000
 LDA_MAX_RESID = 1e-8      # relative residual above which the solve falls back
 LDA_DUAL = True           # n < p above LDA_FAST_P: the n x n form (_DualLsqrLDA)
 # diagnostics: Cholesky solves / lstsq fallbacks / dual solves / dual -> Cholesky
+# (a dual fallback then also counts as fast or fallback: fits = fast + fallback + dual)
 LDA_STATS = {"fast": 0, "fallback": 0, "dual": 0, "dual_fallback": 0}
 
 try:
@@ -443,43 +444,78 @@ def _lw_lowrank(X, y, priors):
     return lam, np.concatenate(Us), np.concatenate(cs)
 
 
+_DUAL_OK = None           # one-time self-check of _lw_lowrank vs sklearn (_dual_selfcheck)
+
+
+def _dual_selfcheck():
+    """_lw_lowrank re-implements sklearn's _class_cov (checked on sklearn
+    1.9.1). Once per process, compare the two on a small random problem with a
+    constant feature and unequal priors; on a disagreement (e.g. a sklearn
+    change to its Ledoit-Wolf / StandardScaler internals) the dual path is
+    switched off with a warning and every fit takes the Cholesky path."""
+    global _DUAL_OK
+    if _DUAL_OK is None:
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((40, 12)) * rng.uniform(0.1, 10.0, 12)
+        X[:, 3] = 1.0
+        y = np.repeat([0, 1, 2], [15, 15, 10])
+        pri = np.array([0.5, 0.3, 0.2])
+        ref = _class_cov(X, y, pri, "auto", None)
+        lam, U, c = _lw_lowrank(X, y, pri)
+        err = float(np.abs(np.diag(lam) + (U.T * c) @ U - ref).max() / np.abs(ref).max())
+        _DUAL_OK = err <= 1e-10
+        if not _DUAL_OK:
+            print(f"[LDA] WARNING: the dual LDA's estimate differs from this sklearn's "
+                  f"_class_cov ({err:.1e}): dual solve disabled, Cholesky used", flush=True)
+    return _DUAL_OK
+
+
+def _dual_coef(X, y, priors):
+    """(means, coef) of the shrinkage LDA in the n x n form (see _DualLsqrLDA),
+    or (means, None) when it cannot be trusted: lam not positive, the n x n
+    solve failing or ill-conditioned, a full-system relative residual (in
+    low-rank form) above LDA_MAX_RESID, or a numerical error. Its n x p and
+    n x n temporaries are freed on return, before any fallback fit."""
+    import warnings
+    from scipy import linalg
+    means = _class_means(X, y)
+    try:
+        B = np.asarray(means.T, dtype=np.float64)
+        lam, V, c = _lw_lowrank(X, y, priors)
+        if not (np.all(np.isfinite(lam)) and lam.min() > 0
+                and np.all(np.isfinite(c)) and c.min() >= 0):
+            return means, None
+        d = 1.0 / np.sqrt(lam)
+        V *= np.sqrt(c)[:, None]
+        V *= d[None, :]
+        Bt = d[:, None] * B
+        M = V @ V.T
+        M.flat[::M.shape[0] + 1] += 1.0
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", linalg.LinAlgWarning)
+            t = linalg.solve(M, V @ Bt, assume_a="pos")
+        del M
+        yv = Bt - V.T @ t                   # Lam^1/2 coef
+        r = (yv + V.T @ (V @ yv)) / d[:, None] - B
+        resid = np.linalg.norm(r) / np.linalg.norm(B)
+        return means, (d[:, None] * yv if resid <= LDA_MAX_RESID else None)   # NaN -> None
+    except (linalg.LinAlgError, linalg.LinAlgWarning, ValueError, ArithmeticError,
+            MemoryError):
+        return means, None
+
+
 class _DualLsqrLDA(_CholeskyLsqrLDA):
     """_CholeskyLsqrLDA for n < p: the same estimate and solve without the
     p x p matrix. With V = C^1/2 U Lam^-1/2 the estimate is
     Lam^1/2 (I + V.T V) Lam^1/2, so coef = Lam^-1/2 (B~ - V.T t) with
     B~ = Lam^-1/2 means_.T and (I_n + V V.T) t = V B~ (Cholesky). Falls back
-    to the Cholesky path when lam is not positive, the n x n solve fails or
-    the full system's relative residual (in low-rank form) exceeds
-    LDA_MAX_RESID. covariance_ is not formed."""
+    to the Cholesky path whenever _dual_coef cannot give a trusted solution.
+    covariance_ is not formed."""
 
     def _solve_lstsq(self, X, y, shrinkage, covariance_estimator):
-        import warnings
-        from scipy import linalg
         coef = None
         if shrinkage == "auto" and covariance_estimator is None:
-            means = _class_means(X, y)
-            B = np.asarray(means.T, dtype=np.float64)
-            lam, V, c = _lw_lowrank(X, y, np.asarray(self.priors_, dtype=np.float64))
-            if (np.all(np.isfinite(lam)) and lam.min() > 0
-                    and np.all(np.isfinite(c)) and c.min() >= 0):
-                d = 1.0 / np.sqrt(lam)
-                V *= np.sqrt(c)[:, None]
-                V *= d[None, :]
-                Bt = d[:, None] * B
-                M = V @ V.T
-                M.flat[::M.shape[0] + 1] += 1.0
-                try:
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("error", linalg.LinAlgWarning)
-                        t = linalg.solve(M, V @ Bt, assume_a="pos")
-                    yv = Bt - V.T @ t               # Lam^1/2 coef
-                    coef = d[:, None] * yv
-                    r = (yv + V.T @ (V @ yv)) / d[:, None] - B
-                    resid = np.linalg.norm(r) / np.linalg.norm(B)
-                    if not resid <= LDA_MAX_RESID:  # also catches NaN
-                        coef = None
-                except (linalg.LinAlgError, linalg.LinAlgWarning, ValueError):
-                    coef = None
+            means, coef = _dual_coef(X, y, np.asarray(self.priors_, dtype=np.float64))
         if coef is None:                            # the Cholesky path
             LDA_STATS["dual_fallback"] += 1
             return super()._solve_lstsq(X, y, shrinkage, covariance_estimator)
@@ -500,15 +536,21 @@ def fit_shrinkage_lda(X, y, priors=None, fast=None, dual=None):
     with the lstsq step as a Cholesky solve; sklearn's lstsq is kept when the
     matrix is not numerically SPD / well conditioned or the solve's relative
     residual exceeds LDA_MAX_RESID. With fewer rows than features (and
-    LDA_DUAL) the solve is the n x n form of _DualLsqrLDA, which does not
-    form covariance_. ``fast`` = True / False forces the first choice and
-    ``dual`` = True / False the second (equivalence checks)."""
+    LDA_DUAL, float64 X, p > LDA_FAST_P) the solve is the n x n form of
+    _DualLsqrLDA, which does not form covariance_. ``fast`` = True / False
+    forces the first choice and ``dual`` = True / False the second
+    (equivalence checks)."""
     use_fast = (np.shape(X)[1] > LDA_FAST_P) if fast is None else bool(fast)
     if not use_fast or _class_cov is None:
         return LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto",
                                           priors=priors).fit(X, y)
-    use_dual = ((LDA_DUAL and np.shape(X)[0] < np.shape(X)[1]) if dual is None
-                else bool(dual))
+    n, p = np.shape(X)
+    # dual only where it is the default fast path's re-route (p > LDA_FAST_P even
+    # when ``fast`` is forced), for float64 features (sklearn computes float32
+    # input in float32), and while the self-check holds
+    use_dual = ((LDA_DUAL and n < p and p > LDA_FAST_P
+                 and np.asarray(X).dtype == np.float64 and _dual_selfcheck())
+                if dual is None else bool(dual))
     lda = (_DualLsqrLDA if use_dual else _CholeskyLsqrLDA)(
         solver="lsqr", shrinkage="auto", priors=priors)
     try:

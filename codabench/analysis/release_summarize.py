@@ -162,6 +162,10 @@ def main():
             print(f"NOTE: --{name} {given} given, {conf} has no {name}= (older run?)")
     args.spec = args.spec or (c_spec.group(1) if c_spec else "riemann:xd=1,fb=1")
     args.xb = args.xb if args.xb is not None else (c_xb.group(1) if c_xb else "")
+    # WREF (sprint 2026-10-01): the run's blend-weight CV references, carried
+    # into the train_sealed.sh line (config.txt has wref= only when strict)
+    c_wref = re.search(r"(?:^| )wref=(\S+)", ctext)
+    wref = c_wref.group(1) if c_wref else "all"
     cap = None if args.cap == "none" else float(args.cap)
     ts = ",".join(map(str, sorted({int(s) for s in args.test_subjects.split(",") if s}))) or None
     rows, dirs, split = load_rows(args.tag, args.study, args.split, cap, ts)
@@ -396,7 +400,8 @@ def main():
     # the harness's weight baked in (BLEND_W=harness)
     bw = "auto" if wcv == "loso" else "harness"
     env = (f"RECIPE_SPEC={spec} RECIPE_ALIGN={align} CHANS={chans} WCV={wcv} BLEND_W={bw} "
-           f"SPLIT={split}" + (f" TEST_SUBJECTS={ts}" if ts else ""))
+           f"SPLIT={split}" + (f" TEST_SUBJECTS={ts}" if ts else "")
+           + ("" if wref == "all" else f" WREF={wref}"))
     print(f"train_sealed.sh: {env} bash ~/codabench/scripts/train_sealed.sh ...")
     print("(each rule compared one change with the recipe; train_sealed.sh's harness steps "
           "score the combined settings)")

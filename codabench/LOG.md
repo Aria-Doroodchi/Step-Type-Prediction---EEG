@@ -1557,3 +1557,75 @@ features), replayed inference-only from a read-only copy. Training took
 - **Fix:** `_fit_lda` now drops `covariance_` at every size (prediction uses
   only `coef_` / `intercept_` / `classes_`; the predictions are unchanged).
   Re-run launched 18:07.
+- Deployment re-run (18:05:49–18:13:31): train **0.615873 = replay
+  0.615873**, the same score as before the fix. The joblib is **4.6 MB**
+  (was 2.6 GB) and the zip 4.1 MiB
+  (`logs/sealed_s1001/deploytest/riemann_sealed_deploytest_dreyer2023_2026-10-01.zip`,
+  NOT uploaded). It carries the dual LDA but not yet Phase 3's `wcv_ref`
+  parameter. Rebuild it from the final solver at the end of the sprint.
+
+### Phase 2 — gates for the dual LDA (18:07:46–18:25:27, 18 min; est. 45)
+
+`scripts/sprint1001_g.sh`, two lanes at 5 threads, contended by the
+deployment re-run for its first 6 min. Results:
+`logs/sealed_s1001/RESULTS_gates.md`. **All PASS**: each run reproduces
+its committed run.
+
+| Gate | Result | vs committed |
+|---|---|---|
+| zhou regression flow (`train_sealed.sh`, defaults) | train 0.770000 = replay; harness 0.778333 (w 0.75) | identical; 17 harness rows, worst \|dP\| 1.0e-12 |
+| mock_sealed_s default flow (p = 5,073: dual per-subject and pooled LDAs) | train 0.483333 = replay = harness (w 0.75) | identical; 13 rows, 3.6e-13. Solver LDA stage **34.3 s → 1.1 s** |
+| mock_sealed_s x=bpt4 flow | train 0.512500 = replay = harness (w 0.5) | identical; 13 rows, 1.5e-11 |
+| `xblocks_gate.py --xblocks icoh` | gate 1 defaults bit-identical vs the pre-sprint solver (\|dP\| = 0); gate 2 harness = solver with icoh (p = 4,395, dual in both), acc 0.4352 | as 2026-09-30 |
+| Scherer 3-class bpt4+icoh, `sealed_personal` (p = 4,875) | blend_calib router-id 0.551058 | 9 rows identical scores and weights, 1.3e-12. Run time 351 s vs 613 s (both contended) |
+| `release_ablations.sh` base/xb/xa on mock_sealed_s | 15 rows | identical, 3.7e-12. base 2.3 / xb 1.8 / xa 1.9 min vs 5.6 / 4.3 / 9.3 on 2026-09-29 |
+
+**Decision.** The gates pass, so the dual path stays on by default (D1, D2's
+precondition).
+
+### Phase 4 (pulled forward) — review of the dual LDA (18:14–18:21, 1 agent)
+
+The review found no blocker or major issue. It re-derived equivalence with
+sklearn 1.9.1's source (1-sample class, constant features, shrinkage 0 and 1,
+non-contiguous and string labels, unnormalised priors: estimate ≤ 2e-16,
+coef ≤ 6e-16). Fallback state equals a Cholesky fit. Nothing reads
+`covariance_`. The pickle holds no reference to the private classes. No
+p × p allocation; I + VVᵀ has eigenvalues ≥ 1. Fixed (`_dual_coef`,
+`_dual_selfcheck`, applied 18:25 after the gate lane, both files identical):
+- **minor:** a failed dual attempt kept V (n × p) and M (n × n) alive during
+  the Cholesky fallback (~1.2 GB at the sealed size). They are now freed on
+  return;
+- **minor:** a caller forcing `fast=True` below 4,000 features
+  (`activation_eda.py`) took the dual path. The dual now also requires
+  p > `LDA_FAST_P`;
+- **minor:** the dual re-implements sklearn's `_cov`, while the scoring
+  image's sklearn is unpinned (training is local, 1.9.1). A once-per-process
+  self-check against `_class_cov` now switches the dual off, with a warning,
+  on any disagreement;
+- **nits:** dual only for float64 X; numerical errors (ValueError,
+  ArithmeticError, MemoryError) fall back too; a LDA_STATS counting note. The
+  probability gate saturates on the mock (\|dP\| ~1e-91); there the
+  coefficient differences (≤ 2e-14) are the evidence.
+
+Re-check `lda_dual_check.py --bench 5` after the fixes:
+`RESULTS_d1_recheck.md` (running).
+
+### Phase 3 — strict LOSO references: code (18:00–18:25)
+
+- **Solver:** `wcv_ref="all" | "strict"` (default `all`; a Solver parameter,
+  baked by `train_sealed.sh`). Under strict, `_fold_refs` takes each fold's
+  whitening references from its fit rows only. With align `subject` that is
+  per subject. With `subject_context` it is per (subject, context) pair with
+  ≥ `ctx_min` fit rows, else the subject's; a subject without fit rows gets
+  the global reference. X is not overwritten, and every block is recomputed
+  per fold. Strict equals `all` under `adapt="online"` and `align="none"`.
+- **Harness:** `sealed_personal.py --wref all|strict` (`strict_fold_X`, the
+  same references and float32 whitening). `wref` enters the config key only
+  when strict (KEY_DEFAULTS); non-router alignments fall back to `all` with a
+  log line.
+- **Scripts:** `train_sealed.sh WREF=` (passed to the harness, baked, used in
+  the row filter; CONF and config.txt change only when strict).
+  `release_ablations.sh WREF=` reaches every `pers` step;
+  `release_summarize.py` carries `WREF=` into its `train_sealed.sh` line.
+- Gates and information runs: `scripts/sprint1001_p3.sh`, launched 18:26
+  (`RESULTS_p3.md`).

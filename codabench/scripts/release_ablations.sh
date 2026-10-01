@@ -60,7 +60,9 @@
 # --test_subjects; on the released data the replica is SPLIT=calib:3
 # TEST_SUBJECTS=<the fully labelled participants>), SPEC (riemann:xd=1,fb=1), ALIGN
 # (router-psd:riemann), WCV (last), CAP (0.5; "none" = uncapped), XB (extra blocks
-# that step xa adds to SPEC, e.g. icoh; sprint 2026-09-29), LANES (AB),
+# that step xa adds to SPEC, e.g. icoh; sprint 2026-09-29), WREF (all | strict:
+# the blend-weight CV folds' whitening references, sealed_personal --wref;
+# sprint 2026-10-01), LANES (AB),
 # STEPS (space-separated step names: run only those, e.g. to keep each call
 # under a time limit; a name that is no step here, or a requested step, i.e. of
 # STEPS or else of LANES, without its .done marker at the end, is an ERROR row
@@ -100,6 +102,11 @@ TEST_SUBJECTS=${TEST_SUBJECTS:-}
 SPEC=${SPEC:-riemann:xd=1,fb=1}
 ALIGN=${ALIGN:-router-psd:riemann}
 WCV=${WCV:-last}
+WREF=${WREF:-all}
+case $WREF in
+  all|strict) ;;
+  *) echo "| $(date +%T) | ERROR: WREF=$WREF: expected all | strict |" >> "$STATUS"; exit 1;;
+esac
 CAP=${CAP:-0.5}
 KIND=${ALIGN##*:}
 if [ "$WCV" = last ]; then WCV_ALT=loso; else WCV_ALT=last; fi
@@ -141,7 +148,7 @@ if [ "$(stat -c %s "$CACHE/X.npy" 2>/dev/null || echo 0)" -gt $((2 * 1024 ** 3))
 fi
 P="$HOME/codabench/analysis/sealed_personal.py"
 echo "| $(date +%T) | config STUDY=$STUDY SPLIT=$SPLIT TEST_SUBJECTS=${TEST_SUBJECTS:-default}" \
-     "SPEC=$SPEC ALIGN=$ALIGN WCV=$WCV" \
+     "SPEC=$SPEC ALIGN=$ALIGN WCV=$WCV WREF=$WREF" \
      "CAP=$CAP context=${HAS_CTX:-no} LANES=${LANES:-AB} STEPS=${STEPS:-all}" \
      "threads=$XS_THREADS |" >> "$STATUS"
 
@@ -157,6 +164,7 @@ PY
 CONF="study=$STUDY split=$SPLIT test_subjects=${TEST_SUBJECTS:-default} spec=$SPEC"
 CONF="$CONF align=$ALIGN wcv=$WCV cap=$CAP cache=$FP"
 [ -n "${XB:-}" ] && CONF="$CONF xb=$XB"     # (only when set: older config.txt lines stay equal)
+[ "$WREF" = all ] || CONF="$CONF wref=$WREF"
 if [ -f "$LOGDIR/config.txt" ] && [ "$(cat "$LOGDIR/config.txt")" != "$CONF" ]; then
   echo "| $(date +%T) | ERROR: settings or cache build differ from the ones logs/sealed_$TAG" \
        "ran with ($(cat "$LOGDIR/config.txt")); use another TAG, or move logs/sealed_$TAG" \
@@ -179,7 +187,8 @@ rstep() {   # sealed_lib step, unless STEPS names other steps
 }
 pers() {    # pers <lane> <step> <eta_min> <sealed_personal args...>
   local lane=$1 name=$2 eta=$3; shift 3
-  rstep "$name" "$eta" 240m python "$P" --tag "${TAG}_$lane" "${COMMON[@]}" --wvariant calib "$@"
+  rstep "$name" "$eta" 240m python "$P" --tag "${TAG}_$lane" "${COMMON[@]}" --wvariant calib \
+      --wref "$WREF" "$@"
 }
 
 laneA() {

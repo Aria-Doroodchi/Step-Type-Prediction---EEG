@@ -73,7 +73,8 @@ import xsess_lib as L  # noqa: E402
 BATCH = 64
 # key options in key order; a value equal to its default is left out of the key
 KEY_DEFAULTS = {"split": "last", "test_subjects": None, "chans": "eeg",
-                "pool": "all", "wcv": "last", "router_cap": None, "wvariant": "both"}
+                "pool": "all", "wcv": "last", "router_cap": None, "wvariant": "both",
+                "wref": "all"}
 
 
 def config_key(study, classes, spec, mode, align, seed, **opts):

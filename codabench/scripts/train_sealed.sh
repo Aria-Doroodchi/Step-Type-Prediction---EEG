@@ -37,6 +37,11 @@
 #              --test_subjects; default: the split's own)
 #   WCV        harness blend-weight CV: last | loso (default when BLEND_W=auto,
 #              the rule of the solver's "auto", so the two weights are comparable)
+#   WREF       whitening references in the blend-weight CV folds: all (default,
+#              the whole training set's) | strict (each fold's fit rows only:
+#              harness --wref strict, candidate wcv_ref="strict"; sprint
+#              2026-10-01, RELEASE_DAY rule 4). Router alignments only (with
+#              ADAPT=online it equals all)
 #   CHANS      eeg (default) | eeg+eog | eeg+emg | all: harness and candidate
 #   RECIPE_SPEC   harness family (riemann:xd=1,fb=1); xd / fb are baked into the
 #              candidate as use_xdawn / filterbank, and x=<ids> (the harness's
@@ -239,6 +244,15 @@ esac
 FORCE_ZIP=${FORCE_ZIP:-0}
 TEST_SUBJECTS=${TEST_SUBJECTS:-}
 if [ "$BLEND_W" = auto ]; then WCV=${WCV:-loso}; else WCV=${WCV:-last}; fi
+WREF=${WREF:-all}
+case $WREF in
+  all|strict) ;;
+  *) note "ERROR: WREF=$WREF: expected all | strict"; exit 1;;
+esac
+if [ "$WREF" = strict ] && [ "$ADAPT" = online ]; then
+  note "WREF=strict equals all under ADAPT=online (per-session references by design): using all"
+  WREF=all
+fi
 CHANS=${CHANS:-eeg}
 # release defaults on any split other than the proxies' "last"
 if [ "$SPLIT" = last ]; then DEF_CAP=none DEF_WV=both; else DEF_CAP=0.5 DEF_WV=calib; fi
@@ -323,6 +337,8 @@ check_out() {  # check_out <next action>: OUT still holds what this run's traini
 CONF="split=$SPLIT test_subjects=${TEST_SUBJECTS:-default} wcv=$WCV chans=$CHANS"
 CONF="$CONF spec=$RECIPE_SPEC align=$RECIPE_ALIGN adapt=$ADAPT"
 CONF="$CONF blend_w=$BLEND_W router_cap=$ROUTER_CAP wvariant=$WVARIANT dataset=$DATASET"
+# (only when strict: the config.txt of every earlier folder stays equal)
+[ "$WREF" = all ] || CONF="$CONF wref=$WREF"
 CONF="$CONF out=$OUT"
 HDIR="$HOME/codabench/logs/sealed_$HTAG"
 if [ -f "$LOGDIR/config.txt" ] && [ "$(cat "$LOGDIR/config.txt")" != "$CONF" ]; then
@@ -409,7 +425,7 @@ step validate 120m python "$A/sealed_run.py" --tag "$HTAG" --study "$STUDY" \
     "${H_ARGS[@]}" || exit 1
 step personal_$ADAPT 120m python "$A/sealed_personal.py" --tag "$HTAG" --study "$STUDY" \
     --family "$RECIPE_SPEC" --align "$RECIPE_ALIGN" --wcv "$WCV" --wvariant "$WVARIANT" \
-    "${H_ARGS[@]}" || exit 1
+    --wref "$WREF" "${H_ARGS[@]}" || exit 1
 
 # 4. benchopt training of the solver (needs the overlay registered in
 #    bci_studies _OVERLAYS: see scripts/install_xsess_overlays.sh).
@@ -419,9 +435,9 @@ step personal_$ADAPT 120m python "$A/sealed_personal.py" --tag "$HTAG" --study "
 #    ids and the harness weight is only the cross-check.
 #    (the harness writes to logs/sealed_<harness tag>/, not to this script's LOGDIR)
 HW=$(python - "$HOME/codabench/logs/sealed_$HTAG" "$STUDY" "$RECIPE_SPEC" "$RECIPE_ALIGN" \
-     "$SPLIT" "$WCV" "$CHANS" "$ROUTER_CAP" "$TEST_SUBJECTS" <<'PY'
+     "$SPLIT" "$WCV" "$CHANS" "$ROUTER_CAP" "$TEST_SUBJECTS" "$WREF" <<'PY'
 import json, pathlib, sys
-d, study, spec, align, split, wcv, chans, cap, ts = sys.argv[1:]
+d, study, spec, align, split, wcv, chans, cap, ts, wref = sys.argv[1:]
 cap = None if cap == "none" else float(cap)
 # as sealed_run.prepare_data stores it: sorted subject indices, comma-joined
 ts = ",".join(map(str, sorted({int(s) for s in ts.split(",") if s}))) or None
@@ -437,6 +453,7 @@ for line in (p.read_text().splitlines() if p.exists() else []):
 rows = [r for r in rows if "blend_calib_w" in r and r["align"] == align
         and r["spec"].split("/")[0] == spec and r.get("split", "last") == split
         and r.get("wcv", "last") == wcv and r.get("chans", "eeg") == chans
+        and r.get("wref", "all") == wref
         and r.get("pool", "all") == "all" and r.get("router_cap") == cap
         and r.get("test_subjects") == ts]
 if not rows:
@@ -464,12 +481,14 @@ sed -e 's/"personal": \["pooled"\]/"personal": ["blend"]/' \
     -e "s/\"buffer\": \[64\]/\"buffer\": [$BUF]/" \
     -e "s/\"chans\": \[\"eeg\"\]/\"chans\": [\"$CHANS\"]/" \
     -e "s/\"align\": \[\"subject\"\]/\"align\": [\"$ALIGN_S\"]/" \
+    -e "s/\"wcv_ref\": \[\"all\"\]/\"wcv_ref\": [\"$WREF\"]/" \
     -e "s/name = \"Riemann-Sealed\"/name = \"Riemann-Sealed-Cand$SUFFIX\"/" \
     "$HOME/codabench/solvers/bci_decoding/riemann_sealed.py" > "$CAND"
 for want in "\"blend_w\": [$CW]" '"personal": ["blend"]' "\"adapt\": [\"$ADAPT\"]" \
             "\"use_xdawn\": [$XDB]" "\"filterbank\": [$FBB]" "\"xblocks\": [\"$XB\"]" \
             "\"kind\": [\"$KIND\"]" \
-            "\"buffer\": [$BUF]" "\"chans\": [\"$CHANS\"]" "\"align\": [\"$ALIGN_S\"]"; do
+            "\"buffer\": [$BUF]" "\"chans\": [\"$CHANS\"]" "\"align\": [\"$ALIGN_S\"]" \
+            "\"wcv_ref\": [\"$WREF\"]"; do
   grep -qF "$want" "$CAND" \
       || { echo "| $(date +%T) | ERROR: candidate defaults not set ($want) |" >> "$STATUS"; exit 1; }
 done
@@ -505,7 +524,8 @@ if [ "$BLEND_W" = auto ]; then
   if [ "$SW" = "$W" ]; then V=MATCH; else V="MISMATCH: check the fold scores"; fi
   if [ "$WCV" = loso ]; then WV=${V%%:*}
   else WV=INCOMPARABLE; V="$V (harness wcv=$WCV is not the solver's loso rule: informational)"; fi
-  note "blend weight: harness w=$W (split=$SPLIT wcv=$WCV) vs solver auto w=${SW:-not found}: $V"
+  note "blend weight: harness w=$W (split=$SPLIT wcv=$WCV wref=$WREF) vs solver auto" \
+       "w=${SW:-not found}: $V"
 else
   WV=n/a
   note "blend weight: harness w=$W (split=$SPLIT wcv=$WCV); solver trained with the baked w=$CW"

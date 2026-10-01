@@ -22,6 +22,11 @@ Variants (all on the same aligned data; the alignment is the Phase 2 winner):
                   training sessions, fit = every other training window); w
                   maximises the mean fold cell score. The solver's
                   blend_w="auto" uses the same definition. Riemann only
+              --wref strict (opt-in, sprint 2026-10-01): each fold's
+                  whitening references from its fit rows only (router
+                  alignments; a pair with < ctx_min fit rows takes its
+                  subject's), as the solver's wcv_ref="strict"; default all
+                  (the whole training set's references, ~2 points of CV bias)
   blend_calib as blend, with the calib model as the personal part (own weight)
   persubject  one model per subject on its own training sessions (Riemann only
               here; EEGNet per-subject comes from Phases 1-2)
@@ -166,15 +171,65 @@ def blend_loso_folds(d, tr_idx):
     return folds
 
 
-def choose_w(d, meta, spec, Xa, tr_idx, wcv="last", variant="both"):
+def strict_fold_X(d, align, covs, tr_idx, fit_idx, out):
+    """--wref strict: the training rows whitened with references from
+    ``fit_idx`` only, written into ``out`` (len(tr_idx) rows, in tr_idx
+    order), as the solver's ``_fold_refs`` + float32 whitening: per group
+    (ctx_groups: subject, or (subject, context) pair) its fit rows' mean
+    covariance; a pair with < CTX_MIN_WINDOWS fit rows takes its subject's
+    fit-row reference, a subject without fit rows the global one."""
+    from riemann_sealed import CTX_MIN_WINDOWS
+    kind = align.split(":")[1]
+    grp, n_ctx = ctx_groups(d, align)
+    subj, X = d["subj"], d["X"]
+    fit = np.zeros(len(subj), bool)
+    fit[fit_idx] = True
+    Wg = L.inv_sqrtm(L.mean_cov(covs[fit], kind))
+    Wsub = {}
+
+    def subj_W(k):
+        if k not in Wsub:
+            m = fit & (subj == k)
+            Wsub[k] = L.inv_sqrtm(L.mean_cov(covs[m], kind)) if m.any() else Wg
+        return Wsub[k]
+    g_tr = grp[tr_idx]
+    for g in np.unique(g_tr):
+        m = fit & (grp == g)
+        if n_ctx == 1:
+            W = subj_W(g)
+        else:
+            W = (L.inv_sqrtm(L.mean_cov(covs[m], kind)) if m.sum() >= CTX_MIN_WINDOWS
+                 else subj_W(g // n_ctx))
+        loc = np.where(g_tr == g)[0]
+        for i in range(0, len(loc), 1024):
+            c = loc[i:i + 1024]
+            out[c] = L.apply_W(X[tr_idx[c]], W)
+    return out
+
+
+def choose_w(d, meta, spec, Xa, tr_idx, wcv="last", variant="both", wref="all",
+             align=None, covs=None):
     """Pooled weight for blending pooled with each personal stack
     ("persubject" -> blend, "calib" -> blend_calib), chosen on training CV
     (``wcv`` = last | loso); cells include the context. ``variant`` = both
     (default) | calib: only blend_calib's weight, without the per-subject
     full models that only blend needs (--wvariant calib; its weight and fold
     scores are the same as under both). Returns {name: (w, mean fold scores
-    per W_GRID, per-fold scores)} plus "folds": one descriptor per fold."""
+    per W_GRID, per-fold scores)} plus "folds": one descriptor per fold.
+    ``wref`` = all (default: Xa's whole-training-set references) | strict
+    (``strict_fold_X`` per fold; needs ``align`` = router-psd:<kind> or
+    router-psdctx:<kind> and the full-size window ``covs``)."""
     y, subj, sess, ctx = d["y"], d["subj"], d["sess"], d["ctx"]
+    if wref not in ("all", "strict"):
+        raise ValueError(f"wref {wref!r}: expected all | strict")
+    if wref == "strict" and (align is None or align.split(":")[0] not in
+                             ("router-psd", "router-psdctx")):
+        raise ValueError(f"wref='strict' needs align router-psd:<kind> | "
+                         f"router-psdctx:<kind>, got {align!r}")
+    if wref == "strict":
+        pos = np.full(len(y), -1)
+        pos[tr_idx] = np.arange(len(tr_idx))
+        Xs = np.empty((len(tr_idx),) + d["X"].shape[1:], dtype=np.float32)
     if wcv not in ("last", "loso"):
         raise ValueError(f"wcv {wcv!r}: expected last | loso")
     if variant not in ("both", "calib"):
@@ -188,9 +243,16 @@ def choose_w(d, meta, spec, Xa, tr_idx, wcv="last", variant="both"):
     per_fold = {name: [] for name in scores}
     desc = []
     for i, (fit_idx, val_idx) in enumerate(folds):
-        subjects, P_pool, st = riemann_all(meta, spec, Xa, y, subj, fit_idx, val_idx,
-                                           own_rows_only=True,
-                                           persubject=variant == "both")
+        if wref == "strict":
+            strict_fold_X(d, align, covs, tr_idx, fit_idx, Xs)
+            subjects, P_pool, st = riemann_all(meta, spec, Xs, y[tr_idx], subj[tr_idx],
+                                               pos[fit_idx], pos[val_idx],
+                                               own_rows_only=True,
+                                               persubject=variant == "both")
+        else:
+            subjects, P_pool, st = riemann_all(meta, spec, Xa, y, subj, fit_idx, val_idx,
+                                               own_rows_only=True,
+                                               persubject=variant == "both")
         for name in scores:
             P_p = select(st[name], subjects, subj[val_idx], P_pool)
             fold_sc = []
@@ -204,7 +266,8 @@ def choose_w(d, meta, spec, Xa, tr_idx, wcv="last", variant="both"):
         desc.append(dict(kind=kind, val_sessions=np.unique(sess[val_idx]).tolist(),
                          val_subjects=len(np.unique(subj[val_idx])),
                          n_fit=len(fit_idx), n_val=len(val_idx)))
-        L.log(f"  wcv={wcv} ({kind}) fold {i + 1}/{len(folds)}: val sessions "
+        L.log(f"  wcv={wcv}{'' if wref == 'all' else ' wref=strict'} ({kind}) "
+              f"fold {i + 1}/{len(folds)}: val sessions "
               f"{desc[-1]['val_sessions']} of {desc[-1]['val_subjects']} subjects "
               f"(n_fit={len(fit_idx)} n_val={len(val_idx)}) cell for w={W_GRID}: "
               + ("" if "persubject" not in per_fold else
@@ -269,6 +332,9 @@ def main():
     ap.add_argument("--seeds", nargs="+", type=int, default=[33])
     ap.add_argument("--wcv", default="last", choices=["last", "loso"],
                     help="blend-weight CV: last training session | leave-one-session-out")
+    ap.add_argument("--wref", default="all", choices=["all", "strict"],
+                    help="blend-weight CV whitening references: whole training set "
+                         "(all) | each fold's fit rows (strict, router alignments)")
     ap.add_argument("--wvariant", default="both", choices=["both", "calib"],
                     help="both: blend + blend_calib (and persubject); calib: only "
                          "blend_calib, without per-subject full models (faster)")
@@ -282,7 +348,13 @@ def main():
 
     d = L.load_study(args.study, classes, mmap=args.mmap)
     sp, drop, opts, si = prepare_data(d, args)
-    opts.update(wcv=args.wcv, wvariant=args.wvariant)
+    if args.wref == "strict" and args.align.split(":")[0] not in ("router-psd",
+                                                                  "router-psdctx"):
+        # as the solver (wcv_ref="strict" equals "all" with adapt="online"): the
+        # online / oracle conditions centre each session on itself by design
+        L.log(f"--wref strict applies to router alignments; {args.align}: using all")
+        args.wref = "all"
+    opts.update(wcv=args.wcv, wvariant=args.wvariant, wref=args.wref)
     both = args.wvariant == "both"
     meta = dict(d["meta"], n_classes=int(d["y"].max() + 1))
     tr, te = sp["train"], sp["test"]
@@ -337,7 +409,8 @@ def main():
         else:
             subjects, P_pool, stacks = riemann_all(meta, args.family, Xa, y, subj, tr_idx,
                                                    te_idx, persubject=both)
-            ws = choose_w(d, meta, args.family, Xa, tr_idx, args.wcv, args.wvariant)
+            ws = choose_w(d, meta, args.family, Xa, tr_idx, args.wcv, args.wvariant,
+                          args.wref, args.align, cache.get("covs"))
             if both:
                 w, cv, fcv = ws["persubject"]
                 stacks["blend"] = w * P_pool[None] + (1 - w) * stacks["persubject"]
