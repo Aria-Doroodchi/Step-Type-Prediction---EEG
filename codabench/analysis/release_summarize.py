@@ -189,7 +189,8 @@ def main():
         # (a sealed_personal row from before the wcv field is wcv=last)
         hits = [r for r in rows if r["spec"] == f"{spec}/{variant}" and r["mode"] == mode
                 and r["align"] == align and r.get("chans", "eeg") == chans
-                and r.get("pool", "all") == pool and r.get("wcv", "last") == wcv]
+                and r.get("pool", "all") == pool and r.get("wcv", "last") == wcv
+                and r.get("wref", "all") == wref]
         return hits[-1] if hits else None
 
     # the recipe variants, one per ablation step (blend_calib, router ids)

@@ -48,7 +48,9 @@ def main():
         print("|---|---|---|---|---|---|---|---|---|---|")
         by = defaultdict(list)
         for r in rs:
-            by[(r["spec"], r["mode"], r["align"])].append(r)
+            # wref (2026-10-01): strict rows are not seeds of the all rows
+            by[(r["spec"] + ("" if r.get("wref", "all") == "all" else f" [wref={r['wref']}]"),
+                r["mode"], r["align"])].append(r)
         for (spec, mode, align), g in sorted(by.items(), key=lambda kv: -np.mean([r["cell"] for r in kv[1]])):
             ra = [r["router_acc"] for r in g if "router_acc" in r]
             fb = [r["router_fallback"] for r in g if "router_fallback" in r]

@@ -1629,3 +1629,75 @@ Re-check `lda_dual_check.py --bench 5` after the fixes:
   `release_summarize.py` carries `WREF=` into its `train_sealed.sh` line.
 - Gates and information runs: `scripts/sprint1001_p3.sh`, launched 18:26
   (`RESULTS_p3.md`).
+- **Re-check after the fixes** (18:25–18:36; `RESULTS_d1_recheck.md`):
+  15 / 15 cases OK, bench 5 × (n = 420, p = 9,373) 1.7 s vs 88.1 s
+  (50.6×). **D1 PASS.**
+
+### Phase 3 — strict LOSO references: gates and information (18:26–18:51:52, 26 min; est. 50)
+
+`scripts/sprint1001_p3.sh` (`RESULTS_p3.md`): two lanes at 5 threads.
+
+**Gates** (the RELEASE_DAY § 7 step 1 replica flow on mock_sealed_s, `BLEND_W=auto`,
+`WCV=loso`, the same windows for solver and harness):
+
+| Run | Solver auto w / fold-mean cell scores per w | Harness | Result |
+|---|---|---|---|
+| `WREF=all`, router-psdctx | 0.75 / [0.4819, 0.484, 0.5201, 0.5889, 0.5861] | 0.75, same | train 0.602778 = replay = harness, MATCH; 13 harness rows = the committed `replica_mock_sealed_s` (6.8e-13). Solver fit 114.0 s vs 229.7 s committed (LDA 41.1 → 1.2 s, wcv 147 → 42 s) |
+| `WREF=strict`, router-psdctx (40 pairs) | 0.75 / [0.4854, 0.4861, 0.5181, 0.5799, 0.5785] | 0.75 / identical to 4 dp | MATCH; train 0.602778 = replay = harness. Fit 117.4 s (wcv 53 s) |
+| `WREF=strict`, router-psd | 0.75 / [0.4632, 0.4611, 0.4889, 0.509, 0.4986] | identical to 4 dp | MATCH; 0.548611 = replay = harness |
+| zhou2016_xsess `BLEND_W=auto`, all / strict | 0.5 / 0.5 | 0.5 / 0.5 | MATCH both. Fold scores differ in the 3rd decimal under both: the benchopt training split has 1,176 windows vs the harness's 1,200, so it is not like-for-like |
+
+**Information** (`sealed_personal`, recipe x=bpt4, router-psd, release
+settings; the test score is never used to decide):
+
+| Study (folds) | w all → strict | CV per w, all | CV per w, strict | Test cell (router-id) |
+|---|---|---|---|---|
+| Zhou (loso, 2 folds) | **0.5 → 0.75** | [0.647, 0.651, 0.684, 0.675, 0.671] | [0.641, 0.645, 0.665, 0.675, 0.669] | 0.7983 → 0.8000 |
+| Scherer 3-class (halves) | 0.5 → 0.5 | [0.590, 0.587, 0.602, 0.566, 0.557] | [0.589, 0.590, 0.602, 0.557, 0.554] | 0.5399 = |
+| Tangermann (halves) | 0.5 → 0.5 | [0.795, 0.796, 0.808, 0.727, 0.715] | [0.798, 0.799, 0.807, 0.727, 0.713] | 0.8206 = |
+
+- Under strict, the personal-heavy weights lose up to ~2 points of CV on Zhou
+  and the pooled-heavy ones keep theirs. That is the documented bias of `all`
+  (it favours the personal models).
+- On Zhou this moves the chosen weight one grid step towards pooled.
+- In the halves folds (one training session) strict changes little: the two
+  halves of a session share most of their reference anyway.
+
+**Review of the strict code** (18:27–18:35, 1 agent). No blocker or major.
+The default path is unchanged. Under strict the solver's and harness's
+whitened training X are bit-equal on a synthetic multi-context test (the
+ctx_min fallback exercised). No leakage: scaling the validation rows'
+covariances left every fold reference unchanged. The shell edits are correct.
+Fixed (applied 18:52):
+- **minor:** the MATCH gate compared only w. `train_sealed.sh` now also
+  prints the solver's and harness's fold-mean cell scores per w, with
+  EQUAL (4 dp) / DIFFER; it is information, and the gate stays the weight;
+- **minor:** the global reference was a full Riemannian mean per fold but is
+  used only when a subject has no fit rows. It is now lazy in solver and
+  harness;
+- **minor:** the harness's strict folds held a training-size copy of X. They
+  now write into Xa's training rows, which nothing reads afterwards;
+- **minor:** `WREF=strict` with a non-router `RECIPE_ALIGN` failed late
+  ("blend weight not found"). It is now rejected at the start, and the
+  lookup error names wref;
+- **nit:** `sealed_summarize.py` would have averaged strict and all rows as
+  seeds. It now groups them apart, and `release_summarize.find` filters on
+  the run's wref. The solver's auto line and the baked-weight note name the
+  references;
+- **not changed, documented:** the harness's `all` path has no ctx_min rule
+  (pre-existing; the solver's has). Strict validates a pair that lives in one
+  calibration session against its subject's other-context reference:
+  pessimistic exactly where `all` is optimistic.
+
+**Re-verification after the fixes** (`scripts/sprint1001_p3b.sh`,
+18:52–18:58:48, est. 8 min; `RESULTS_p3b.md`):
+- `WREF=all` replica: 13 rows = committed. The fold scores print EQUAL
+  (4 dp), MATCH, 0.602778.
+- `WREF=strict` replica: 13 rows bit-identical to the pre-fix strict run
+  (\|dP\| = 0), EQUAL (4 dp), MATCH.
+
+**Decision D3.** Both parity gates pass and the defaults are bit-identical, so
+**strict becomes the release-day setting**: `WREF=strict` in RELEASE_DAY
+§ 5 / § 7 and in DEC. The solver and harness defaults stay `all`, so every
+committed number reproduces. The 500 Hz cost of strict is measured in the
+sizing series (`sz3_bpt4_strict`).

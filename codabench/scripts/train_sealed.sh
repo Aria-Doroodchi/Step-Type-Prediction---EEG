@@ -302,6 +302,10 @@ case $HOW in
                  "expresses only router-psdctx:<kind> (align=subject_context)"; exit 1;;
   *) note "WARNING: RECIPE_ALIGN=$RECIPE_ALIGN is not what the solver does (router-psd / online-N)";;
 esac
+if [ "$WREF" = strict ] && [ "$HOW" != router-psd ] && [ "$HOW" != router-psdctx ]; then
+  note "ERROR: WREF=strict needs RECIPE_ALIGN router-psd:<kind> or router-psdctx:<kind>" \
+       "(got $RECIPE_ALIGN; the harness would fall back to all and find no strict row)"; exit 1
+fi
 XDB=$([ "$XD" = 0 ] && echo False || echo True); FBB=$([ "$FB" = 1 ] && echo True || echo False)
 
 # the submission folder training writes (OUT), resolved here: it is part of the
@@ -458,14 +462,15 @@ rows = [r for r in rows if "blend_calib_w" in r and r["align"] == align
         and r.get("test_subjects") == ts]
 if not rows:
     sys.exit(f"no blend_calib_w for spec={spec} align={align} split={split} wcv={wcv} "
-             f"chans={chans} router_cap={cap} test_subjects={ts} in {p}")
+             f"wref={wref} chans={chans} router_cap={cap} test_subjects={ts} in {p}")
 # the deployed variant (blend_calib, router ids) for the gate check after replay
 bc = [r for r in rows if r["spec"].endswith("/blend_calib") and r["mode"] == "router-id"]
 bc = bc[-1] if bc else {"pooled": "nan", "cell": "nan"}
-print(rows[-1]["blend_calib_w"], bc["pooled"], bc["cell"])
+print(rows[-1]["blend_calib_w"], bc["pooled"], bc["cell"],
+      json.dumps(rows[-1].get("blend_calib_cv"), separators=(",", ":")))
 PY
 ) || { echo "| $(date +%T) | ERROR: blend weight not found |" >> "$STATUS"; exit 1; }
-read -r W H_POOLED H_CELL <<< "$HW"
+read -r W H_POOLED H_CELL H_CV <<< "$HW"
 case $BLEND_W in harness) CW=$W;; auto) CW='"auto"';; *) CW=$BLEND_W;; esac
 # Codabench instantiates the solver with its DEFAULT parameters: bake the chosen
 # settings into a candidate copy as defaults (the frozen-WU1 practice) and train
@@ -526,9 +531,26 @@ if [ "$BLEND_W" = auto ]; then
   else WV=INCOMPARABLE; V="$V (harness wcv=$WCV is not the solver's loso rule: informational)"; fi
   note "blend weight: harness w=$W (split=$SPLIT wcv=$WCV wref=$WREF) vs solver auto" \
        "w=${SW:-not found}: $V"
+  # (information, 2026-10-01 review) the mean fold cell scores per w as well:
+  # equal to 4 dp when solver and harness saw the same windows (the replica)
+  SCV=$(sed -n 's/.*\[Riemann-Sealed\] blend_w=auto -> .*cell scores \(\[[^]]*\]\).*/\1/p' \
+        "$LOGDIR/train.log" | tail -1)
+  FS=$(python - "${SCV:-null}" "${H_CV:-null}" <<'PY'
+import json, sys
+try:
+    s, h = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+    d = max(abs(a - b) for a, b in zip(s, h)) if len(s) == len(h) else float("inf")
+    print("EQUAL (4 dp)" if d <= 1.5e-4 else f"DIFFER (max |d| {d:.4f})")
+except Exception:
+    print("n/a")
+PY
+)
+  note "fold scores per w: solver ${SCV:-not found} vs harness ${H_CV:-not found}: $FS" \
+       "(information; the weight gate is the line above)"
 else
   WV=n/a
-  note "blend weight: harness w=$W (split=$SPLIT wcv=$WCV); solver trained with the baked w=$CW"
+  note "blend weight: harness w=$W (split=$SPLIT wcv=$WCV wref=$WREF); solver trained with" \
+       "the baked w=$CW"
 fi
 
 # 5. replay read-only, inference only; a failed replay stops here (no zip)

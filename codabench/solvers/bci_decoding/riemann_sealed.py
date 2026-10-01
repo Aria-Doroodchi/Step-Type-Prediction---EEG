@@ -1464,7 +1464,9 @@ class RiemannSealedModel:
                              blend_wcv_ref="all" if ref is None else "strict")
                 print(f"[Riemann-Sealed] blend_w=auto -> {w} ({how}, {nf} folds, "
                       f"context={'yes' if ctx is not None else 'no'}"
-                      + ("" if pair is None else ", pair-whitened") + "; cell scores "
+                      + ("" if pair is None else ", pair-whitened")
+                      + (", strict fold references" if ref is not None else "")
+                      + "; cell scores "
                       f"{np.round(cv, 4).tolist()} for w={W_GRID})", flush=True)
         _lap(tm, "wcv", t0)
         print("[Riemann-Sealed] fit seconds: "
@@ -1479,17 +1481,22 @@ class RiemannSealedModel:
         only, as harness choose_w(wref="strict"): per subject (align
         "subject"), or per (subject, context) pair with >= ctx_min fit rows, a
         pair below that taking its subject's; a subject without fit rows the
-        global one (fit rows)."""
+        global one (fit rows; computed only then, the training rows never
+        use it otherwise: returned as None)."""
         covs, sidx = ref["covs"], ref["sidx"]
         fit = np.zeros(len(gidx), bool)
         fit[fit_idx] = True
-        Wg = _inv_sqrtm(_mean_cov(covs[fit], self.kind))
-        Wsub = {}
+        Wg, Wsub = [], {}
+
+        def glob_W():
+            if not Wg:
+                Wg.append(_inv_sqrtm(_mean_cov(covs[fit], self.kind)))
+            return Wg[0]
 
         def subj_W(k):
             if k not in Wsub:
                 m = fit & (sidx == k)
-                Wsub[k] = _inv_sqrtm(_mean_cov(covs[m], self.kind)) if m.any() else Wg
+                Wsub[k] = _inv_sqrtm(_mean_cov(covs[m], self.kind)) if m.any() else glob_W()
             return Wsub[k]
         Ws = []
         for g in range(n_groups):
@@ -1499,7 +1506,7 @@ class RiemannSealedModel:
             m = fit & (gidx == g)
             Ws.append(_inv_sqrtm(_mean_cov(covs[m], self.kind)) if m.sum() >= self.ctx_min
                       else subj_W(int(ref["pair_subject"][g])))
-        return np.stack(Ws), Wg
+        return np.stack(Ws), (Wg[0] if Wg else None)
 
     def _choose_blend_w(self, parts, X, y, sidx, sess, ctx, gidx, Wset, ref=None):
         """blend_w="auto": (w, cell scores per W_GRID, fold kind, n folds).

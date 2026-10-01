@@ -173,24 +173,30 @@ def blend_loso_folds(d, tr_idx):
 
 def strict_fold_X(d, align, covs, tr_idx, fit_idx, out):
     """--wref strict: the training rows whitened with references from
-    ``fit_idx`` only, written into ``out`` (len(tr_idx) rows, in tr_idx
-    order), as the solver's ``_fold_refs`` + float32 whitening: per group
-    (ctx_groups: subject, or (subject, context) pair) its fit rows' mean
-    covariance; a pair with < CTX_MIN_WINDOWS fit rows takes its subject's
-    fit-row reference, a subject without fit rows the global one."""
+    ``fit_idx`` only, written into ``out[tr_idx]`` (full-size, row-indexed as
+    d["X"]; choose_w passes Xa, whose training rows it no longer needs), as
+    the solver's ``_fold_refs`` + float32 whitening: per group (ctx_groups:
+    subject, or (subject, context) pair) its fit rows' mean covariance; a pair
+    with < CTX_MIN_WINDOWS (the solver's default ctx_min) fit rows takes its
+    subject's fit-row reference, a subject without fit rows the global one
+    (computed only then)."""
     from riemann_sealed import CTX_MIN_WINDOWS
     kind = align.split(":")[1]
     grp, n_ctx = ctx_groups(d, align)
     subj, X = d["subj"], d["X"]
     fit = np.zeros(len(subj), bool)
     fit[fit_idx] = True
-    Wg = L.inv_sqrtm(L.mean_cov(covs[fit], kind))
-    Wsub = {}
+    Wg, Wsub = [], {}
+
+    def glob_W():
+        if not Wg:
+            Wg.append(L.inv_sqrtm(L.mean_cov(covs[fit], kind)))
+        return Wg[0]
 
     def subj_W(k):
         if k not in Wsub:
             m = fit & (subj == k)
-            Wsub[k] = L.inv_sqrtm(L.mean_cov(covs[m], kind)) if m.any() else Wg
+            Wsub[k] = L.inv_sqrtm(L.mean_cov(covs[m], kind)) if m.any() else glob_W()
         return Wsub[k]
     g_tr = grp[tr_idx]
     for g in np.unique(g_tr):
@@ -203,7 +209,7 @@ def strict_fold_X(d, align, covs, tr_idx, fit_idx, out):
         loc = np.where(g_tr == g)[0]
         for i in range(0, len(loc), 1024):
             c = loc[i:i + 1024]
-            out[c] = L.apply_W(X[tr_idx[c]], W)
+            out[tr_idx[c]] = L.apply_W(X[tr_idx[c]], W)
     return out
 
 
@@ -217,8 +223,9 @@ def choose_w(d, meta, spec, Xa, tr_idx, wcv="last", variant="both", wref="all",
     scores are the same as under both). Returns {name: (w, mean fold scores
     per W_GRID, per-fold scores)} plus "folds": one descriptor per fold.
     ``wref`` = all (default: Xa's whole-training-set references) | strict
-    (``strict_fold_X`` per fold; needs ``align`` = router-psd:<kind> or
-    router-psdctx:<kind> and the full-size window ``covs``)."""
+    (``strict_fold_X`` per fold, overwriting Xa's training rows; needs
+    ``align`` = router-psd:<kind> or router-psdctx:<kind> and the full-size
+    window ``covs``)."""
     y, subj, sess, ctx = d["y"], d["subj"], d["sess"], d["ctx"]
     if wref not in ("all", "strict"):
         raise ValueError(f"wref {wref!r}: expected all | strict")
@@ -226,10 +233,6 @@ def choose_w(d, meta, spec, Xa, tr_idx, wcv="last", variant="both", wref="all",
                              ("router-psd", "router-psdctx")):
         raise ValueError(f"wref='strict' needs align router-psd:<kind> | "
                          f"router-psdctx:<kind>, got {align!r}")
-    if wref == "strict":
-        pos = np.full(len(y), -1)
-        pos[tr_idx] = np.arange(len(tr_idx))
-        Xs = np.empty((len(tr_idx),) + d["X"].shape[1:], dtype=np.float32)
     if wcv not in ("last", "loso"):
         raise ValueError(f"wcv {wcv!r}: expected last | loso")
     if variant not in ("both", "calib"):
@@ -243,16 +246,11 @@ def choose_w(d, meta, spec, Xa, tr_idx, wcv="last", variant="both", wref="all",
     per_fold = {name: [] for name in scores}
     desc = []
     for i, (fit_idx, val_idx) in enumerate(folds):
-        if wref == "strict":
-            strict_fold_X(d, align, covs, tr_idx, fit_idx, Xs)
-            subjects, P_pool, st = riemann_all(meta, spec, Xs, y[tr_idx], subj[tr_idx],
-                                               pos[fit_idx], pos[val_idx],
-                                               own_rows_only=True,
-                                               persubject=variant == "both")
-        else:
-            subjects, P_pool, st = riemann_all(meta, spec, Xa, y, subj, fit_idx, val_idx,
-                                               own_rows_only=True,
-                                               persubject=variant == "both")
+        if wref == "strict":     # this fold's references, into Xa's training rows
+            strict_fold_X(d, align, covs, tr_idx, fit_idx, Xa)
+        subjects, P_pool, st = riemann_all(meta, spec, Xa, y, subj, fit_idx, val_idx,
+                                           own_rows_only=True,
+                                           persubject=variant == "both")
         for name in scores:
             P_p = select(st[name], subjects, subj[val_idx], P_pool)
             fold_sc = []
