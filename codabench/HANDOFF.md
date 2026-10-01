@@ -3,6 +3,11 @@
 **The short version for decisions is [DIRECTIONS.md](DIRECTIONS.md)**: status,
 decisions pending, model, next steps. This file is the detailed session handoff.
 
+> **Sprint 2026-10-01 in progress** (17:36 → 05:36): dual (n < p) shrinkage LDA,
+> deployment-test zip, strict LOSO references. Plan of record:
+> [prompts/2026-10-01_dual_lda_strict_wcv.md](prompts/2026-10-01_dual_lda_strict_wcv.md).
+> Logs: `logs/sprint1001/`. This header is replaced at the sprint's end.
+
 Resume from this file alone. Plan of record:
 [prompts/2026-09-29_temporal_spatial_features.md](prompts/2026-09-29_temporal_spatial_features.md)
 (17:46 → 05:45, with an erratum at the end). Branch `feat/codabench-track2`,
