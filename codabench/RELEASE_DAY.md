@@ -56,7 +56,7 @@ S=<name>                        # study key: cache name and overlay prefix, e.g.
 DH=~/neuralbench/benchopt_data  # benchopt data home (= $BENCHOPT_DATA_HOME, set by env.sh)
 EVAL=<comma list from § 2>      # the 10 evaluation participants' cache indices
 FULL=$(python -c "import json,os,sys; r=os.environ.get('XSESS_CACHE_ROOT') or os.path.expanduser('~/neuralbench/xsess_cache'); print(','.join(map(str, json.load(open(os.path.join(r, sys.argv[1], 'meta.json')))['full_subjects'])))" "$S" 2>/dev/null)  # set once § 3.3 is done
-DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4 RECIPE_ALIGN=router-psd:riemann WCV=loso"; BW=auto  # § 6 decisions (recipe defaults until then; x=bpt4 since 2026-09-29)
+DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1,x=bpt4 RECIPE_ALIGN=router-psd:riemann WCV=loso WREF=strict"; BW=auto  # § 6 decisions (recipe defaults until then; x=bpt4 since 2026-09-29, WREF=strict since 2026-10-01: rule 4)
 ```
 
 - **Long jobs.** Anything longer than ~10 min (cache builds, ablations, § 7 runs)
@@ -453,16 +453,17 @@ below, each from its own background call:
 
 ```bash
 # (a) the recipe and every ablation except the channel sets, on the default cache (lanes A + B)
-#     (the recipe carries bpt4 since 2026-09-29; xb = without it, xa = with icoh added)
+#     (the recipe carries bpt4 since 2026-09-29; xb = without it, xa = with icoh added;
+#      WREF=strict since 2026-10-01: rule 4)
 TAG=rel_$S STUDY=$S SPLIT=calib:3 TEST_SUBJECTS=$FULL XS_THREADS=6 \
-    SPEC=riemann:xd=1,fb=1,x=bpt4 XB=icoh \
+    SPEC=riemann:xd=1,fb=1,x=bpt4 XB=icoh WREF=strict \
     STEPS="base al_ctx xd0 xb xa wcv_loso pool_test online run" bash ~/codabench/scripts/release_ablations.sh
 ```
 
 ```bash
 # (b) the channel sets, on the 47-channel cache (lane A only)
 TAG=rel_${S}_x STUDY=${S}_x SPLIT=calib:3 TEST_SUBJECTS=$FULL XS_THREADS=6 LANES=A \
-    SPEC=riemann:xd=1,fb=1,x=bpt4 \
+    SPEC=riemann:xd=1,fb=1,x=bpt4 WREF=strict \
     STEPS="base ch_eeg_eog ch_eeg_emg ch_all" bash ~/codabench/scripts/release_ablations.sh
 ```
 
@@ -596,21 +597,32 @@ These rules were written before any Graz + BrainHero number existed.
      `train_sealed.sh:` line carries `BLEND_W=auto` for loso and
      `BLEND_W=harness` for last. Before 2026-09-29 it kept `wcv=last` for a
      missing row and printed no BLEND_W (V1).
-   - **Known bias (final review, 2026-09-29; not yet fixed in code).** In the
-     LOSO folds, harness and solver alike, each held-out session is whitened with
-     its group's reference computed over the *whole* training set, i.e. partly
-     from its own unlabelled windows.
-     - The bias is ~2 points of CV score on Zhou and < 1 on the mock, always
-       against the more pooled weights. It did not change the chosen w in any
-       complete run.
-     - If a (subject, context) pair occurs in **one calibration session only**,
-       that fold is oracle-aligned and inflated by 10–17 points.
-     - **So:** if `release_eda.py` § 3 shows one context per session, or any pair
-       confined to one calibration session, do not use `auto`/`loso` with
-       `router-psdctx`. Use `WCV=last` / `BW=harness`, or bake a number
-       (`BLEND_W=<w>`).
-     - The fix, a strict per-fold reference in both harness and solver, is
-       SEALED_RECIPE § 5's first code step.
+   - **Whitening references in the CV folds: `WREF=strict`** (fixed
+     2026-10-01; in DEC and in the § 5 commands).
+     - **The bias.** Under the old default (`all`), each held-out session was
+       whitened with its group's reference over the *whole* training set, i.e.
+       partly from its own unlabelled windows. That is ~2 points of CV score on
+       Zhou and < 1 on the mock, always against the more pooled weights. If a
+       (subject, context) pair lived in **one calibration session only**, its
+       fold was oracle-aligned and inflated by 10–17 points.
+     - **The fix.** `strict` takes each fold's references from its fit rows
+       only, as a test session's are. A pair with < 16 fit rows takes its
+       subject's fit-row reference. Harness (`--wref strict`) and solver
+       (`wcv_ref="strict"`, baked by `train_sealed.sh`) agree to 4 dp on the
+       mock replica, with pairs and with subjects (LOG 2026-10-01 Phase 3).
+     - **What changed:** on Zhou the chosen w moved 0.5 → 0.75. The mock and
+       the halves folds of Scherer / Tangermann kept their w.
+     - **The 2026-09-29 guard is lifted under strict.** Under strict,
+       `auto` / `loso` with `router-psdctx` is allowed even when
+       `release_eda.py` § 3 shows a pair confined to one calibration session.
+       That fold is then validated against the subject's other-context
+       reference: pessimistic, like a test session in an unseen context,
+       instead of oracle-aligned.
+     - **Without strict** (`WREF=all`), the old guard holds: use `WCV=last` /
+       `BW=harness`, or bake a number (`BLEND_W=<w>`).
+     - **Cost:** strict recomputes the per-window blocks in each of the 6 folds
+       (§ 8). Under `ADAPT=online` it equals `all` (`train_sealed.sh` says so
+       and switches).
    - **Step 2 bakes step 1's weight** (§ 7). Re-choosing w on all labelled data
      would add folds 4–6, which validate only the fully labelled participants, on
      personal LDAs fitted on 5 sessions. That is a regime the replica never

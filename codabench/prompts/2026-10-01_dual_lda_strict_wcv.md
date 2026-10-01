@@ -206,3 +206,24 @@ Phase 0 17:55 → Phase 1 18:15 (Phase 1b compute in the background from
 - Dreyer training > 1.5× ETA: diagnose; the deployment test can use the
   default solver without bpt4 if bpt4 is the cause (record it).
 - Anything needing approval: skip, list under "needs you".
+
+## Addendum (2026-10-01 19:05, before any of its numbers)
+
+Phases 1–3 finished early: D1 PASS, the gates PASS, D3 strict adopted. Two
+additions, run after the 500 Hz sizing (which runs alone):
+
+### Phase 5: full-size 120 Hz rehearsal of the new release-day commands (est. 1.5–2 h)
+- On `mock_sealed_120` (full size, 47-ch cache): RELEASE_DAY § 5 (a) without
+  STEPS (all 12 steps, `SPEC=…,x=bpt4 XB=icoh WREF=strict`, 2 lanes × 6
+  threads), then `release_summarize.py`. Then § 7 step 1 (replica, `auto`) with
+  the DEC the summarizer prints.
+- **Done when:** every step rc = 0; the DECISIONS block's `train_sealed.sh:`
+  line carries `WREF=strict`; step 1 has train = replay, MATCH and fold scores
+  EQUAL (4 dp).
+- **Use:** the wall times replace § 8's release-day budget rows (2026-09-28,
+  pre-dual). No recipe decision: it is the mock. A failure is a release-day
+  bug, to fix first.
+
+### Phase 6: the deployment-test zip from the final solver (est. 15 min)
+`sprint1001_deploytest.sh` once more after the last solver change.
+SUBMISSIONS.md gets the ready (not uploaded) row and checklist.
