@@ -356,10 +356,20 @@ def feature_blocks_chunked(parts, X):
 # ~1e-14 relative) in ~3 s. Above LDA_FAST_P features the fit is sklearn's own
 # fit with only that solve replaced; every proxy has p <= 3175 (3595 with
 # slow_block) and keeps sklearn's lstsq bit-for-bit.
+# Above LDA_FAST_P, a fit with fewer rows than features (n < p: every
+# per-subject LDA, and the pooled one once p exceeds the training windows)
+# never forms the p x p matrix (LDA_DUAL, sprint 2026-10-01). sklearn's
+# Ledoit-Wolf estimate shrinks each class towards mu * I in its standardised
+# space, so in the original space it is diag(lam) + U.T diag(c) U with U the
+# n x p centred class rows: _DualLsqrLDA solves that in the n x n (Woodbury)
+# form. Same coefficients to ~1e-12 relative (analysis/lda_dual_check.py); 20
+# per-subject LDAs at p = 9373, n = 420 took 200 s with the Cholesky solve.
 # ---------------------------------------------------------------------------
 LDA_FAST_P = 4000
 LDA_MAX_RESID = 1e-8      # relative residual above which the solve falls back
-LDA_STATS = {"fast": 0, "fallback": 0}   # diagnostics: fast solves / lstsq fallbacks
+LDA_DUAL = True           # n < p above LDA_FAST_P: the n x n form (_DualLsqrLDA)
+# diagnostics: Cholesky solves / lstsq fallbacks / dual solves / dual -> Cholesky
+LDA_STATS = {"fast": 0, "fallback": 0, "dual": 0, "dual_fallback": 0}
 
 try:
     from sklearn.discriminant_analysis import _class_cov, _class_means
@@ -400,7 +410,88 @@ class _CholeskyLsqrLDA(LinearDiscriminantAnalysis):
         )
 
 
-def fit_shrinkage_lda(X, y, priors=None, fast=None):
+def _lw_lowrank(X, y, priors):
+    """sklearn's _class_cov(X, y, priors, shrinkage="auto") (per class:
+    StandardScaler, LedoitWolf, rescale; prior-weighted sum) as (lam, U, c),
+    the estimate being diag(lam) + U.T @ diag(c) @ U with U (n x p) the
+    centred class rows in the original scale. Each class's Ledoit-Wolf
+    shrinkage is ledoit_wolf_shrinkage's formula on the n_g x n_g Gram matrix
+    (sum of <Z.T, Z>**2 = sum of <Z, Z.T>**2; sum of <Z2.T, Z2> = sum of the
+    squared row norms)."""
+    from sklearn.preprocessing import StandardScaler
+    p = X.shape[1]
+    lam = np.zeros(p)
+    Us, cs = [], []
+    for idx, group in enumerate(np.unique(y)):
+        Xg = np.asarray(X[y == group, :], dtype=np.float64)
+        n = Xg.shape[0]
+        sc = StandardScaler().fit(Xg)
+        Z = sc.transform(Xg)
+        Z -= Z.mean(0)                          # LedoitWolf.fit: X - location_
+        r = np.einsum("ij,ij->i", Z, Z)
+        trace = r.sum() / n                     # trace of the empirical covariance
+        mu = trace / p
+        beta_ = np.sum(r ** 2)
+        delta_ = np.sum((Z @ Z.T) ** 2) / n ** 2
+        beta = 1.0 / (p * n) * (beta_ / n - delta_)
+        delta = (delta_ - 2.0 * mu * trace + p * mu ** 2) / p
+        beta = min(beta, delta)
+        shrink = 0 if beta == 0 else beta / delta
+        lam += priors[idx] * shrink * mu * sc.scale_ ** 2
+        Us.append(Z * sc.scale_)
+        cs.append(np.full(n, priors[idx] * (1.0 - shrink) / n))
+    return lam, np.concatenate(Us), np.concatenate(cs)
+
+
+class _DualLsqrLDA(_CholeskyLsqrLDA):
+    """_CholeskyLsqrLDA for n < p: the same estimate and solve without the
+    p x p matrix. With V = C^1/2 U Lam^-1/2 the estimate is
+    Lam^1/2 (I + V.T V) Lam^1/2, so coef = Lam^-1/2 (B~ - V.T t) with
+    B~ = Lam^-1/2 means_.T and (I_n + V V.T) t = V B~ (Cholesky). Falls back
+    to the Cholesky path when lam is not positive, the n x n solve fails or
+    the full system's relative residual (in low-rank form) exceeds
+    LDA_MAX_RESID. covariance_ is not formed."""
+
+    def _solve_lstsq(self, X, y, shrinkage, covariance_estimator):
+        import warnings
+        from scipy import linalg
+        coef = None
+        if shrinkage == "auto" and covariance_estimator is None:
+            means = _class_means(X, y)
+            B = np.asarray(means.T, dtype=np.float64)
+            lam, V, c = _lw_lowrank(X, y, np.asarray(self.priors_, dtype=np.float64))
+            if (np.all(np.isfinite(lam)) and lam.min() > 0
+                    and np.all(np.isfinite(c)) and c.min() >= 0):
+                d = 1.0 / np.sqrt(lam)
+                V *= np.sqrt(c)[:, None]
+                V *= d[None, :]
+                Bt = d[:, None] * B
+                M = V @ V.T
+                M.flat[::M.shape[0] + 1] += 1.0
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("error", linalg.LinAlgWarning)
+                        t = linalg.solve(M, V @ Bt, assume_a="pos")
+                    yv = Bt - V.T @ t               # Lam^1/2 coef
+                    coef = d[:, None] * yv
+                    r = (yv + V.T @ (V @ yv)) / d[:, None] - B
+                    resid = np.linalg.norm(r) / np.linalg.norm(B)
+                    if not resid <= LDA_MAX_RESID:  # also catches NaN
+                        coef = None
+                except (linalg.LinAlgError, linalg.LinAlgWarning, ValueError):
+                    coef = None
+        if coef is None:                            # the Cholesky path
+            LDA_STATS["dual_fallback"] += 1
+            return super()._solve_lstsq(X, y, shrinkage, covariance_estimator)
+        LDA_STATS["dual"] += 1
+        self.means_ = means
+        self.coef_ = coef.T
+        self.intercept_ = -0.5 * np.diag(np.dot(self.means_, self.coef_.T)) + np.log(
+            self.priors_
+        )
+
+
+def fit_shrinkage_lda(X, y, priors=None, fast=None, dual=None):
     """LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto", priors)
     fitted on (X, y), returned as a plain sklearn object (it unpickles
     anywhere sklearn does). Up to LDA_FAST_P features: sklearn's own fit.
@@ -408,13 +499,18 @@ def fit_shrinkage_lda(X, y, priors=None, fast=None):
     Ledoit-Wolf class covariance, 2-class coef reduction, n_features_in_)
     with the lstsq step as a Cholesky solve; sklearn's lstsq is kept when the
     matrix is not numerically SPD / well conditioned or the solve's relative
-    residual exceeds LDA_MAX_RESID. ``fast`` = True / False forces the choice
-    (equivalence checks)."""
+    residual exceeds LDA_MAX_RESID. With fewer rows than features (and
+    LDA_DUAL) the solve is the n x n form of _DualLsqrLDA, which does not
+    form covariance_. ``fast`` = True / False forces the first choice and
+    ``dual`` = True / False the second (equivalence checks)."""
     use_fast = (np.shape(X)[1] > LDA_FAST_P) if fast is None else bool(fast)
     if not use_fast or _class_cov is None:
         return LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto",
                                           priors=priors).fit(X, y)
-    lda = _CholeskyLsqrLDA(solver="lsqr", shrinkage="auto", priors=priors)
+    use_dual = ((LDA_DUAL and np.shape(X)[0] < np.shape(X)[1]) if dual is None
+                else bool(dual))
+    lda = (_DualLsqrLDA if use_dual else _CholeskyLsqrLDA)(
+        solver="lsqr", shrinkage="auto", priors=priors)
     try:
         lda.fit(X, y)
     finally:

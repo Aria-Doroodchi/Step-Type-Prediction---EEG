@@ -1485,3 +1485,75 @@ vs ~40 estimated; 0 ERROR rows):
   - nothing is running;
   - no uploads were made.
 - **The data release** was still "coming soon" at 01:10.
+
+## 2026-10-01 (evening) — Sprint: dual shrinkage LDA, deployment-test zip, strict LOSO references (brief `prompts/2026-10-01_dual_lda_strict_wcv.md`)
+
+17:36 → 05:36, no user focus; picked by the value check (DIRECTIONS § 6 items
+2 and 4, plus decision 2's preparation). Logs: `logs/sealed_s1001/`.
+
+### Phase 0 — orient, benchmark, brief (17:36–17:49)
+
+- Tracks page 17:40: Graz + BrainHero still "coming soon". Sleep disabled on
+  AC/DC (read, not changed).
+- **Where the 500 Hz fit time goes** (17:40–17:45, `scratchpad/bench_lda.py`,
+  random data, 10 threads, the committed solver): pooled LDA n = 8,400 took
+  9.7 s at p = 5,073 and 31.3 s at p = 9,373; **20 per-subject LDAs
+  (n = 420) took 39.5 s and 200.0 s**. Each `auto` fold refits all of them,
+  so at bpt4+icoh's size the per-subject p × p solves are most of the fold
+  (260 s in `sz2_bpt4_icoh`).
+- Brief committed db8b35c.
+
+### Phase 1 — dual (n < p) shrinkage LDA (17:49–18:06)
+
+- `_DualLsqrLDA` in the shared LDA block (`riemann_steptype.py` and
+  `riemann_sealed.py`, identical text). sklearn's estimate is per class
+  StandardScaler → Ledoit-Wolf towards μ·I → rescale, i.e.
+  Σ = diag(λ) + Uᵀ diag(c) U with U the n × p centred class rows. It is
+  solved through the n × n Woodbury form; the shrinkage comes from the
+  n_g × n_g Gram matrix with `ledoit_wolf_shrinkage`'s formula. It is used
+  above `LDA_FAST_P` when n < p (`LDA_DUAL = True`). Anything non-finite, a
+  non-positive diagonal or a full-system residual above `LDA_MAX_RESID`
+  falls back to the Cholesky path. `covariance_` is not formed.
+- **Gate D1** (`analysis/lda_dual_check.py`, 17:57:46–18:05:42, 8 min, est.
+  15; `logs/sealed_s1001/RESULTS_d1.md`): **PASS.** The cases were 6 random
+  matrices (iid; factor + 10^±2 scales at p = 9,373; n = 3,000; binary; a
+  2-row class with constant and zero features; empirical priors) and 9 real
+  ones (Scherer 3-class bpt4+icoh harness features, p = 4,875: pooled and 4
+  subjects; mock_sealed_s, p = 5,987: 4 subjects).
+  - **vs the Cholesky solve:** max |dP| ≤ 3.7e-12 in every case, argmax
+    identical everywhere, coefficients within 7e-14 relative.
+  - **Shrinkage** vs `ledoit_wolf_shrinkage`: ≤ 1.2e-15 relative.
+  - The solver and harness copies give identical bits. The result pickles as
+    a plain `LinearDiscriminantAnalysis` without `covariance_`.
+  - **Speed:** 20 × (n = 420, p = 9,373) took 2.9 s with the dual solve and
+    178 s with Cholesky, **60.7×**. Real per-subject fits ran at 0.02 s vs
+    1.7–3.0 s, the Scherer pooled fit at 0.19 s vs 2.77 s.
+  - **Deviation from the rule's letter (vs sklearn).** In the 2-row-class /
+    constant-feature case, dual vs sklearn's own lstsq is 4.7e-8, above the
+    1e-8 threshold. But Cholesky vs sklearn is the same 4.7e-8, and sklearn's
+    solution has the largest full-system residual (1.4e-11 vs dual 2.4e-14 vs
+    Cholesky 2.0e-14). sklearn's SVD lstsq is the less exact reference there,
+    and the dual is no further from it than the committed Cholesky path. The
+    checker accepts this case under that explicit condition (residual and
+    ≤ 2 × Cholesky's deviation); every real case is within 1.3e-9 of sklearn.
+- **Decision D1:** the dual path is on by default (`LDA_DUAL = True`).
+  Phase 2's gates decide whether that stands.
+
+### Phase 1b — deployment-test candidate (first pass 17:49–18:03)
+
+`scripts/sprint1001_deploytest.sh`: Riemann-Sealed with `xblocks="bpt4"`
+baked, trained on Dreyer (12,392 windows, 52 subjects, 27 ch, 2,485
+features), replayed inference-only from a read-only copy. Training took
+7.5 min (est. 30), the replay 32 s.
+- Train **0.615873 = replay 0.615873** (Dreyer is cross-subject, so the score
+  means nothing). The joblib holds only numpy arrays, sklearn
+  `LinearDiscriminantAnalysis` and pyriemann `XdawnCovariances` /
+  `TangentSpace` (table in `deploytest_v1/RESULTS.md`).
+- **Finding: the joblib was 2.6 GB (zip 2.4 GB).** Below `LDA_FAST_P` the
+  solver kept each LDA's unused p × p `covariance_`: 53 × 49 MB at
+  p = 2,485. The sealed data (p ≈ 5,800 > 4,000) would not have hit this,
+  but a warm-up upload would have spent 2.4 GB of the profile's 15 GB, and the
+  worker would have had to load a 2.6 GB joblib.
+- **Fix:** `_fit_lda` now drops `covariance_` at every size (prediction uses
+  only `coef_` / `intercept_` / `classes_`; the predictions are unchanged).
+  Re-run launched 18:07.
