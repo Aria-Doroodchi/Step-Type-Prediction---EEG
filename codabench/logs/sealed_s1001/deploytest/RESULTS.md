@@ -2,8 +2,8 @@
 
 | check | value |
 |---|---|
-| benchopt train (s1001_deploytest_train_1.parquet) | 0.615873 |
-| read-only replay (s1001_deploytest_replay_1.parquet) | 0.615873 (EQUAL) |
+| benchopt train (s1001_deploytest_train_2.parquet) | 0.615873 |
+| read-only replay (s1001_deploytest_replay_2.parquet) | 0.615873 (EQUAL) |
 
 ## Object types in the joblib
 

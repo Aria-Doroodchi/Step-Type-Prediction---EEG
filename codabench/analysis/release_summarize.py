@@ -190,7 +190,9 @@ def main():
         hits = [r for r in rows if r["spec"] == f"{spec}/{variant}" and r["mode"] == mode
                 and r["align"] == align and r.get("chans", "eeg") == chans
                 and r.get("pool", "all") == pool and r.get("wcv", "last") == wcv
-                and r.get("wref", "all") == wref]
+                # strict references exist for router alignments only: online /
+                # other conditions run (and are stored) with all (2026-10-01)
+                and (r.get("wref", "all") == wref or not r["align"].startswith("router"))]
         return hits[-1] if hits else None
 
     # the recipe variants, one per ablation step (blend_calib, router ids)

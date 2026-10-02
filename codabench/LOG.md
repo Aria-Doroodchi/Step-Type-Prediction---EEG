@@ -1771,3 +1771,63 @@ others-mean is +0.20.
 key includes the study. `compare_results.py` had the same latent issue (it
 did not affect any gate: every compared new folder held one study); it now
 filters rows by study, and the Scherer gate re-run PASSES.
+
+### Phase 5 — full-size 120 Hz rehearsal of the new release-day commands (20:23:16–22:00:06, 97 min; est. 90–120)
+
+`scripts/sprint1001_p5.sh` on `mock_sealed_120` (20 × 6 sessions, 14,400
+windows, 47-ch cache): RELEASE_DAY § 5 (a) without STEPS
+(`SPEC=…,x=bpt4 XB=icoh WREF=strict`, 2 lanes × 6 threads; Phase 7 ran
+beside it until 20:54), then § 7 step 1 with the summarizer's line.
+`logs/sealed_s1001_rel120/RESULTS.md`, `logs/sealed_s1001/RESULTS_p5_replica.md`.
+
+| Step (full size, 120 Hz) | Wall time | 2026-09-28 budget (pre-dual) |
+|---|---|---|
+| § 5 (a), all 12 steps | **68.6 min** (20:23:16–21:31:51) | 2–2.5 h for (a) + (b) (6 of 12 steps timed: 10–14 min each) |
+| … base / xb / xa / xd0 | 10.6 / 7.8 / 10.9 / 10.6 min | 11.6 / — / ~1.7 × base / 10.8 |
+| … ch_eeg_eog / ch_eeg_emg / ch_all / al_ctx | 11.2 / 11.3 / 8.7 / 7.5 min | 11.4 / 11.5 / 13.6 / 10.1 |
+| … wcv_loso / pool_test / online / run | 13.8 / 4.3 / 6.5 / 14.6 min | untimed |
+| § 7 step 1 (replica, `auto`, strict, psdctx) | **28.2 min**: validate 9.7, personal 11.1, train 6.9 (solver fit 383 s, wcv 234 s, 6.05 GB), replay 0.5 | 40–80 min |
+
+- **Gates.** train **0.676944** = replay = harness (w 0.75), MATCH, fold
+  scores EQUAL (4 dp) (solver [0.629, 0.6325, 0.6547, 0.6754, 0.6637]).
+  Pairs 40 × 180 windows, none on the subject W. Zipped, NOT uploaded.
+- **The summarizer applied every rule.** chans eeg (EMG trap rejected:
+  eeg+emg −4.31, CI −6.22, −2.05); router-psdctx ADOPTED (+4.92, CI +3.33,
+  +6.33); xDAWN kept (+0.89 without it, < 1.0); bpt4 kept (−2.36 without);
+  icoh not added (−0.69); wcv loso (= last, w 0.5); pool all. Its line
+  carries `WREF=strict`. The mock's accuracies mean nothing for the recipe.
+- **Bug found and fixed (Phase 3 code).** The summarizer reported the
+  `online` row MISSING. Under `WREF=strict` the harness correctly stores
+  online-alignment rows with `wref=all`, and the new `find()` filter
+  demanded `strict`. The fix accepts `all` for non-router alignments. The
+  re-summary shows online-64 +2.19 (report only) and no MISSING, and the
+  `train_sealed.sh` line is unchanged (`RESULTS_before_fix.md` kept).
+- **Reading.** At 120 Hz full size the harness steps are dominated by the
+  feature computation, not the LDAs. The single steps are 0–30 % faster;
+  icoh's `xa` and the LOSO steps gained most. The whole § 5 (a) took ~1.1 h,
+  and step 1 under half an hour.
+
+### Phase 8 — harness router-psdctx applies the solver's ctx_min (22:00–22:08)
+
+Review finding from Phase 3 (pre-existing): under `all`, the harness gave
+every (subject, context) pair its own reference, while the solver gives a
+pair with < 16 training windows its subject's. `sealed_run.aligned_data` now
+applies the same rule, logs the small pairs, and stores
+`info["ctx_small_pairs"]`.
+- `analysis/ctxmin_check.py` (synthetic, 4 subjects × 2 contexts, one
+  6-window pair): **PASS**. Without a small pair the aligned X is
+  bit-identical to the pre-change code. With one, the pair's training rows
+  and the 40 test windows routed to it use the subject's reference, which
+  equals the solver's W to 0.0; every other row is bit-identical.
+- Regression (`scripts/sprint1001_p8.sh`, the committed replica flow on
+  mock_sealed_s): train 0.602778 = replay = harness, MATCH, EQUAL, 13 rows =
+  committed (6.8e-13). **PASS.** No committed run had a small pair.
+
+### Phase 6 — the deployment-test zip from the final solver (22:00:52–22:07:16)
+
+`sprint1001_deploytest.sh` once more (the solver with the dual LDA, its
+review fixes and `wcv_ref`): train **0.615873 = replay**. Zip **4.1 MiB**
+(`riemann_sealed.joblib` 4.6 MB + `submission.py`), sha256
+`0cf3c91b57e9cfc0035316a05b83e9bb6c3a9509d0cafce694186873272e1c17`,
+`logs/sealed_s1001/deploytest/riemann_sealed_deploytest_dreyer2023_2026-10-01.zip`.
+NOT uploaded: that is the user's action (SUBMISSIONS.md).

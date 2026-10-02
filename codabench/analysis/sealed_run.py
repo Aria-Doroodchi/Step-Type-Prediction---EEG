@@ -205,6 +205,26 @@ def aligned_data(d, tr, te, align, cache, router_cap=None):
         L.align_rows(X, tr_idx, ss[tr], kind, covs, Xa)
     elif how.split("-")[0] in ("router", "routerb"):
         Ws = L.align_rows(X, tr_idx, grp[tr], kind, covs, Xa)
+        if n_ctx > 1:
+            # (2026-10-01) the solver's align="subject_context" rule: a pair with
+            # < CTX_MIN_WINDOWS training windows takes its subject's reference
+            # (all the subject's training windows), for its training rows and
+            # for the test windows routed to it. No committed run had such a pair.
+            from riemann_sealed import CTX_MIN_WINDOWS
+            g_tr = grp[tr_idx]
+            small = [g for g in np.unique(g_tr) if np.sum(g_tr == g) < CTX_MIN_WINDOWS]
+            for g in small:
+                Ws[g] = L.inv_sqrtm(L.mean_cov(covs[tr & (subj == g // n_ctx)], kind))
+                rows = tr_idx[g_tr == g]
+                for i in range(0, len(rows), 1024):
+                    c = rows[i:i + 1024]
+                    Xa[c] = L.apply_W(X[c], Ws[g])
+            info["ctx_small_pairs"] = len(small)
+            if small:
+                L.log(f"  [align] {align}: {len(small)} (subject, context) pair(s) with < "
+                      f"{CTX_MIN_WINDOWS} training windows use their subject's reference: "
+                      + ", ".join(f"{g // n_ctx}/{g % n_ctx} ({int(np.sum(g_tr == g))})"
+                                  for g in small))
     else:
         raise ValueError(align)
     lap("training windows whitened")
