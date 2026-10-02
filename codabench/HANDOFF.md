@@ -1,3 +1,14 @@
+# Addendum 2026-10-02 (evening): open sprint, nothing running
+
+- **Thesis** (branch `feat/window-effect-check`, git worktree `C:\Users\Ali D\wt-window`, pushed to `personal`, not merged):
+  window-effect check done. No temporal leakage in the shuffled CV; the full-vs-late gap sits in the first 0.5 s after
+  t = 0 (the `96` event ~0.55 s after the One/Two prompt). Needs the user: what the prompt is (DIRECTIONS decision 6).
+  Results: `docs/sprints/2026-10-02_window_effect_check_RESULTS.md` on that branch.
+- **Warm-up:** 5-member EEGNet ensemble 0.8095 (< WU1 0.820): no gain, stopped. The leaderboard's 0.9+ is not reachable honestly.
+- Sealed recipe untouched. Nothing uploaded. LOG entry "2026-10-02 (evening)".
+
+---
+
 # HANDOFF — sprint 2026-10-01: dual LDA, strict CV references, release-day rehearsal
 
 **The short version for decisions is [DIRECTIONS.md](DIRECTIONS.md)**: status,
