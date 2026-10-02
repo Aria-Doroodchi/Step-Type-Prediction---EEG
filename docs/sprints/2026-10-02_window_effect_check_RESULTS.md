@@ -59,3 +59,20 @@ the finding. No README or headline number was changed.
 
 Rerun the XGB pipeline with the window `0.5-2.0` (excluding the first 0.5 s) to see what the headline model does
 without the early response (~3-4 h).
+
+## Follow-up: the same split with XGB (cached `rich_mean_0125` features, 20 participants, 18:34-18:50, ETA 30 min)
+
+`scripts/diagnostics/11_xgb_window_split.py`: fixed shallow XGB (150 trees, depth 3), 5-fold x3 repeated stratified CV,
+columns selected by their `_bin_k` suffix (125 ms bins). Per-participant AUC, cohort mean:
+
+| columns | AUC |
+|---|---|
+| bins 0-3 (0-0.5 s) | **0.689** |
+| all 16 bins (0-2 s) | 0.653 |
+| bins 8-15 (1-2 s, late) | 0.580 |
+| bins 4-15 (0.5-2 s) | 0.568 |
+
+All - late = +0.074 [0.039, 0.111]; early-only - everything-after-0.5 s = +0.121 [0.073, 0.175] (participant bootstrap).
+So the XGB feature set shows the same thing as the linear model: the first half second is the best part of the window
+(adding later bins dilutes it), and the late window keeps a small signal (0.58) that amplitude bins alone did not show.
+Caveats: 20 of the 30-34 participants have this cache; not nested CV; fixed hyper-parameters; per-person only (no pooling).
