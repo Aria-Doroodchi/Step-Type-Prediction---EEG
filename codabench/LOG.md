@@ -1924,3 +1924,27 @@ the full-size rehearsal; `RESULTS_p9.md`):
   addenda were done, and the remaining ranked items were either the user's
   (decisions 1–2), low value now (EEGNet ensemble), or need the user's
   information (the thesis window check).
+
+## 2026-10-02 — deployment test on Codabench: passed
+
+The user uploaded the Phase 6 zip
+(`logs/sealed_s1001/deploytest/riemann_sealed_deploytest_dreyer2023_2026-10-01.zip`,
+sha256 `0cf3c91b…2e1c17`) to the Track 2 warm-up.
+- Submission #45, id 956971, 2026-10-02 10:32 (as listed), queue "Neural
+  Interface 2026 - AWS": **Finished, score 0.62, 58.68 s**. Locally:
+  0.615873 and a 32–37 s replay.
+- The only log message is benchopt's UserWarning that `wcv_ref=all` is used as
+  a literal value. It is harmless: every local run shows it, and the
+  release-day candidate bakes `strict`.
+- **Decision 2 is done.** The Riemann-Sealed sklearn/pyriemann joblib loads
+  and predicts on the scoring image. Still untested there: per-context
+  references and the 47-ch input (Dreyer has neither). Next chance: upload
+  the release-day candidate to the warm-up once it switches to Graz +
+  BrainHero, if before Oct 25.
+- **Organiser question.** The contact is
+  `neurips2026-eeg-emg-competition@googlegroups.com` (`competition_bci.yaml`
+  `contact_email`; the forum is disabled), and the live site says "Contact the
+  organising team on Discord". The FAQ does not cover test-time statistics.
+  The participant guide says "During `load_model` and `predict`, do not
+  train", so the drafted email asks whether running statistics count as
+  training, and about order, batching and persistence.

@@ -8,8 +8,9 @@ Warm-up scores are indicative only: public test data, leakage possible.
 | Date | Track / phase | Solver + key params | ZIP | Local bal. acc. | Codabench score | Notes |
 |---|---|---|---|---|---|---|
 | *ready* | Track 2 / warm-up | **EEGNet-StepType-WU1** (`solvers/bci_decoding/eegnet_steptype_wu1.py`): 100 epochs, patience 20, ref none, seed 33 | `submissions/eegnet_steptype_wu1_2026-09-24.zip` | 0.820 (config mean 0.806 ± 0.016, 3 seeds) | 0.82 (public leaderboard, submitted 2026-09-25 14:51 UTC as adoroodchi; presumably WU1, confirm) | replay-verified (read-only, inference-only, identical score) |
+| 2026-10-02 10:32 (as listed on Codabench) | Track 2 / warm-up | **Riemann-Sealed deployment test** (`logs/sealed_s1001/deploytest/riemann_sealed_cand.py`: the solver as of 71607ea with `xblocks="bpt4"` baked, other parameters default) | `logs/sealed_s1001/deploytest/riemann_sealed_deploytest_dreyer2023_2026-10-01.zip` (4.1 MiB, sha256 `0cf3c91b…2e1c17`) | 0.615873 (train = read-only replay) | **0.62** (submission #45, id 956971, adoroodchi, queue "Neural Interface 2026 - AWS", 58.68 s) | **Finished: the sealed model (sklearn/pyriemann joblib) runs on the scoring image.** A deployment test, not a leaderboard attempt. Only log message: benchopt's harmless `wcv_ref=all` literal-value warning (also in every local run) |
 
-### Recommended next upload: a deployment test (not a leaderboard attempt)
+### Deployment test (done 2026-10-02: passed)
 
 Recommended by the final sprint review, 2026-09-29. No sklearn/pyriemann joblib
 has ever run on the Codabench scoring image (`tommoral/neural-compet:v2`). The only
@@ -27,7 +28,8 @@ submission per day and hides the logs, so find out **during warm-up** (open unti
 - upload the zip (the user's action);
 - check that it reaches *Finished*, and read the ingestion log and its duration.
 
-**Prepared 2026-10-01 (sprint 1001): ready to upload, NOT uploaded.**
+**Prepared 2026-10-01 (sprint 1001); uploaded 2026-10-02 as submission 956971:
+Finished, 0.62, 58.68 s (row above).**
 
 | | |
 |---|---|

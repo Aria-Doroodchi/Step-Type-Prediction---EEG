@@ -65,10 +65,14 @@ local only. The deployment-test zip is for the user to upload (SUBMISSIONS.md).
 
 ## What the user needs to do
 
-1. Post the organiser question (SEALED_RECIPE § 5 step 1). It is unchanged and
-   still the largest lever.
-2. Upload the deployment-test zip (SUBMISSIONS.md: path, sha256, what to
-   check) before Oct 25.
+1. Send the organiser question (SEALED_RECIPE § 5 step 1): email
+   `neurips2026-eeg-emg-competition@googlegroups.com` (the Codabench support
+   address; the forum is off), or Discord, which the site links as its contact.
+   A draft (2026-10-02) also asks whether running statistics count as
+   "training" (the guide says not to train during `predict`) and whether the
+   model stays loaded between calls. It is still the largest lever.
+2. ~~Upload the deployment-test zip~~ **done 2026-10-02**: submission 956971,
+   Finished, 0.62, 58.68 s (SUBMISSIONS.md).
 3. Review rule 4 (`WREF=strict`) and rule 3b (icoh now passes at 500 Hz) in
    RELEASE_DAY § 6.
 4. Optional: merge `docs/sprint0928-consistency`, which fixes the stale

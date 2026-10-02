@@ -15,9 +15,11 @@ changes a decision, a number or the plan (§ 8).
 - **Data:** the sealed training data (Graz + BrainHero) is still *"coming soon"*
   (checked 2026-10-01 17:40). Every number below comes from public stand-in
   datasets with 4–9 people each. Differences under ~2 points are noise.
-- **Uploaded so far:** one warm-up model (EEGNet, 0.82 on the warm-up
-  leaderboard; that phase doesn't rank). A **deployment-test zip of the
-  sealed model is ready** for decision 2 ([SUBMISSIONS.md](SUBMISSIONS.md)).
+- **Uploaded so far** (warm-up, which doesn't rank;
+  [SUBMISSIONS.md](SUBMISSIONS.md)):
+  - EEGNet, 0.82;
+  - the **sealed model's deployment test** on 2026-10-02: Finished, 0.62 in
+    59 s. The Riemann-Sealed model runs on the scoring server.
 - **Sealed-phase candidate:** **Riemann-Sealed + bpt4**. It retrains end to
   end on release day with the runbook: **~4–4.5 h** now, down from 6–7 h,
   rehearsed at full size on 10-01 ([RELEASE_DAY.md](RELEASE_DAY.md) § 8).
@@ -31,8 +33,8 @@ changes a decision, a number or the plan (§ 8).
 
 | # | Decision | My recommendation | Why it matters | Your effort |
 |---|---|---|---|---|
-| 1 | **Ask the organisers** whether `predict()` may use statistics of unlabelled test windows, and in what order they arrive | Post it now (wording ready in [SEALED_RECIPE § 5](SEALED_RECIPE.md)) | Online re-centring is the largest lever we have: **+3 to +7.5 points**. We can't use it unless allowed | one forum post |
-| 2 | **Deployment-test upload** during warm-up | Upload the ready zip before Oct 25; [SUBMISSIONS.md](SUBMISSIONS.md) has the path and what to check | Our sealed model (sklearn/pyriemann) has never run on the scoring server. The sealed phase hides logs and allows 1 try/day | 1 upload (4.1 MiB) |
+| 1 | **Ask the organisers** whether `predict()` may use statistics of unlabelled test windows, in what order they arrive, and whether the model stays loaded | Send it now: email `neurips2026-eeg-emg-competition@googlegroups.com` (the Codabench support address; the forum is off) or Discord (the site's contact) | Online re-centring is the largest lever we have: **+3 to +7.5 points**. We can't use it unless allowed | one email |
+| 2 | ~~Deployment-test upload~~ **done 2026-10-02**: Finished, 0.62, 59 s | — | The sealed model's format runs on the scoring server | — |
 | 3 | **Keep bpt4 by default on release day** unless the real data shows ≥ 1 point better without it | Accept | It is the one solid gain of 09-29 (+4.4). Rule 3b in [RELEASE_DAY § 6](RELEASE_DAY.md) | read one rule |
 | 4 | **Review: strict CV references are now the release-day setting** (`WREF=strict`) | Accept | They remove a known bias in choosing the blend weight. Solver and harness agree exactly; the cost is +12 min at 500 Hz. Rule 4 in [RELEASE_DAY § 6](RELEASE_DAY.md) | read one rule |
 | 5 | Optional: approve REVE/LaBraM weights; merge the thesis docs branch `docs/sprint0928-consistency` (`main`'s perf-loop SUMMARY and MODELS still show old numbers) | Low priority | REVE/LaBraM are hours per epoch on this CPU | — |
@@ -92,15 +94,17 @@ changes a decision, a number or the plan (§ 8).
    pre-registered rules.
 2. **Rule uncertainty.** Online re-centring is neither allowed nor forbidden,
    and the test-window order is unknown (decision 1).
-3. **Deployment.** The sealed model's file format has never run on the scoring
-   server. The test zip is ready; it needs your upload (decision 2).
+3. **Deployment: tested 2026-10-02**: the sealed model runs on the scoring
+   server. Untested there: per-context references and the 47-ch input (Dreyer
+   has neither). Upload the release-day candidate to the warm-up once it
+   switches to Graz + BrainHero, if that is before Oct 25.
 4. **Compute (CPU only): largely solved on 10-01.** The per-person LDAs now
    cost ~0.15 s instead of ~9 s each. At 500 Hz the recipe fits in 15.7 min,
    bpt4 in 17.7 and bpt4 + icoh in 19.3 ([RELEASE_DAY § 8](RELEASE_DAY.md)).
    What remains is the feature computation itself.
-5. **Few windows per person.** About 360–720 calibration windows (the mock's
-   structure; the real counts are unknown) against ~6,000 features. Heavy shrinkage keeps it stable, but new blocks must be cheap and
-   strong.
+5. **Few windows per person.** About 360–720 calibration windows (mock
+   structure; real counts unknown) against ~6,000 features. Heavy shrinkage
+   keeps it stable, but new blocks must be cheap and strong.
 6. **Release-day time.** The runbook now takes ~4–4.5 h at 120 Hz (rehearsed
    at full size: ablations 69 min, replica check 28 min). The release date is
    still unknown, with the sealed phase on Oct 28.
@@ -109,11 +113,10 @@ changes a decision, a number or the plan (§ 8).
 
 | # | Step | Expected gain | Effort | Needs |
 |---|---|---|---|---|
-| 1 | Decisions 1 and 2 above | unlocks +3 to +7.5; removes the deployment risk | minutes | you |
+| 1 | Decision 1 above (send the organiser question) | unlocks +3 to +7.5 | minutes | you |
 | 2 | Release day (download → ablations → train → zip) | decides bpt4, icoh, contexts, channels on real data | ~4–4.5 h | the data release |
-| 3 | Only if the deployment test fails: fix what its log shows (unpickling is unlikely to be it: the joblib loads identically under sklearn 1.6–1.8, numpy 1.26–2.5, pyriemann 0.7–0.11) | removes the deployment risk | 1–3 h | the upload's result |
-| 4 | Riemann + EEGNet probability ensemble | +1 to +2 (EEGNet is now 6–12 points behind, so likely less) | half a day | nothing |
-| 5 | Thesis workstream: check that the full-window AUC advantage (0.714 headline) is not a cue/response artefact ([MODELS.md](../MODELS.md) "Confirm window effect is not leakage") | integrity of a public number | ~3 h | nothing |
+| 3 | Riemann + EEGNet probability ensemble | +1 to +2 (EEGNet is now 6–12 points behind, so likely less) | half a day | nothing |
+| 4 | Thesis workstream: check that the full-window AUC advantage (0.714 headline) is not a cue/response artefact ([MODELS.md](../MODELS.md) "Confirm window effect is not leakage") | integrity of a public number | ~3 h | nothing |
 
 Done on 10-01 (no longer open): faster per-person LDA; icoh's 500 Hz cost;
 strict per-fold blend-weight search. Not worth it now: REVE/LaBraM on this CPU,
@@ -140,6 +143,8 @@ a shared-covariance personal LDA.
   here.
 - **Numbers:** each one must match its source document.
 - **Change log** (newest first, one line each):
+  - 2026-10-02: deployment test passed on Codabench (0.62, 59 s); decision 2 done;
+    organiser contact (email / Discord) in decision 1.
   - 2026-10-02: sprint 10-01. Dual LDA (icoh fits at 500 Hz: old decision 4
     resolved); strict CV references adopted (new decision 4: review);
     deployment zip ready; release day ~4–4.5 h; shared-covariance LDA no gain.
