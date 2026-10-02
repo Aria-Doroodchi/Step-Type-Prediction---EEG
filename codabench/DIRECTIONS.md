@@ -1,6 +1,6 @@
 # Directions: Track 2 at a glance
 
-**Updated 2026-10-01** after the 2026-09-29/30 sprint. This is the short version
+**Updated 2026-10-02** after the 2026-10-01 sprint. This is the short version
 for making decisions. Every number links to where it comes from. Read the long
 documents only if you want the detail (§ 7). Kept current by every session that
 changes a decision, a number or the plan (§ 8).
@@ -13,12 +13,14 @@ changes a decision, a number or the plan (§ 8).
   - the **sealed phase, Oct 28 – Nov 21**, is the only phase that ranks:
     1 upload/day, top 3 audited.
 - **Data:** the sealed training data (Graz + BrainHero) is still *"coming soon"*
-  (checked 2026-09-30 01:10). Every number below comes from public stand-in
+  (checked 2026-10-01 17:40). Every number below comes from public stand-in
   datasets with 4–9 people each. Differences under ~2 points are noise.
 - **Uploaded so far:** one warm-up model (EEGNet, 0.82 on the warm-up
-  leaderboard; that phase doesn't rank).
+  leaderboard; that phase doesn't rank). A **deployment-test zip of the
+  sealed model is ready** for decision 2 ([SUBMISSIONS.md](SUBMISSIONS.md)).
 - **Sealed-phase candidate:** **Riemann-Sealed + bpt4**. It retrains end to
-  end on release day with the runbook (6–7 h, [RELEASE_DAY.md](RELEASE_DAY.md)).
+  end on release day with the runbook: **~4–4.5 h** now, down from 6–7 h,
+  rehearsed at full size on 10-01 ([RELEASE_DAY.md](RELEASE_DAY.md) § 8).
 - **Headline on the stand-in closest to the sealed tasks** (Scherer: word
   association / subtraction / hand imagery, 3 classes, chance 0.333):
   - **0.529** balanced accuracy, up from 0.486 before this week;
@@ -30,10 +32,10 @@ changes a decision, a number or the plan (§ 8).
 | # | Decision | My recommendation | Why it matters | Your effort |
 |---|---|---|---|---|
 | 1 | **Ask the organisers** whether `predict()` may use statistics of unlabelled test windows, and in what order they arrive | Post it now (wording ready in [SEALED_RECIPE § 5](SEALED_RECIPE.md)) | Online re-centring is the largest lever we have: **+3 to +7.5 points**. We can't use it unless allowed | one forum post |
-| 2 | **Deployment-test upload** during warm-up | Do it before Oct 25 ([SUBMISSIONS.md](SUBMISSIONS.md) has the command) | Our sealed model (sklearn/pyriemann) has never run on the scoring server. The sealed phase hides logs and allows 1 try/day | ~30 min training + 1 upload |
-| 3 | **Keep bpt4 by default on release day** unless the real data shows ≥ 1 point better without it | Accept | It is the one solid gain this week (+4.4). Rule 3b in [RELEASE_DAY § 6](RELEASE_DAY.md) | read one rule |
-| 4 | **icoh on 500 Hz data**: it fails the 1.5× compute gate (34 vs 19 min fit) but meets the older 45-min rule | Accept the 45-min rule: ~+15 min per training run is affordable | icoh may add ~2 points (+6.5 together with bpt4, post-hoc) | decision only |
-| 5 | Optional: approve REVE/LaBraM weights; merge the thesis docs branch `docs/sprint0928-consistency` | Low priority | REVE/LaBraM are hours per epoch on this CPU | — |
+| 2 | **Deployment-test upload** during warm-up | Upload the ready zip before Oct 25; [SUBMISSIONS.md](SUBMISSIONS.md) has the path and what to check | Our sealed model (sklearn/pyriemann) has never run on the scoring server. The sealed phase hides logs and allows 1 try/day | 1 upload (4.1 MiB) |
+| 3 | **Keep bpt4 by default on release day** unless the real data shows ≥ 1 point better without it | Accept | It is the one solid gain of 09-29 (+4.4). Rule 3b in [RELEASE_DAY § 6](RELEASE_DAY.md) | read one rule |
+| 4 | **Review: strict CV references are now the release-day setting** (`WREF=strict`) | Accept | They remove a known bias in choosing the blend weight. Solver and harness agree exactly; the cost is +12 min at 500 Hz. Rule 4 in [RELEASE_DAY § 6](RELEASE_DAY.md) | read one rule |
+| 5 | Optional: approve REVE/LaBraM weights; merge the thesis docs branch `docs/sprint0928-consistency` (`main`'s perf-loop SUMMARY and MODELS still show old numbers) | Low priority | REVE/LaBraM are hours per epoch on this CPU | — |
 
 ## 3. The model in one picture (Riemann-Sealed + bpt4)
 
@@ -52,6 +54,7 @@ changes a decision, a number or the plan (§ 8).
  │                   bpt4: band power per channel in 4 one-second bins                 688   new, +4.4
  └─ 4 Classifier   shrinkage LDA on everyone (pooled), blended with the participant's own LDA;
                    blend weight chosen on their calibration sessions
+                   (since 10-01: per-person LDAs solved in a 50× faster, equivalent form)
 ```
 
 - **What is not in the sealed model:** the neural network (EEGNet), which
@@ -68,9 +71,10 @@ changes a decision, a number or the plan (§ 8).
 | **Online re-centring** (uses unlabelled test windows) | +3.5 to +7.5; +3.0 to +4.4 if test windows arrive shuffled | **built, waiting on decision 1** |
 | Filter bank (4 bands) | carries most of the 3-class signal | in the model |
 | **bpt4**: when in the trial each band's power changes | +4.35 (CI +2.05, +6.67), positive on 4 of 4 stand-ins | **in the model since 09-29** |
-| **icoh**: lagged connectivity between channels | +2.2 alone; +6.5 with bpt4 (post-hoc) | release-day test; compute issue at 500 Hz |
+| **icoh**: lagged connectivity between channels | +2.2 alone; +6.5 with bpt4 (post-hoc) | release-day test; **fits at 500 Hz since 10-01** (19.3 min, 1.23×) |
 | xDAWN (class templates) | +4–5 on motor imagery, ~0 on the sealed-like tasks | kept; first to drop if the real data disagrees |
-| No gain | EEGNet; pre-training on other datasets; more participants; re-referencing / Laplacian; CSP; regional covariances; band-power maps; time-segment covariances (under the deployed model); 8–30 Hz band-pass | dropped |
+| Strict CV references for the blend weight | correctness, not accuracy: on Zhou w moved 0.5 → 0.75; the others unchanged | **release-day setting since 10-01** |
+| No gain | EEGNet; pre-training on other datasets; more participants; re-referencing / Laplacian; CSP; regional covariances; band-power maps; time-segment covariances (under the deployed model); 8–30 Hz band-pass; **personal LDA with a shared (pooled) covariance** (10-01: −2.7 / −0.9 on Scherer 3-class) | dropped |
 
 - **Where the brain-activation differences are** (training sessions only,
   [activation EDA](reports/features_0929/activation_eda.md)):
@@ -89,30 +93,32 @@ changes a decision, a number or the plan (§ 8).
 2. **Rule uncertainty.** Online re-centring is neither allowed nor forbidden,
    and the test-window order is unknown (decision 1).
 3. **Deployment.** The sealed model's file format has never run on the scoring
-   server (decision 2).
-4. **Compute (CPU only).** Each added feature makes the per-person LDAs slower
-   (cubic in the feature count). At 500 Hz: the recipe fits in 19 min, + icoh
-   in 34 min ([RELEASE_DAY § 8](RELEASE_DAY.md)). This caps how many features
-   we can add.
+   server. The test zip is ready; it needs your upload (decision 2).
+4. **Compute (CPU only): largely solved on 10-01.** The per-person LDAs now
+   cost ~0.15 s instead of ~9 s each. At 500 Hz the recipe fits in 15.7 min,
+   bpt4 in 17.7 and bpt4 + icoh in 19.3 ([RELEASE_DAY § 8](RELEASE_DAY.md)).
+   What remains is the feature computation itself.
 5. **Few windows per person.** About 360–720 calibration windows (the mock's
    structure; the real counts are unknown) against ~6,000 features. Heavy shrinkage keeps it stable, but new blocks must be cheap and
    strong.
-6. **Release-day time.** The runbook takes 6–7 h, and the release date is
-   unknown with the sealed phase on Oct 28.
+6. **Release-day time.** The runbook now takes ~4–4.5 h at 120 Hz (rehearsed
+   at full size: ablations 69 min, replica check 28 min). The release date is
+   still unknown, with the sealed phase on Oct 28.
 
 ## 6. Next steps worth exploring (ranked)
 
 | # | Step | Expected gain | Effort | Needs |
 |---|---|---|---|---|
 | 1 | Decisions 1 and 2 above | unlocks +3 to +7.5; removes the deployment risk | minutes | you |
-| 2 | **Faster per-person LDA** (solve in the n < d form) | no accuracy change; makes icoh (and bigger feature sets) cheap at 500 Hz | ~3 h | nothing |
-| 3 | **icoh restricted to 2 bands** (8–13, 13–30 Hz), screened and sized | keeps most of icoh's gain at ~half the cost | ~3 h | nothing |
-| 4 | Strict per-fold blend-weight search | correctness: removes ~2 points of bias when choosing the weight | 2–3 h | nothing |
-| 5 | Riemann + EEGNet probability ensemble | +1 to +2 | half a day | nothing |
-| 6 | Release day (download → ablations → train → zip) | decides everything above on real data | 6–7 h | the data release |
+| 2 | Release day (download → ablations → train → zip) | decides bpt4, icoh, contexts, channels on real data | ~4–4.5 h | the data release |
+| 3 | If the deployment test fails on unpickling: store the model as plain arrays (no pickled sklearn/pyriemann objects) | removes the version risk | ~3 h | the upload's result |
+| 4 | Riemann + EEGNet probability ensemble | +1 to +2 (EEGNet is now 6–12 points behind, so likely less) | half a day | nothing |
+| 5 | Thesis workstream: check that the full-window AUC advantage (0.714 headline) is not a cue/response artefact ([MODELS.md](../MODELS.md) "Confirm window effect is not leakage") | integrity of a public number | ~3 h | nothing |
 
-Not worth it now: REVE/LaBraM on this CPU, more training participants, more
-spatial-filter variants.
+Done on 10-01 (no longer open): faster per-person LDA; icoh's 500 Hz cost;
+strict per-fold blend-weight search. Not worth it now: REVE/LaBraM on this CPU,
+more training participants, more spatial-filter variants, a restricted icoh,
+a shared-covariance personal LDA.
 
 ## 7. Where to read more
 
@@ -134,5 +140,8 @@ spatial-filter variants.
   here.
 - **Numbers:** each one must match its source document.
 - **Change log** (newest first, one line each):
+  - 2026-10-02: sprint 10-01. Dual LDA (icoh fits at 500 Hz: old decision 4
+    resolved); strict CV references adopted (new decision 4: review);
+    deployment zip ready; release day ~4–4.5 h; shared-covariance LDA no gain.
   - 2026-10-01: created. bpt4 is in the model; icoh is a release-day test; 4
     decisions pending.

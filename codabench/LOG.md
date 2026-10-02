@@ -1831,3 +1831,45 @@ review fixes and `wcv_ref`): train **0.615873 = replay**. Zip **4.1 MiB**
 `0cf3c91b57e9cfc0035316a05b83e9bb6c3a9509d0cafce694186873272e1c17`,
 `logs/sealed_s1001/deploytest/riemann_sealed_deploytest_dreyer2023_2026-10-01.zip`.
 NOT uploaded: that is the user's action (SUBMISSIONS.md).
+
+### Phase 4 (final) — integration review of the release-day path (22:09–22:18, 1 agent) and fixes
+
+The review walked RELEASE_DAY as on release day, against the scripts. It also
+simulated § 7 step 2 under strict on the rehearsal folders: W1 0.75, 5
+strict rows found, the personal step skips on the seeded rows, the
+HARNESS_FROM gate passes. Findings:
+- **Major, pre-existing:** step 2's W1 line always read
+  `logs/replica_$S/STATUS.md`, even after the rerun as `replica2_$S` that § 7
+  itself recommends. A failed run's weight would then be baked, and
+  `GATE=final` would not catch it. **Fixed:**
+  - `R1=` (the step-1 run) now drives the step-1 commands, W1 and
+    `HARNESS_FROM`;
+  - `train_sealed.sh` stops when a baked numeric `BLEND_W` differs from the
+    weight seeded by `HARNESS_FROM` (`FORCE_ZIP=1` overrides with a WARNING).
+- **Minor:** § 8 / § 9 / the header were stale against the rehearsal (now
+  the measured budget: plan 4–4.5 h). The 47-channel branch of § 5 did not
+  carry WREF. Rule 4's cost line had the wrong fold count.
+  `f0929_summarize.py` / `sealed_bootstrap.py` could mix strict and all
+  rows: the former now separates them by spec label, the latter keeps all
+  rows only. **All fixed.**
+- **Nits fixed:**
+  - `wcv_ref` is now in the candidate note and in step 3's grep, and "fold
+    scores per w" in step 1's grep;
+  - the summarizer's online-row filter uses the harness's exact router set,
+    and its "All rows" table has a wref column;
+  - the mock DEC comment and `train_sealed.sh`'s HARNESS_FROM example are
+    updated;
+  - SEALED_RECIPE § 5 wording: Zhou's weight did move under strict;
+    speed-ups 50–60× synthetic, 85–150× on real fits.
+- **Not changed (noted):** solver-harness parity under strict was checked
+  with EEG channels at 120 Hz only.
+
+**Step-2 guard check** (`scripts/sprint1001_p9.sh`, 22:19:14–22:25:45, on
+the full-size rehearsal; `RESULTS_p9.md`):
+- `BLEND_W=0.5` (not step 1's 0.75) stopped with the new ERROR after the
+  seeded harness steps (rc 1, 56 s).
+- `BLEND_W=0.75`: § 7 step 2 at full size in **5.6 min** (budget ~30 min):
+  validate 4 s and personal 44 s on the seeded rows, solver fit 222 s on
+  10,800 windows, replay 29 s; train 0.638889 = replay; zipped.
+- The harness gap FLAG (0.0381) is informational under `GATE=final` (its
+  test set differs from the harness's), as in the 2026-09-29 rehearsal.

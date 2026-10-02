@@ -48,7 +48,10 @@ def load_rows(tags):
     for t in tags:
         for r in L.read_results(LOGS / f"sealed_{t}" / "results.jsonl"):
             cls = tuple(r["classes"]) if r.get("classes") else None
-            idx[(r["study"], cls, r["spec"], r["mode"], r["align"])] = r   # last wins
+            # wref (2026-10-01): strict and all rows of one tag are different configs
+            idx[(r["study"], cls, r["spec"] + ("" if r.get("wref", "all") == "all"
+                                                 else f" [wref={r['wref']}]"),
+                 r["mode"], r["align"])] = r   # last wins
     return idx
 
 

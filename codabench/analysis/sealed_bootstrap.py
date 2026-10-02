@@ -54,6 +54,8 @@ def main():
         rows += L.read_results(Path.home() / f"codabench/logs/sealed_{t}/results.jsonl")
     idx = {}
     for r in rows:
+        if r.get("wref", "all") != "all":   # (2026-10-01) the claims are all-reference rows
+            continue
         idx[(r["study"], tuple(r["classes"]) if r["classes"] else None,
              r["spec"], r["mode"], r["align"])] = r
     rng = np.random.default_rng(0)

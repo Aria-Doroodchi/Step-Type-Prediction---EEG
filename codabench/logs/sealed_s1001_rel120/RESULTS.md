@@ -20,75 +20,75 @@ Split calib:3 (test subjects 0,1,2,3,4,5,6,7,8,9), router cap 0.5, X=(14400, 43,
 
 ## All rows
 
-| spec | mode | align | chans | pool | wcv | cell | brainhero | graz | pooled | n_cells | router acc | fallback | s |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| meanlr | persubject | none | eeg | all |  | 0.3914 | 0.391 | 0.392 | 0.3914 | 60 |  |  | 0 |
-| meanlr | persubject | router-psd:riemann | eeg | all |  | 0.3908 | 0.387 | 0.395 | 0.3908 | 60 | 0.997 | 0.000 | 18 |
-| meanlr | persubject | router-psdctx:riemann | eeg | all |  | 0.3972 | 0.392 | 0.403 | 0.3972 | 60 | 0.999 | 0.000 | 16 |
-| meanlr | pooled | none | eeg | all |  | 0.4219 | 0.420 | 0.424 | 0.4219 | 60 |  |  | 0 |
-| meanlr | pooled | router-psd:riemann | eeg | all |  | 0.4136 | 0.407 | 0.420 | 0.4136 | 60 | 0.997 | 0.000 | 36 |
-| meanlr | pooled | router-psdctx:riemann | eeg | all |  | 0.4164 | 0.406 | 0.427 | 0.4164 | 60 | 0.999 | 0.000 | 34 |
-| riemann:xd=0,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg | all | last | 0.6364 | 0.636 | 0.637 | 0.6364 | 60 | 0.997 | 0.000 | 560 |
-| riemann:xd=0,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg | all | last | 0.6367 | 0.636 | 0.637 | 0.6367 | 60 | 0.997 | 0.000 | 560 |
-| riemann:xd=0,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg | all | last | 0.6228 | 0.625 | 0.621 | 0.6228 | 60 | 0.997 | 0.000 | 560 |
-| riemann:xd=0,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg | all | last | 0.6233 | 0.625 | 0.622 | 0.6233 | 60 | 0.997 | 0.000 | 560 |
-| riemann:xd=0,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg | all | last | 0.6222 | 0.607 | 0.638 | 0.6222 | 60 | 0.997 | 0.000 | 560 |
-| riemann:xd=1,fb=1,x=bpt4 | persubject | none | eeg | all |  | 0.6719 | 0.658 | 0.686 | 0.6719 | 60 |  |  | 88 |
-| riemann:xd=1,fb=1,x=bpt4 | persubject | router-psd:riemann | eeg | all |  | 0.6017 | 0.602 | 0.602 | 0.6017 | 60 | 0.997 | 0.000 | 104 |
-| riemann:xd=1,fb=1,x=bpt4 | persubject | router-psdctx:riemann | eeg | all |  | 0.5950 | 0.594 | 0.596 | 0.5950 | 60 | 0.999 | 0.000 | 101 |
-| riemann:xd=1,fb=1,x=bpt4 | pooled | none | eeg | all |  | 0.6136 | 0.600 | 0.627 | 0.6136 | 60 |  |  | 145 |
-| riemann:xd=1,fb=1,x=bpt4 | pooled | router-psd:riemann | eeg | all |  | 0.5964 | 0.578 | 0.615 | 0.5964 | 60 | 0.997 | 0.000 | 165 |
-| riemann:xd=1,fb=1,x=bpt4 | pooled | router-psdctx:riemann | eeg | all |  | 0.6683 | 0.659 | 0.678 | 0.6683 | 60 | 0.999 | 0.000 | 163 |
-| riemann:xd=1,fb=1,x=bpt4+icoh/blend_calib | oracle-id | router-psd:riemann | eeg | all | last | 0.6208 | 0.616 | 0.626 | 0.6208 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4+icoh/blend_calib | router-id | router-psd:riemann | eeg | all | last | 0.6208 | 0.616 | 0.626 | 0.6208 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4+icoh/calib | oracle-id | router-psd:riemann | eeg | all | last | 0.5944 | 0.592 | 0.597 | 0.5944 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4+icoh/calib | router-id | router-psd:riemann | eeg | all | last | 0.5944 | 0.592 | 0.597 | 0.5944 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4+icoh/pooled | none | router-psd:riemann | eeg | all | last | 0.6022 | 0.589 | 0.616 | 0.6022 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | online-64:riemann | eeg | all | last | 0.6494 | 0.646 | 0.653 | 0.6494 | 60 | 0.997 | 0.000 | 339 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | all | all | last | 0.5947 | 0.596 | 0.593 | 0.5947 | 60 | 0.998 | 0.000 | 457 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg | all | last | 0.6278 | 0.629 | 0.627 | 0.6278 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg | all | loso | 0.6278 | 0.629 | 0.627 | 0.6278 | 60 | 0.997 | 0.000 | 744 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg | test | last | 0.6339 | 0.641 | 0.627 | 0.6339 | 60 | 0.997 | 0.000 | 227 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg+emg | all | last | 0.5847 | 0.590 | 0.579 | 0.5847 | 60 | 0.997 | 0.000 | 597 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg+eog | all | last | 0.6342 | 0.633 | 0.636 | 0.6342 | 60 | 0.998 | 0.000 | 603 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psdctx:riemann | eeg | all | last | 0.6769 | 0.669 | 0.684 | 0.6769 | 60 | 0.999 | 0.000 | 397 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | online-64:riemann | eeg | all | last | 0.6497 | 0.646 | 0.653 | 0.6497 | 60 | 0.997 | 0.000 | 339 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | all | all | last | 0.5953 | 0.596 | 0.594 | 0.5953 | 60 | 0.998 | 0.000 | 457 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg | all | last | 0.6278 | 0.629 | 0.627 | 0.6278 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg | all | loso | 0.6278 | 0.629 | 0.627 | 0.6278 | 60 | 0.997 | 0.000 | 744 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg | test | last | 0.6353 | 0.641 | 0.630 | 0.6353 | 60 | 0.997 | 0.000 | 227 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg+emg | all | last | 0.5847 | 0.590 | 0.579 | 0.5847 | 60 | 0.997 | 0.000 | 597 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg+eog | all | last | 0.6342 | 0.633 | 0.636 | 0.6342 | 60 | 0.998 | 0.000 | 603 |
-| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psdctx:riemann | eeg | all | last | 0.6769 | 0.669 | 0.684 | 0.6769 | 60 | 0.999 | 0.000 | 397 |
-| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | online-64:riemann | eeg | all | last | 0.6369 | 0.633 | 0.641 | 0.6369 | 60 | 0.997 | 0.000 | 339 |
-| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | all | all | last | 0.5842 | 0.589 | 0.579 | 0.5842 | 60 | 0.998 | 0.000 | 457 |
-| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg | all | last | 0.6114 | 0.615 | 0.608 | 0.6114 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg | all | loso | 0.6114 | 0.615 | 0.608 | 0.6114 | 60 | 0.997 | 0.000 | 744 |
-| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg | test | last | 0.6119 | 0.620 | 0.604 | 0.6119 | 60 | 0.997 | 0.000 | 227 |
-| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg+emg | all | last | 0.5739 | 0.581 | 0.567 | 0.5739 | 60 | 0.997 | 0.000 | 597 |
-| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg+eog | all | last | 0.6158 | 0.617 | 0.614 | 0.6158 | 60 | 0.998 | 0.000 | 603 |
-| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psdctx:riemann | eeg | all | last | 0.6181 | 0.612 | 0.624 | 0.6181 | 60 | 0.999 | 0.000 | 397 |
-| riemann:xd=1,fb=1,x=bpt4/calib | router-id | online-64:riemann | eeg | all | last | 0.6372 | 0.633 | 0.642 | 0.6372 | 60 | 0.997 | 0.000 | 339 |
-| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | all | all | last | 0.5847 | 0.589 | 0.580 | 0.5847 | 60 | 0.998 | 0.000 | 457 |
-| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg | all | last | 0.6114 | 0.615 | 0.608 | 0.6114 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg | all | loso | 0.6114 | 0.615 | 0.608 | 0.6114 | 60 | 0.997 | 0.000 | 744 |
-| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg | test | last | 0.6133 | 0.620 | 0.607 | 0.6133 | 60 | 0.997 | 0.000 | 227 |
-| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg+emg | all | last | 0.5739 | 0.581 | 0.567 | 0.5739 | 60 | 0.997 | 0.000 | 597 |
-| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg+eog | all | last | 0.6161 | 0.617 | 0.615 | 0.6161 | 60 | 0.998 | 0.000 | 603 |
-| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psdctx:riemann | eeg | all | last | 0.6178 | 0.612 | 0.623 | 0.6178 | 60 | 0.999 | 0.000 | 397 |
-| riemann:xd=1,fb=1,x=bpt4/pooled | none | online-64:riemann | eeg | all | last | 0.6033 | 0.581 | 0.626 | 0.6033 | 60 | 0.997 | 0.000 | 339 |
-| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | all | all | last | 0.5631 | 0.557 | 0.569 | 0.5631 | 60 | 0.998 | 0.000 | 457 |
-| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg | all | last | 0.5964 | 0.578 | 0.615 | 0.5964 | 60 | 0.997 | 0.000 | 573 |
-| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg | all | loso | 0.5964 | 0.578 | 0.615 | 0.5964 | 60 | 0.997 | 0.000 | 744 |
-| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg | test | last | 0.5683 | 0.563 | 0.573 | 0.5683 | 60 | 0.997 | 0.000 | 227 |
-| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg+emg | all | last | 0.5536 | 0.548 | 0.559 | 0.5536 | 60 | 0.997 | 0.000 | 597 |
-| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg+eog | all | last | 0.5975 | 0.592 | 0.603 | 0.5975 | 60 | 0.998 | 0.000 | 603 |
-| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psdctx:riemann | eeg | all | last | 0.6683 | 0.659 | 0.678 | 0.6683 | 60 | 0.999 | 0.000 | 397 |
-| riemann:xd=1,fb=1/blend_calib | oracle-id | router-psd:riemann | eeg | all | last | 0.6044 | 0.608 | 0.601 | 0.6044 | 60 | 0.997 | 0.000 | 402 |
-| riemann:xd=1,fb=1/blend_calib | router-id | router-psd:riemann | eeg | all | last | 0.6042 | 0.608 | 0.600 | 0.6042 | 60 | 0.997 | 0.000 | 402 |
-| riemann:xd=1,fb=1/calib | oracle-id | router-psd:riemann | eeg | all | last | 0.5892 | 0.590 | 0.588 | 0.5892 | 60 | 0.997 | 0.000 | 402 |
-| riemann:xd=1,fb=1/calib | router-id | router-psd:riemann | eeg | all | last | 0.5886 | 0.590 | 0.587 | 0.5886 | 60 | 0.997 | 0.000 | 402 |
-| riemann:xd=1,fb=1/pooled | none | router-psd:riemann | eeg | all | last | 0.6014 | 0.589 | 0.614 | 0.6014 | 60 | 0.997 | 0.000 | 402 |
+| spec | mode | align | chans | pool | wcv | wref | cell | brainhero | graz | pooled | n_cells | router acc | fallback | s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| meanlr | persubject | none | eeg | all |  | all | 0.3914 | 0.391 | 0.392 | 0.3914 | 60 |  |  | 0 |
+| meanlr | persubject | router-psd:riemann | eeg | all |  | all | 0.3908 | 0.387 | 0.395 | 0.3908 | 60 | 0.997 | 0.000 | 18 |
+| meanlr | persubject | router-psdctx:riemann | eeg | all |  | all | 0.3972 | 0.392 | 0.403 | 0.3972 | 60 | 0.999 | 0.000 | 16 |
+| meanlr | pooled | none | eeg | all |  | all | 0.4219 | 0.420 | 0.424 | 0.4219 | 60 |  |  | 0 |
+| meanlr | pooled | router-psd:riemann | eeg | all |  | all | 0.4136 | 0.407 | 0.420 | 0.4136 | 60 | 0.997 | 0.000 | 36 |
+| meanlr | pooled | router-psdctx:riemann | eeg | all |  | all | 0.4164 | 0.406 | 0.427 | 0.4164 | 60 | 0.999 | 0.000 | 34 |
+| riemann:xd=0,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg | all | last | strict | 0.6364 | 0.636 | 0.637 | 0.6364 | 60 | 0.997 | 0.000 | 560 |
+| riemann:xd=0,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg | all | last | strict | 0.6367 | 0.636 | 0.637 | 0.6367 | 60 | 0.997 | 0.000 | 560 |
+| riemann:xd=0,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg | all | last | strict | 0.6228 | 0.625 | 0.621 | 0.6228 | 60 | 0.997 | 0.000 | 560 |
+| riemann:xd=0,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg | all | last | strict | 0.6233 | 0.625 | 0.622 | 0.6233 | 60 | 0.997 | 0.000 | 560 |
+| riemann:xd=0,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg | all | last | strict | 0.6222 | 0.607 | 0.638 | 0.6222 | 60 | 0.997 | 0.000 | 560 |
+| riemann:xd=1,fb=1,x=bpt4 | persubject | none | eeg | all |  | all | 0.6719 | 0.658 | 0.686 | 0.6719 | 60 |  |  | 88 |
+| riemann:xd=1,fb=1,x=bpt4 | persubject | router-psd:riemann | eeg | all |  | all | 0.6017 | 0.602 | 0.602 | 0.6017 | 60 | 0.997 | 0.000 | 104 |
+| riemann:xd=1,fb=1,x=bpt4 | persubject | router-psdctx:riemann | eeg | all |  | all | 0.5950 | 0.594 | 0.596 | 0.5950 | 60 | 0.999 | 0.000 | 101 |
+| riemann:xd=1,fb=1,x=bpt4 | pooled | none | eeg | all |  | all | 0.6136 | 0.600 | 0.627 | 0.6136 | 60 |  |  | 145 |
+| riemann:xd=1,fb=1,x=bpt4 | pooled | router-psd:riemann | eeg | all |  | all | 0.5964 | 0.578 | 0.615 | 0.5964 | 60 | 0.997 | 0.000 | 165 |
+| riemann:xd=1,fb=1,x=bpt4 | pooled | router-psdctx:riemann | eeg | all |  | all | 0.6683 | 0.659 | 0.678 | 0.6683 | 60 | 0.999 | 0.000 | 163 |
+| riemann:xd=1,fb=1,x=bpt4+icoh/blend_calib | oracle-id | router-psd:riemann | eeg | all | last | strict | 0.6208 | 0.616 | 0.626 | 0.6208 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4+icoh/blend_calib | router-id | router-psd:riemann | eeg | all | last | strict | 0.6208 | 0.616 | 0.626 | 0.6208 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4+icoh/calib | oracle-id | router-psd:riemann | eeg | all | last | strict | 0.5944 | 0.592 | 0.597 | 0.5944 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4+icoh/calib | router-id | router-psd:riemann | eeg | all | last | strict | 0.5944 | 0.592 | 0.597 | 0.5944 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4+icoh/pooled | none | router-psd:riemann | eeg | all | last | strict | 0.6022 | 0.589 | 0.616 | 0.6022 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | online-64:riemann | eeg | all | last | all | 0.6494 | 0.646 | 0.653 | 0.6494 | 60 | 0.997 | 0.000 | 339 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | all | all | last | strict | 0.5947 | 0.596 | 0.593 | 0.5947 | 60 | 0.998 | 0.000 | 457 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg | all | last | strict | 0.6278 | 0.629 | 0.627 | 0.6278 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg | all | loso | strict | 0.6278 | 0.629 | 0.627 | 0.6278 | 60 | 0.997 | 0.000 | 744 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg | test | last | strict | 0.6339 | 0.641 | 0.627 | 0.6339 | 60 | 0.997 | 0.000 | 227 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg+emg | all | last | strict | 0.5847 | 0.590 | 0.579 | 0.5847 | 60 | 0.997 | 0.000 | 597 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psd:riemann | eeg+eog | all | last | strict | 0.6342 | 0.633 | 0.636 | 0.6342 | 60 | 0.998 | 0.000 | 603 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | oracle-id | router-psdctx:riemann | eeg | all | last | strict | 0.6769 | 0.669 | 0.684 | 0.6769 | 60 | 0.999 | 0.000 | 397 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | online-64:riemann | eeg | all | last | all | 0.6497 | 0.646 | 0.653 | 0.6497 | 60 | 0.997 | 0.000 | 339 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | all | all | last | strict | 0.5953 | 0.596 | 0.594 | 0.5953 | 60 | 0.998 | 0.000 | 457 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg | all | last | strict | 0.6278 | 0.629 | 0.627 | 0.6278 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg | all | loso | strict | 0.6278 | 0.629 | 0.627 | 0.6278 | 60 | 0.997 | 0.000 | 744 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg | test | last | strict | 0.6353 | 0.641 | 0.630 | 0.6353 | 60 | 0.997 | 0.000 | 227 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg+emg | all | last | strict | 0.5847 | 0.590 | 0.579 | 0.5847 | 60 | 0.997 | 0.000 | 597 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psd:riemann | eeg+eog | all | last | strict | 0.6342 | 0.633 | 0.636 | 0.6342 | 60 | 0.998 | 0.000 | 603 |
+| riemann:xd=1,fb=1,x=bpt4/blend_calib | router-id | router-psdctx:riemann | eeg | all | last | strict | 0.6769 | 0.669 | 0.684 | 0.6769 | 60 | 0.999 | 0.000 | 397 |
+| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | online-64:riemann | eeg | all | last | all | 0.6369 | 0.633 | 0.641 | 0.6369 | 60 | 0.997 | 0.000 | 339 |
+| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | all | all | last | strict | 0.5842 | 0.589 | 0.579 | 0.5842 | 60 | 0.998 | 0.000 | 457 |
+| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg | all | last | strict | 0.6114 | 0.615 | 0.608 | 0.6114 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg | all | loso | strict | 0.6114 | 0.615 | 0.608 | 0.6114 | 60 | 0.997 | 0.000 | 744 |
+| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg | test | last | strict | 0.6119 | 0.620 | 0.604 | 0.6119 | 60 | 0.997 | 0.000 | 227 |
+| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg+emg | all | last | strict | 0.5739 | 0.581 | 0.567 | 0.5739 | 60 | 0.997 | 0.000 | 597 |
+| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psd:riemann | eeg+eog | all | last | strict | 0.6158 | 0.617 | 0.614 | 0.6158 | 60 | 0.998 | 0.000 | 603 |
+| riemann:xd=1,fb=1,x=bpt4/calib | oracle-id | router-psdctx:riemann | eeg | all | last | strict | 0.6181 | 0.612 | 0.624 | 0.6181 | 60 | 0.999 | 0.000 | 397 |
+| riemann:xd=1,fb=1,x=bpt4/calib | router-id | online-64:riemann | eeg | all | last | all | 0.6372 | 0.633 | 0.642 | 0.6372 | 60 | 0.997 | 0.000 | 339 |
+| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | all | all | last | strict | 0.5847 | 0.589 | 0.580 | 0.5847 | 60 | 0.998 | 0.000 | 457 |
+| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg | all | last | strict | 0.6114 | 0.615 | 0.608 | 0.6114 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg | all | loso | strict | 0.6114 | 0.615 | 0.608 | 0.6114 | 60 | 0.997 | 0.000 | 744 |
+| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg | test | last | strict | 0.6133 | 0.620 | 0.607 | 0.6133 | 60 | 0.997 | 0.000 | 227 |
+| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg+emg | all | last | strict | 0.5739 | 0.581 | 0.567 | 0.5739 | 60 | 0.997 | 0.000 | 597 |
+| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psd:riemann | eeg+eog | all | last | strict | 0.6161 | 0.617 | 0.615 | 0.6161 | 60 | 0.998 | 0.000 | 603 |
+| riemann:xd=1,fb=1,x=bpt4/calib | router-id | router-psdctx:riemann | eeg | all | last | strict | 0.6178 | 0.612 | 0.623 | 0.6178 | 60 | 0.999 | 0.000 | 397 |
+| riemann:xd=1,fb=1,x=bpt4/pooled | none | online-64:riemann | eeg | all | last | all | 0.6033 | 0.581 | 0.626 | 0.6033 | 60 | 0.997 | 0.000 | 339 |
+| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | all | all | last | strict | 0.5631 | 0.557 | 0.569 | 0.5631 | 60 | 0.998 | 0.000 | 457 |
+| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg | all | last | strict | 0.5964 | 0.578 | 0.615 | 0.5964 | 60 | 0.997 | 0.000 | 573 |
+| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg | all | loso | strict | 0.5964 | 0.578 | 0.615 | 0.5964 | 60 | 0.997 | 0.000 | 744 |
+| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg | test | last | strict | 0.5683 | 0.563 | 0.573 | 0.5683 | 60 | 0.997 | 0.000 | 227 |
+| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg+emg | all | last | strict | 0.5536 | 0.548 | 0.559 | 0.5536 | 60 | 0.997 | 0.000 | 597 |
+| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psd:riemann | eeg+eog | all | last | strict | 0.5975 | 0.592 | 0.603 | 0.5975 | 60 | 0.998 | 0.000 | 603 |
+| riemann:xd=1,fb=1,x=bpt4/pooled | none | router-psdctx:riemann | eeg | all | last | strict | 0.6683 | 0.659 | 0.678 | 0.6683 | 60 | 0.999 | 0.000 | 397 |
+| riemann:xd=1,fb=1/blend_calib | oracle-id | router-psd:riemann | eeg | all | last | strict | 0.6044 | 0.608 | 0.601 | 0.6044 | 60 | 0.997 | 0.000 | 402 |
+| riemann:xd=1,fb=1/blend_calib | router-id | router-psd:riemann | eeg | all | last | strict | 0.6042 | 0.608 | 0.600 | 0.6042 | 60 | 0.997 | 0.000 | 402 |
+| riemann:xd=1,fb=1/calib | oracle-id | router-psd:riemann | eeg | all | last | strict | 0.5892 | 0.590 | 0.588 | 0.5892 | 60 | 0.997 | 0.000 | 402 |
+| riemann:xd=1,fb=1/calib | router-id | router-psd:riemann | eeg | all | last | strict | 0.5886 | 0.590 | 0.587 | 0.5886 | 60 | 0.997 | 0.000 | 402 |
+| riemann:xd=1,fb=1/pooled | none | router-psd:riemann | eeg | all | last | strict | 0.6014 | 0.589 | 0.614 | 0.6014 | 60 | 0.997 | 0.000 | 402 |
 
 ## DECISIONS: release-day rules (pre-registered 2026-09-28)
 

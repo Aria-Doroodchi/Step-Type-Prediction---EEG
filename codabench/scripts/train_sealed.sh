@@ -81,7 +81,7 @@
 #              steps, so every setting already computed there is skipped (the
 #              steps still run: sealed_personal refits its router, then skips).
 #              E.g. the release-day final run: RUN_NAME=final_<S>
-#              HARNESS_FROM=train_sealed_<S>. Only into a harness folder that has
+#              HARNESS_FROM=replica_<S>. Only into a harness folder that has
 #              no results yet, and only from a folder with this cache's
 #              fingerprint (stale rows are refused), and only from a run whose
 #              gate passed: logs/<tag>/STATUS.md, when it exists, must hold ALL
@@ -472,6 +472,20 @@ PY
 ) || { echo "| $(date +%T) | ERROR: blend weight not found |" >> "$STATUS"; exit 1; }
 read -r W H_POOLED H_CELL H_CV <<< "$HW"
 case $BLEND_W in harness) CW=$W;; auto) CW='"auto"';; *) CW=$BLEND_W;; esac
+# (2026-10-01 review) step 2 bakes step 1's weight read from a STATUS.md: with
+# HARNESS_FROM the seeded harness weight W is that run's, so a different baked
+# number means the weight came from another (e.g. a failed earlier) run
+if [ -n "${HARNESS_FROM:-}" ] && [ "$BLEND_W" != harness ] && [ "$BLEND_W" != auto ] \
+   && [ "$CW" != "$W" ]; then
+  if [ "${FORCE_ZIP:-0}" = 1 ]; then
+    note "WARNING !!! BLEND_W=$CW differs from the harness weight $W seeded from" \
+         "HARNESS_FROM=$HARNESS_FROM (FORCE_ZIP=1: going on)"
+  else
+    note "ERROR: BLEND_W=$CW differs from the harness weight $W seeded from" \
+         "HARNESS_FROM=$HARNESS_FROM: was W1 read from that run's STATUS.md? (FORCE_ZIP=1 overrides)"
+    exit 1
+  fi
+fi
 # Codabench instantiates the solver with its DEFAULT parameters: bake the chosen
 # settings into a candidate copy as defaults (the frozen-WU1 practice) and train
 # that copy with no overrides.
@@ -502,7 +516,8 @@ if [ "$ALIGN_S" = subject_context ] && ! grep -q 'align == "subject_context"' "$
   note "ERROR: $CAND has no align=\"subject_context\" (solver older than 2026-09-28 agent G)"; exit 1
 fi
 note "candidate $CAND: personal=blend blend_w=$CW adapt=$ADAPT use_xdawn=$XDB" \
-     "filterbank=$FBB xblocks=${XB:-none} kind=$KIND buffer=$BUF chans=$CHANS align=$ALIGN_S"
+     "filterbank=$FBB xblocks=${XB:-none} kind=$KIND buffer=$BUF chans=$CHANS align=$ALIGN_S" \
+     "wcv_ref=$WREF"
 cd "$HOME/codabench/2026-competition"
 # OUT: resolved with the settings above
 [ -n "$SET_OUT" ] && export COMPET_SUBMISSION_DIR="$OUT"

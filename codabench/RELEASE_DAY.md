@@ -10,7 +10,9 @@ to a zipped, checked candidate. It never uploads: uploading is the user's action
 structure (`analysis/mock_sealed.py`, § 8) was used to rehearse:
 - `train_sealed.sh` on the organisers' split;
 - the 500 Hz solver sizing;
-- 6 of the 10 ablations;
+- 6 of the 10 ablations (2026-09-28), then **all 12 ablations of § 5 (a) and
+  § 7 steps 1–2 at full size with the current commands** (2026-10-01: dual
+  LDA, x=bpt4, XB=icoh, WREF=strict; § 8);
 - the EDA script;
 - the zip check (§ 7 step 3).
 
@@ -472,7 +474,7 @@ TAG=rel_${S}_x STUDY=${S}_x SPLIT=calib:3 TEST_SUBJECTS=$FULL XS_THREADS=6 LANES
   harness process peaked at ≤ 6.1 GiB in Phase 2.
 - On a cache over 2 GiB (500 Hz), the script runs its own lanes one after the
   other. Run (b) after (a).
-- If § 2 showed 47 channels, run (a) without `STEPS` (all 12 steps with SPEC and XB as in (a); RESULTS.md
+- If § 2 showed 47 channels, run (a) without `STEPS` (all 12 steps with SPEC, XB and WREF as in (a); RESULTS.md
   is then written automatically) and skip (b).
 
 **What each step changes** (header of `scripts/release_ablations.sh`):
@@ -619,7 +621,9 @@ These rules were written before any Graz + BrainHero number existed.
        instead of oracle-aligned.
      - **Without strict** (`WREF=all`), the old guard holds: use `WCV=last` /
        `BW=harness`, or bake a number (`BLEND_W=<w>`).
-     - **Cost:** strict recomputes the per-window blocks in each of the 6 folds
+     - **Cost:** strict recomputes the per-window blocks in each CV fold (3 in
+       § 5 and § 7 step 1 on calib:3; the 500 Hz sizing's organisers' split had
+       6; step 2 bakes a number and runs none)
        (§ 8). Under `ADAPT=online` it equals `all` (`train_sealed.sh` says so
        and switches).
    - **Step 2 bakes step 1's weight** (§ 7). Re-choosing w on all labelled data
@@ -714,37 +718,41 @@ Put the § 6 decisions into DEC and BW in the variable block first. Both runs se
 `GATE` and `RUN_NAME` explicitly.
 
 A run folder belongs to one set of settings. To rerun with a changed DEC (e.g.
-after a failed gate), either use a new `RUN_NAME` (`replica2_$S`, and then
-`HARNESS_FROM=replica2_$S` in step 2), or first move `logs/replica_$S` and
-`logs/sealed_replica_$S` away. Otherwise the config guard stops with
-`settings differ`.
+after a failed gate), either use a new step-1 `RUN_NAME` (set `R1=replica2_$S`
+below: step 2 reads its weight and seeds its harness rows from `$R1`), or
+first move `logs/replica_$S` and `logs/sealed_replica_$S` away. Otherwise the
+config guard stops with `settings differ`. (Since 2026-10-01 step 2 also stops
+if its baked weight differs from the seeded harness weight, e.g. a W1 read
+from an older run.)
 
-**Step 1. Replica check through benchopt** (≤ ~80 min at 120 Hz). This is
+**Step 1. Replica check through benchopt** (~30 min at 120 Hz; 28 min in the 2026-10-01 full-size rehearsal). This is
 like-for-like with the harness: the `_xsess` test set is the harness's replica
 test set, and the same DEC goes in as in step 2, so the replica gates check the
 settings you will ship.
 
 ```bash
-env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$BW GATE=replica RUN_NAME=replica_$S \
+R1=replica_$S     # step 1's RUN_NAME (replica2_$S after a rerun with a changed DEC)
+env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$BW GATE=replica RUN_NAME=$R1 \
     DATASET="BCI[study=${S}_xsess]" bash ~/codabench/scripts/train_sealed.sh $DH $S
-grep -E "gates blocking|candidate|END (train|replay)|gate:|blend weight:|NO ZIP|WARNING|zipped|ALL DONE" ~/codabench/logs/replica_$S/STATUS.md
-grep -h '\[done\]\|blend_calib: w\|\[router\]' ~/codabench/logs/replica_$S/{validate,personal_*}.log   # the harness numbers
+grep -E "gates blocking|candidate|END (train|replay)|gate:|blend weight:|fold scores per w|NO ZIP|WARNING|zipped|ALL DONE" ~/codabench/logs/$R1/STATUS.md
+grep -h '\[done\]\|blend_calib: w\|\[router\]' ~/codabench/logs/$R1/{validate,personal_*}.log   # the harness numbers
 ```
 
 The zip of this run is not the candidate: its model never saw the fully labelled
 participants' sessions 4–6.
 
-**Step 2. Final candidate on all labelled data** (~30 min at 120 Hz):
+**Step 2. Final candidate on all labelled data** (~6 min at 120 Hz with `HARNESS_FROM`; 5.6 min rehearsed):
 
 ```bash
 # bake the weight that step 1 chose and validated on the replica (rule 4); read it off step 1's STATUS
-W1=$(grep -o "solver auto w=[0-9.]*\|trained with the baked w=[0-9.]*" ~/codabench/logs/replica_$S/STATUS.md | tail -1 | grep -o "[0-9.]*$"); echo "step-1 weight: $W1"
-env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$W1 GATE=final RUN_NAME=final_$S HARNESS_FROM=replica_$S \
+R1=${R1:-replica_$S}   # the step-1 run (set above; replica2_$S after a rerun)
+W1=$(grep -o "solver auto w=[0-9.]*\|trained with the baked w=[0-9.]*" ~/codabench/logs/$R1/STATUS.md | tail -1 | grep -o "[0-9.]*$"); echo "step-1 weight: $W1 (from $R1)"
+env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$W1 GATE=final RUN_NAME=final_$S HARNESS_FROM=$R1 \
     DATASET="BCI[study=${S}_all]" bash ~/codabench/scripts/train_sealed.sh $DH $S
 grep -E "gates blocking|HARNESS_FROM|candidate|END (train|replay)|gate:|blend weight:|NO ZIP|WARNING|zipped|ALL DONE" ~/codabench/logs/final_$S/STATUS.md
 ```
 
-- **`HARNESS_FROM=replica_$S`** seeds this run's harness folder
+- **`HARNESS_FROM=$R1`** (= `replica_$S` unless step 1 was rerun) seeds this run's harness folder
   (`logs/sealed_final_$S/`) with step 1's rows (`logs/sealed_replica_$S/`,
   results plus probs), so the harness steps skip every identical setting. They
   still run: `sealed_personal` refits its router, then skips.
@@ -767,7 +775,7 @@ grep -E "gates blocking|HARNESS_FROM|candidate|END (train|replay)|gate:|blend we
 ```bash
 Z=$(ls -t ~/codabench/logs/final_$S/riemann_sealed_${S}_*.zip | head -1); R=$(mktemp -d)
 python -m zipfile -e "$Z" "$R" && chmod -R a-w "$R" && ls -l "$R"   # WSL has no unzip
-grep -nE '^\s+"(personal|blend_w|adapt|use_xdawn|filterbank|xblocks|kind|buffer|chans|align|ctx_min)": \[' "$R/submission.py"
+grep -nE '^\s+"(personal|blend_w|adapt|use_xdawn|filterbank|xblocks|kind|buffer|chans|align|ctx_min|wcv_ref)": \[' "$R/submission.py"
 cd ~/codabench/2026-competition
 COMPET_SUBMISSION_DIR="$R" benchopt run tracks/bci_decoding -d "BCI[study=${S}_all]" \
     -s "$R/submission.py" --no-plot --no-html --no-cache --output zipcheck_$S > ~/codabench/logs/final_$S/zipcheck.log 2>&1
@@ -823,7 +831,7 @@ All of these are properties of the mock, not evidence.
 
 ```bash
 S=mock_sealed_s; DH=~/neuralbench/benchopt_data; FULL=0,1,2,3,4,5,6,7,8,9
-DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1 RECIPE_ALIGN=router-psdctx:riemann WCV=loso"; BW=auto   # § 6 on mock_sealed_s (the 2026-09-29 rehearsal, before bpt4; on the release, DEC carries x=)
+DEC="CHANS=eeg RECIPE_SPEC=riemann:xd=1,fb=1 RECIPE_ALIGN=router-psdctx:riemann WCV=loso"; BW=auto   # § 6 on mock_sealed_s (the 2026-09-29 rehearsal, before bpt4 and WREF; on the release, DEC carries x= and WREF=strict; the 2026-10-01 full-size rehearsal with both: § 8)
 env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$BW GATE=replica RUN_NAME=replica_$S XS_THREADS=6 \
     DATASET="../datasets/mock_sealed.py[study=$S,split=replica_full]" bash ~/codabench/scripts/train_sealed.sh $DH $S
 env $DEC SPLIT=calib:3 TEST_SUBJECTS=$FULL BLEND_W=$BW GATE=final RUN_NAME=final_$S HARNESS_FROM=replica_$S XS_THREADS=6 \
@@ -928,8 +936,9 @@ from a run under the same conditions as its reference.
 If rule 3b adds icoh, budget ~+2 min per 500 Hz flow over bpt4 alone (dual
 LDA; it was ~+20 min before 2026-10-01). The `xb` and `xa` steps add two
 `sealed_personal` runs to § 5 (a). On `mock_sealed_s` at 5 threads per lane,
-base took 5.6 min, xb 4.3 and xa 9.3. At full size, expect xb ≈ one base run
-(10–14 min) and xa ≈ 1.7× that.
+base took 5.6 min, xb 4.3 and xa 9.3 (2026-09-29; with the dual LDA on
+2026-10-01: 2.3 / 1.8 / 1.9 min). At full size (2026-10-01 rehearsal) base took
+10.6 min, xb 7.8 and xa 10.9: xa ≈ one base run.
 
 The fast shrinkage LDA (sprint Phase 1) is what makes this feasible:
 - one 5,073-feature fit took 38.7 s with sklearn's solve and 3.8 s with the
@@ -937,7 +946,9 @@ The fast shrinkage LDA (sprint Phase 1) is what makes this feasible:
 - the `auto` search refits 21 LDAs (the pooled one and one per subject) in each
   of its 6 folds.
 
-**Release-day budget at 120 Hz**, from a finished download to a checked zip:
+**Release-day budget at 120 Hz**, from a finished download to a checked zip
+(updated 2026-10-01 after the full-size rehearsal with the current commands:
+dual LDA, x=bpt4, XB=icoh, WREF=strict; LOG 2026-10-01 Phases 5 and 8):
 
 | Step | Compute | Basis |
 |---|---|---|
@@ -946,18 +957,19 @@ The fast shrinkage LDA (sprint Phase 1) is what makes this feasible:
 | § 2 loader inspection (3×: organisers', `_xsess`, `_all`) | ~5 min | 9 s on zhou2016_xsess; release size untimed |
 | § 3 two caches | 30–60 min (a guess) | not measured at release size; the four proxy caches took 2 min 16 s together |
 | § 4 EDA, two caches | ~6 min | 2 min 38 s per cache |
-| § 5 ablations, (a) and (b) side by side | 2–2.5 h | 6 of 12 steps timed at full size (10–14 min each); (a) lane B holds 7 steps: xb ≈ one base run, xa ≈ 1.7× (mock_sealed_s: base 5.6, xb 4.3, xa 9.3 min), wcv_loso, pool_test, online, run untimed |
-| § 7 step 1 (replica, `auto`) | 40–80 min | upper bound = the replica:3 flow (17 + 38 + 22 min + replay); calib:3 is smaller |
-| § 7 step 2 (final, `HARNESS_FROM`) | ~30 min | solver fit with `auto` on ~10,800 windows: 22 min 13 s; harness rows reused (without `HARNESS_FROM`, +≈ 55 min) |
+| § 5 ablations, (a) and (b) side by side | **~75–80 min** | (a) with all 12 steps took **68.6 min** at full size (2 lanes × 6 threads; the 47-ch mock ran the channel sets inside (a)); steps 7.5–14.6 min each. (b) as a third lane: untimed |
+| § 7 step 1 (replica, `auto`, strict) | **~30 min** | **28.2 min**: validate 9.7, personal 11.1, solver fit 6.4 min (383 s), replay 0.5 |
+| § 7 step 2 (final, `HARNESS_FROM`, baked weight) | **~6 min** | **5.6 min**: harness rows reused (validate 4 s, personal 44 s), solver fit 222 s on 10,800 windows, replay 29 s |
 | § 7 step 3 zip check | ~5 min | 17 s replay on `mock_sealed_s` |
-| rule 6 online N (only if allowed) | ~35 min | 3 `sealed_personal` runs, untimed |
+| rule 6 online N (only if allowed) | ~20 min | 3 `sealed_personal` runs; the `online` ablation step took 6.5 min |
 
-That is **about 4.5–6 h of compute plus ~1 h of reading and deciding: plan
-6–7 h** (+0.5 h for the xb / xa steps since 2026-09-29). This is still inside a day, and it assumes the cache build is not
-much slower than guessed.
+That is **about 3–3.5 h of compute plus ~1 h of reading and deciding: plan
+4–4.5 h** (it was 6–7 h on 2026-09-29). The cache build (§ 3) is the main
+unmeasured item.
 
-At 500 Hz, add time for serial lanes and larger harness steps (only the solver
-fit and the replay were timed there): plan most of a day.
+At 500 Hz the lanes run one after the other and the harness steps are larger
+(only the solver fit, the replay and the sizing were timed there): plan most of
+a day.
 
 ## 9. Verification log (2026-09-29)
 
@@ -1049,6 +1061,10 @@ the re-run passed.
 7. **The rest of § 5.** Step (b) on a separate `_x` cache, and step (a)'s
    `wcv_loso`, `pool_test`, `online` and `run` on calib:3. Those four ran on
    `replica:3` in Phase 1 (`logs/sealed_sprint0928_abl_s/`), not in this run.
+   **Covered on 2026-10-01:** all 12 steps of (a) on calib:3 at full size
+   (`mock_sealed_120`, 47-ch cache, so the channel sets ran inside (a)), plus
+   the summarizer and § 7 steps 1–2 (§ 8). Step (b) on a separate `_x` cache
+   is still unrehearsed.
 8. **Rule 6's online-N loop.**
 9. **§ 7 through `BCI[study=${S}_xsess]` / `BCI[study=${S}_all]`.** Untested:
    - the loader's 2 % validation slice (a weight MISMATCH of one grid step can

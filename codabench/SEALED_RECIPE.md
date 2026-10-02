@@ -325,7 +325,8 @@ It is also the release-day regression gate (RELEASE_DAY § 0).
   in one calibration session, that fold is oracle-aligned (10–17 points). It has
   not changed a chosen weight so far. RELEASE_DAY rule 4 carries the interim
   guard. Effort: ~2–3 h with the bit-identity gate.
-  **Done 2026-10-01** (`WREF=strict`, see below).
+  **Done 2026-10-01** (`WREF=strict`, see below). Under strict, Zhou's chosen
+  weight did move (0.5 → 0.75).
 
 **Added by the feature sprint (2026-09-29):**
 
@@ -359,8 +360,9 @@ It is also the release-day regression gate (RELEASE_DAY § 0).
   the n × n Woodbury form whenever a fit has fewer windows than features
   (p > 4,000). Every per-subject LDA and the pooled one at large p qualify.
   - **Equivalence:** within 4e-12 of the Cholesky solve in probabilities on
-    real features, the same as sklearn's own fit to ≤ 1.3e-9, 50–60× faster
-    per subject.
+    real features, the same as sklearn's own fit to ≤ 1.3e-9. Per subject it
+    is 50–60× faster on the synthetic benchmark (n = 420, p = 9,373) and
+    85–150× on the real per-subject fits.
   - **Gates:** every committed number reproduces (regression flow, mock
     flows, Scherer bpt4+icoh rows, ablations: identical scores and weights).
   - **500 Hz sizing:** recipe 15.7 min (was 19.3), bpt4 17.7 min (1.13×),

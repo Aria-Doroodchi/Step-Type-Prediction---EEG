@@ -1,12 +1,85 @@
-# HANDOFF — sprint 2026-09-29/30: temporal and spatial feature blocks
+# HANDOFF — sprint 2026-10-01: dual LDA, strict CV references, release-day rehearsal
 
 **The short version for decisions is [DIRECTIONS.md](DIRECTIONS.md)**: status,
 decisions pending, model, next steps. This file is the detailed session handoff.
 
-> **Sprint 2026-10-01 in progress** (17:36 → 05:36): dual (n < p) shrinkage LDA,
-> deployment-test zip, strict LOSO references. Plan of record:
-> [prompts/2026-10-01_dual_lda_strict_wcv.md](prompts/2026-10-01_dual_lda_strict_wcv.md).
-> Logs: `logs/sprint1001/`. This header is replaced at the sprint's end.
+Plan of record:
+[prompts/2026-10-01_dual_lda_strict_wcv.md](prompts/2026-10-01_dual_lda_strict_wcv.md)
+(17:36 → 05:36, two addenda). Branch `feat/codabench-track2`, pushed to
+`personal` after every commit. Logs: `logs/sealed_s1001/` (STATUS.md,
+`RESULTS_*.md`), `logs/sealed_s1001_rel120/` (the rehearsal's ablations),
+`logs/s1001_*` (train_sealed flows). Record: LOG.md "2026-10-01".
+
+## State of this sprint (updated 2026-10-01 22:30)
+
+| Phase | Status | Result |
+|---|---|---|
+| 0 orient + brief | ✅ db8b35c | per-subject LDAs were 200 s of a 260-s fold at 500 Hz (bpt4+icoh): picked the dual LDA |
+| 1 dual (n < p) shrinkage LDA | ✅ f8e9175 | `_DualLsqrLDA` (both solver files): within 4e-12 of the Cholesky solve, 50–60× faster per subject. D1 PASS |
+| 1b/6 deployment-test zip | ✅ 71607ea | Dreyer, bpt4 baked: train = replay 0.615873. 4.1 MiB (the first build was a 2.4 GB zip: `covariance_` is now dropped at every size). NOT uploaded |
+| 2 gates | ✅ 07f4883 | regression 0.770000, mock flows 0.483333 / 0.512500, xblocks gate, Scherer icoh rows, ablations: all identical |
+| 2 G4 500 Hz sizing | ✅ 26acd44 | recipe 15.7 min (was 19.3), bpt4 1.13×, bpt4+icoh **1.23× PASS** (was 1.78×), strict +12 min. D2: icoh passes rule 3b at 500 Hz |
+| 3 strict CV references | ✅ 36902b3 | solver `wcv_ref` = harness `--wref` to 4 dp (pairs and subjects); defaults identical. D3: `WREF=strict` is the release-day setting |
+| 4 reviews | ✅ | dual LDA (3 minors fixed), strict code (6 minors fixed), integration review (see LOG) |
+| 5 full-size 120 Hz rehearsal | ✅ 71607ea | § 5 (a) 12 steps 69 min; § 7 step 1 28 min, MATCH, EQUAL, train = replay 0.676944. Found and fixed: summarizer online-row bug |
+| 7 shared-covariance personal LDA | ✅ 05ac612 | **NO GAIN** (Scherer 3-class −2.66 / −0.86) |
+| 8 harness ctx_min for router-psdctx | ✅ 71607ea | check PASS; regression identical |
+
+## What is running
+
+Nothing (after the wrap-up). No uploads were made. The zips under `logs/` are
+local only. The deployment-test zip is for the user to upload (SUBMISSIONS.md).
+
+## Facts a resumer needs (this sprint)
+
+- **`LDA_DUAL`** (both solver files) is on by default.
+  - It applies above `LDA_FAST_P` = 4,000 features, with n < p and float64
+    input, and only after a once-per-process self-check against sklearn's
+    `_class_cov`.
+  - Every proxy without icoh is unaffected (bit-identical).
+  - Checker: `analysis/lda_dual_check.py`.
+- **`WREF=strict`** is in RELEASE_DAY's DEC and § 5 commands. The defaults of
+  `train_sealed.sh`, `release_ablations.sh`, the solver and the harness stay
+  `all`, so every committed number reproduces.
+  - Under strict the harness rows carry `wref=strict` in their config key;
+    online-alignment rows stay `all`.
+  - `train_sealed.sh` refuses `WREF=strict` for non-router alignments and
+    switches it to `all` under `ADAPT=online`.
+- **`train_sealed.sh` now prints a fold-score line** ("fold scores per w …
+  EQUAL (4 dp) | DIFFER"). It is information; the weight gate stays MATCH.
+  On zhou2016_xsess, DIFFER is expected: benchopt trains on 1,176 windows,
+  the harness on 1,200.
+- **`xsess_lib.read_results(path)`** returns the rows of every
+  `results_*.jsonl` in that folder. Filter on `study` (now done in
+  `compare_results.py` and `pc_screen.py`).
+- **The harness's router-psdctx alignment** now gives a pair with < 16
+  training windows its subject's reference, as the solver does
+  (`info["ctx_small_pairs"]`).
+- **New tools:**
+  - `analysis/compare_results.py` (row-by-row equivalence of two runs);
+  - `analysis/lda_dual_check.py`;
+  - `analysis/ctxmin_check.py`;
+  - `analysis/pc_screen.py` (Phase 7, no gain);
+  - lane scripts `scripts/sprint1001_*.sh`.
+
+## What the user needs to do
+
+1. Post the organiser question (SEALED_RECIPE § 5 step 1). It is unchanged and
+   still the largest lever.
+2. Upload the deployment-test zip (SUBMISSIONS.md: path, sha256, what to
+   check) before Oct 25.
+3. Review rule 4 (`WREF=strict`) and rule 3b (icoh now passes at 500 Hz) in
+   RELEASE_DAY § 6.
+4. Optional: merge `docs/sprint0928-consistency`, which fixes the stale
+   perf-loop numbers on `main`; REVE/LaBraM weights are still parked.
+
+The sections below are the previous sprints' handoffs; their facts still hold
+except where this section supersedes them (icoh's 500 Hz verdict, rule 4's
+guard, the release-day budget).
+
+---
+
+# HANDOFF — sprint 2026-09-29/30: temporal and spatial feature blocks
 
 Resume from this file alone. Plan of record:
 [prompts/2026-09-29_temporal_spatial_features.md](prompts/2026-09-29_temporal_spatial_features.md)

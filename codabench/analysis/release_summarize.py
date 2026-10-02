@@ -192,7 +192,8 @@ def main():
                 and r.get("pool", "all") == pool and r.get("wcv", "last") == wcv
                 # strict references exist for router alignments only: online /
                 # other conditions run (and are stored) with all (2026-10-01)
-                and (r.get("wref", "all") == wref or not r["align"].startswith("router"))]
+                and (r.get("wref", "all") == wref
+                     or r["align"].split(":")[0] not in ("router-psd", "router-psdctx"))]
         return hits[-1] if hits else None
 
     # the recipe variants, one per ablation step (blend_calib, router ids)
@@ -241,16 +242,17 @@ def main():
               f"{r['seconds']:.0f} |")
 
     print("\n## All rows\n")
-    print(f"| spec | mode | align | chans | pool | wcv | cell |{ctx_hdr} pooled | n_cells | "
+    print(f"| spec | mode | align | chans | pool | wcv | wref | cell |{ctx_hdr} pooled | n_cells | "
           f"router acc | fallback | s |")
-    print(f"|---|---|---|---|---|---|---|{ctx_sep}---|---|---|---|---|")
+    print(f"|---|---|---|---|---|---|---|---|{ctx_sep}---|---|---|---|---|")
     order = sorted(rows, key=lambda r: (r["spec"], r["mode"], r["align"], r.get("chans", "eeg"),
                                         r.get("pool", "all"), str(r.get("wcv"))))
     for r in order:
         ra = r.get("router_acc", r.get("router_psd_acc"))
         fb = r.get("router_fallback", r.get("router_psd_fallback"))
         print(f"| {r['spec']} | {r['mode']} | {r['align']} | {r.get('chans', 'eeg')} | "
-              f"{r.get('pool', 'all')} | {r.get('wcv') or ''} | {r['cell']:.4f} |{ctx_vals(r)} "
+              f"{r.get('pool', 'all')} | {r.get('wcv') or ''} | {r.get('wref', 'all')} | "
+              f"{r['cell']:.4f} |{ctx_vals(r)} "
               f"{r['pooled']:.4f} | {r['n_cells']} | {'' if ra is None else f'{ra:.3f}'} | "
               f"{'' if fb is None else f'{fb:.3f}'} | {r['seconds']:.0f} |")
 

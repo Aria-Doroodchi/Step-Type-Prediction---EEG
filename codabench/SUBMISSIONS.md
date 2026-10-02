@@ -27,6 +27,26 @@ submission per day and hides the logs, so find out **during warm-up** (open unti
 - upload the zip (the user's action);
 - check that it reaches *Finished*, and read the ingestion log and its duration.
 
+**Prepared 2026-10-01 (sprint 1001): ready to upload, NOT uploaded.**
+
+| | |
+|---|---|
+| zip | `codabench/logs/sealed_s1001/deploytest/riemann_sealed_deploytest_dreyer2023_2026-10-01.zip` (4.1 MiB, at the zip root: `submission.py` + `riemann_sealed.joblib` 4.6 MB) |
+| sha256 | `0cf3c91b57e9cfc0035316a05b83e9bb6c3a9509d0cafce694186873272e1c17` |
+| model | Riemann-Sealed (the solver as of commit 71607ea: dual LDA, `wcv_ref`), `xblocks="bpt4"` baked as the sealed candidate will be; other parameters at their defaults (blend_w 0.5, align subject); trained on `BCI[study=dreyer2023]` by `scripts/sprint1001_deploytest.sh` |
+| local check | train 0.615873 = read-only replay 0.615873 (inference only, from a read-only copy). Dreyer is cross-subject, so the score means nothing. The public warm-up leaderboard shows 0.82 for WU1: if Codabench displays the latest submission, keep WU1 as the one shown (the warm-up does not rank) |
+| joblib holds | numpy arrays, sklearn `LinearDiscriminantAnalysis` (pooled, 52 per-subject, router), pyriemann `XdawnCovariances` / `TangentSpace`. No `covariance_` matrices: the first build was a 2.6 GB joblib (2.4 GB zip) before the solver dropped them at every size |
+
+What to check after the upload:
+1. It reaches *Finished*, not *Failed*.
+2. The ingestion log shows no unpickling warning (sklearn
+   `InconsistentVersionWarning`) and no pyriemann import error. A warning
+   alone is information. A failure means the sealed candidate needs
+   plain-array parameters instead of pickled objects: do this before
+   Oct 28.
+3. The duration. Locally the replay took 32–37 s for Dreyer's test set.
+4. Record the row in the upload table above.
+
 ## Local reference runs
 
 | Date | Dataset | Solver | Setting | Bal. acc. | Log |
