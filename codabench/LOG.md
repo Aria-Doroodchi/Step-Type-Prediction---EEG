@@ -1873,3 +1873,26 @@ the full-size rehearsal; `RESULTS_p9.md`):
   10,800 windows, replay 29 s; train 0.638889 = replay; zipped.
 - The harness gap FLAG (0.0381) is informational under `GATE=final` (its
   test set differs from the harness's), as in the 2026-09-29 rehearsal.
+
+### Extra checks (22:27–22:37)
+
+- **Will the deployment joblib unpickle on another library stack?** The
+  scoring image installs scikit-learn and pyriemann (via moabb) unpinned at
+  build time. `analysis/joblib_compat_check.py` loads the Phase 6 joblib
+  (pickled with sklearn 1.9.1 / pyriemann 0.12 / numpy 2.5) in throwaway
+  Python 3.12 venvs (pip wheels only, /tmp, removed) and runs every pickled
+  estimator on fixed random inputs (61 outputs).
+  - **SAME** as 1.9.1 (max \|diff\| ≤ 2e-14) under:
+    - sklearn 1.8.0 + numpy 2.5.3;
+    - sklearn 1.7.2 + numpy 2.3.5;
+    - pyriemann 0.11 / 0.10 / 0.9 / 0.8 with sklearn 1.8;
+    - **numpy 1.26 + pyriemann 0.7 + sklearn 1.6.1**.
+  - The only message is sklearn's `InconsistentVersionWarning`.
+  - pyriemann 0.12 itself fails on numpy 1.26 (`.mT`), so a mixed stack that
+    pip would allow is broken regardless of our pickles.
+  - **Reading:** the unpickling risk of decision 2 is low. The upload still
+    tests the end-to-end ingestion (benchopt, torch import, timing).
+- **Strict parity with other channels** (review gap). The mock replica flow
+  with `CHANS=eeg+eog` (45 ch, 5,520 features), router-psdctx,
+  `WREF=strict`: MATCH (w 0.75), fold scores EQUAL (4 dp; 0.4938 vs 0.4937 is
+  rounding), train 0.593056 = replay = harness (`RESULTS_p10.md`).

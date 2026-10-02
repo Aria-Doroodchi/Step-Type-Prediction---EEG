@@ -37,6 +37,12 @@ submission per day and hides the logs, so find out **during warm-up** (open unti
 | local check | train 0.615873 = read-only replay 0.615873 (inference only, from a read-only copy). Dreyer is cross-subject, so the score means nothing. The public warm-up leaderboard shows 0.82 for WU1: if Codabench displays the latest submission, keep WU1 as the one shown (the warm-up does not rank) |
 | joblib holds | numpy arrays, sklearn `LinearDiscriminantAnalysis` (pooled, 52 per-subject, router), pyriemann `XdawnCovariances` / `TangentSpace`. No `covariance_` matrices: the first build was a 2.6 GB joblib (2.4 GB zip) before the solver dropped them at every size |
 
+Checked locally (2026-10-01, `analysis/joblib_compat_check.py`): the joblib
+loads and gives identical outputs (≤ 2e-14) under sklearn 1.6.1–1.8.0, numpy
+1.26–2.5 and pyriemann 0.7–0.11, with only sklearn's InconsistentVersionWarning.
+So the upload mainly tests the ingestion path (benchopt, the solver's imports,
+time), not the pickles.
+
 What to check after the upload:
 1. It reaches *Finished*, not *Failed*.
 2. The ingestion log shows no unpickling warning (sklearn

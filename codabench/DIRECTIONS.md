@@ -111,7 +111,7 @@ changes a decision, a number or the plan (§ 8).
 |---|---|---|---|---|
 | 1 | Decisions 1 and 2 above | unlocks +3 to +7.5; removes the deployment risk | minutes | you |
 | 2 | Release day (download → ablations → train → zip) | decides bpt4, icoh, contexts, channels on real data | ~4–4.5 h | the data release |
-| 3 | If the deployment test fails on unpickling: store the model as plain arrays (no pickled sklearn/pyriemann objects) | removes the version risk | ~3 h | the upload's result |
+| 3 | Only if the deployment test fails: fix what its log shows (unpickling is unlikely to be it: the joblib loads identically under sklearn 1.6–1.8, numpy 1.26–2.5, pyriemann 0.7–0.11) | removes the deployment risk | 1–3 h | the upload's result |
 | 4 | Riemann + EEGNet probability ensemble | +1 to +2 (EEGNet is now 6–12 points behind, so likely less) | half a day | nothing |
 | 5 | Thesis workstream: check that the full-window AUC advantage (0.714 headline) is not a cue/response artefact ([MODELS.md](../MODELS.md) "Confirm window effect is not leakage") | integrity of a public number | ~3 h | nothing |
 
