@@ -1896,3 +1896,31 @@ the full-size rehearsal; `RESULTS_p9.md`):
   with `CHANS=eeg+eog` (45 ch, 5,520 features), router-psdctx,
   `WREF=strict`: MATCH (w 0.75), fold scores EQUAL (4 dp; 0.4938 vs 0.4937 is
   rounding), train 0.593056 = replay = harness (`RESULTS_p10.md`).
+
+### Sprint wrap-up (22:45)
+
+- **Deliverables:**
+  - the dual LDA and the strict CV references (code, gates, reviews);
+  - RELEASE_DAY (DEC + § 5 with `WREF=strict`, rule 3b icoh passes at
+    500 Hz, rule 4, § 7 `R1` + weight guard, § 8 measured budget: plan
+    4–4.5 h);
+  - SEALED_RECIPE § 5; SUBMISSIONS (deployment zip ready); DIRECTIONS;
+    HANDOFF; the project-sprint skill's project map.
+- **Final regression** (22:37–22:38, the zhou2016_xsess default flow after
+  every script change): train 0.770000 = replay, 17 rows = committed,
+  \|dP\| = 0.
+- **Data release:** the tracks page still said "coming soon" at 22:39.
+- **Run bookkeeping:**
+  - every run ended rc = 0, except the deliberate negative check `p9_neg`
+    (rc 1, the expected ERROR);
+  - nothing is running; no uploads were made;
+  - the temporary venvs in /tmp were removed.
+- **Estimates vs actuals:** most phases came in under estimate (the dual LDA
+  made the harness and solver faster than the pre-sprint timings the ETAs
+  used). The sizing series ran on estimate (84 vs 80 min). No overruns, no
+  incidents beyond the two bugs found and fixed (the summarizer's online-row
+  filter; pc_screen's summary key).
+- **Ended early** (the frame ran to 05:36): every brief phase and both
+  addenda were done, and the remaining ranked items were either the user's
+  (decisions 1–2), low value now (EEGNet ensemble), or need the user's
+  information (the thesis window check).

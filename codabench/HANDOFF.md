@@ -10,7 +10,7 @@ Plan of record:
 `RESULTS_*.md`), `logs/sealed_s1001_rel120/` (the rehearsal's ablations),
 `logs/s1001_*` (train_sealed flows). Record: LOG.md "2026-10-01".
 
-## State of this sprint (updated 2026-10-01 22:30)
+## State of this sprint (updated 2026-10-01 22:45): sprint complete
 
 | Phase | Status | Result |
 |---|---|---|
@@ -20,14 +20,15 @@ Plan of record:
 | 2 gates | ✅ 07f4883 | regression 0.770000, mock flows 0.483333 / 0.512500, xblocks gate, Scherer icoh rows, ablations: all identical |
 | 2 G4 500 Hz sizing | ✅ 26acd44 | recipe 15.7 min (was 19.3), bpt4 1.13×, bpt4+icoh **1.23× PASS** (was 1.78×), strict +12 min. D2: icoh passes rule 3b at 500 Hz |
 | 3 strict CV references | ✅ 36902b3 | solver `wcv_ref` = harness `--wref` to 4 dp (pairs and subjects); defaults identical. D3: `WREF=strict` is the release-day setting |
-| 4 reviews | ✅ | dual LDA (3 minors fixed), strict code (6 minors fixed), integration review (see LOG) |
+| 4 reviews | ✅ bb280ac | dual LDA (3 minors fixed), strict code (6 minors fixed), integration review (1 pre-existing major fixed: step 2 now reads W1 / HARNESS_FROM from `R1`, and train_sealed.sh stops on a baked weight ≠ the seeded harness weight; checked) |
 | 5 full-size 120 Hz rehearsal | ✅ 71607ea | § 5 (a) 12 steps 69 min; § 7 step 1 28 min, MATCH, EQUAL, train = replay 0.676944. Found and fixed: summarizer online-row bug |
 | 7 shared-covariance personal LDA | ✅ 05ac612 | **NO GAIN** (Scherer 3-class −2.66 / −0.86) |
 | 8 harness ctx_min for router-psdctx | ✅ 71607ea | check PASS; regression identical |
+| extra checks | ✅ 4403f5a | the deployment joblib loads identically under sklearn 1.6–1.8, numpy 1.26–2.5, pyriemann 0.7–0.11; strict parity with eeg+eog; final zhou regression identical (0.770000, \|dP\| = 0) |
 
 ## What is running
 
-Nothing (after the wrap-up). No uploads were made. The zips under `logs/` are
+Nothing. No uploads were made. The zips under `logs/` are
 local only. The deployment-test zip is for the user to upload (SUBMISSIONS.md).
 
 ## Facts a resumer needs (this sprint)
@@ -72,6 +73,12 @@ local only. The deployment-test zip is for the user to upload (SUBMISSIONS.md).
    RELEASE_DAY § 6.
 4. Optional: merge `docs/sprint0928-consistency`, which fixes the stale
    perf-loop numbers on `main`; REVE/LaBraM weights are still parked.
+5. Optional (thesis, for a later sprint): say what the epoch's t = 0 is and
+   whether that cue already shows the step direction. The full-CNV window
+   (0–2 s, the 0.714 headline) beats the late window (1–2 s) by +0.09 AUC.
+   If the t = 0 cue differs between straight and diagonal, the 0–1 s gain may
+   be a visual-cue effect. The repo does not document it, so the check could
+   not be set up this sprint.
 
 The sections below are the previous sprints' handoffs; their facts still hold
 except where this section supersedes them (icoh's 500 Hz verdict, rule 4's

@@ -98,6 +98,19 @@ console logging. Pipeline entry points: `scripts/00_preflight.py` …
   - `analysis/xblocks_sizing.py` (500 Hz sizing through the mock dataset
     class);
   - `release_ablations.sh` steps `xb` / `xa` (env `XB`).
+- Sprint 2026-10-01:
+  - the dual (n < p) shrinkage LDA (`LDA_DUAL` in both solver files; checker
+    `analysis/lda_dual_check.py`);
+  - strict CV whitening references (`WREF=strict` in train_sealed.sh /
+    release_ablations.sh, harness `--wref`, solver `wcv_ref`);
+  - `analysis/compare_results.py` (two runs' rows key by key: scores,
+    weights, |dP|; the gate for "numerically equivalent change");
+  - `analysis/ctxmin_check.py`;
+  - `analysis/joblib_compat_check.py` (a joblib under other
+    sklearn / numpy / pyriemann versions in throwaway venvs);
+  - `analysis/pc_screen.py` (template for a harness-only variant screen with
+    a built-in baseline check);
+  - lanes `scripts/sprint1001_*.sh`.
 - Runners: `codabench/scripts/sealed_lib.sh`, `watch_run.sh`, `monitor_loop.sh`,
   `sealed_p*.sh` (examples of lane scripts), `train_sealed.sh` (release-day pipeline).
   This skill bundles generic copies in `scripts/`. Quote their path, which contains a
@@ -175,3 +188,7 @@ console logging. Pipeline entry points: `scripts/00_preflight.py` …
 | Git Bash rewrites `/mnt/c/…` arguments passed to `wsl.exe bash -lc '…'` (MSYS path conversion), so a scratchpad path arrived empty (2026-09-30) | Pass commands through stdin: `wsl.exe bash -s <<'EOF' … EOF` |
 | Non-ASCII text (—, ×, ≤) in a heredoc piped into `wsl.exe` did not match the file's UTF-8 bytes, and the Bash tool collapsed `\\` to `\` in a heredoc (2026-09-30) | Write patch scripts with the Write tool (UTF-8) and run them from WSL; use the Edit tool for docs with non-ASCII |
 | `python3` / `python -` in Git Bash hung a tool call (the Store alias again) | Never call python outside WSL / the explicit venv path, even for a one-liner |
+| `xsess_lib.read_results(path)` returns the rows of every `results_*.jsonl` in that folder, so a summary keyed without the study silently overwrote rows (2026-10-01) | Filter or key on `r["study"]` |
+| Below 4,000 features the solver kept every LDA's p × p `covariance_`: a 52-subject Dreyer candidate was a 2.6 GB joblib (2026-10-01) | Fixed (dropped at every size); check the joblib size of any new candidate |
+| A wrapper lane of an inner script that ends with a "not done" row returned rc 0 while one rule's row was missing (the summarizer filter bug, 2026-10-01) | Read the summarizer's MISSING lines after every ablation run, not only the rc |
+| Edits to a `.py` / `.sh` that a lane will import later change what later steps test | Stage edits as patch scripts (scratchpad) and apply them between lanes; dry-run each patch on copies first |
