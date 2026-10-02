@@ -48,17 +48,31 @@ XGB headline, so absolute AUCs are lower than 0.714 (that used richer features a
 - ~80 epochs per person: per-person AUCs are noisy (SD of a person's AUC ~0.08); cohort means are what is reported.
 - 34 participants here vs 30 in the headline.
 
+## What t = 0 is (read from the code and the raw triggers)
+
+- Each trial starts with a prompt trigger, 256 (One, straight) or 512 (Two, diagonal): the participant is *told* which
+  step to take. `events._pair` returns the **96 event that follows the prompt**, and the epoch is locked to that 96
+  (also stated in `eeg_statetype/preprocessing/events_state.py`: "256 -> 96 (+0.55 s)").
+- Measured on the raw Status channel (80 trials per person, `P01/P03/P05/P10`): the prompt-to-96 delay has a minimum
+  of 0.546-0.574 s in every file; in P10 it is 0.563 +/- 0.011 s. A delay that regular is a system event, not a
+  human reaction. P01, P03 and P05 also show a few long gaps (up to ~4.2 s), so a minority of epochs sit later.
+- So the first 0.5 s of each epoch is 0.55-1.05 s after the instruction that differs between the two conditions
+  (spoken or shown "straight" vs "diagonal": the modality is not recorded in the repo). A consistent, early,
+  cross-person difference there is what a response to the instruction itself looks like, plus the participant
+  holding the instruction in mind. It is not motor preparation for a step they have not yet been cued to start.
+- The late CNV window (1-2 s) carries little: 0.485 (linear), 0.580 (XGB, weakly above chance).
+
 ## Needs the user
 
-What does the One/Two trigger (256 / 512) mark at t = 0: a cue whose appearance differs between straight and
-diagonal (then the early response is sensory and "predicting the step" is really reading the cue), or an event
-that looks the same for both (then 0-0.5 s is genuine early preparation)? This decides how the README should word
-the finding. No README or headline number was changed.
+Confirm what the prompt is (an auditory word, a visual symbol, a different image for each condition?) and what the
+96 marks. If the prompts differ physically, the thesis question "can the step type be predicted from preparation" is
+answered by the late window (weak) and the 0.714 headline mostly reflects the instruction response. No README or
+headline number was changed; wording of the README Results section is the user's call.
 
 ## Next (only if wanted)
 
-Rerun the XGB pipeline with the window `0.5-2.0` (excluding the first 0.5 s) to see what the headline model does
-without the early response (~3-4 h).
+Run the full nested XGB pipeline on the window `0.5-2.0` for a headline-comparable number (the fixed-parameter version is above)
+(~3-4 h).
 
 ## Follow-up: the same split with XGB (cached `rich_mean_0125` features, 20 participants, 18:34-18:50, ETA 30 min)
 
