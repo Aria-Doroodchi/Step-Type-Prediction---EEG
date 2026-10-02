@@ -909,6 +909,7 @@ wide margin: 30.4 min, 11.8 GiB, 77 s and 66 s.
 | ***dual LDA, alone (2026-10-01 18:59–19:53):*** none | **940 s (15.7 min)** | 1.00× | 11.8 | 5,073 | 12.0 ms/window | reference (−19 % vs 1,157 s) |
 | *dual, alone:* **bpt4** (the default) | **1,061 s (17.7 min)** | **1.13×** | 11.9 | 5,761 | 16.3 ms/window | PASS |
 | *dual, alone:* **bpt4 + icoh** | **1,161 s (19.3 min)** | **1.23×** | 13.3 | 9,373 | 17.9 ms/window | **PASS** (was 1.78×) |
+| *dual, alone:* bpt4, `WREF=strict` (rule 4) | 1,784 s (29.7 min) | 1.90× (1.68× of bpt4) | 13.4 | 5,761 | 15.8 ms/window | information: the folds recompute the blocks (229–245 s each); only § 7 step 1 chooses w; within fit ≤ 45 min |
 
 The dual-LDA series (`logs/sealed_s1001/RESULTS_sizing.md`) chose the same
 weights with the same fold cell scores as the earlier series (bit-identical

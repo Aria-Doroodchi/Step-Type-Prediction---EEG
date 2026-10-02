@@ -26,7 +26,8 @@ def rows(dirs, study):
     for d in dirs.split(","):
         d = Path(d).expanduser()
         for r in L.read_results(d / f"results_{study}.jsonl"):
-            out[r["key"]] = (r, d)
+            if r.get("study") == study:     # read_results also reads the siblings
+                out[r["key"]] = (r, d)
     return out
 
 

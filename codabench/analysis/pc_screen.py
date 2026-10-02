@@ -164,15 +164,16 @@ def summary(args):
     print("| study | variant | w | cell | blend_calib cell | Δ (95 % CI over subjects) | "
           "subjects up / down |\n|---|---|---|---|---|---|---|")
     deltas = {}
-    for f in sorted(tag_dir.glob("results_*.jsonl")):
-        rows = {}
-        for r in L.read_results(f):
-            if r["mode"] == "router-id":
-                rows[(tuple(r["classes"] or []), r["spec"].split("/")[1])] = r
-        for (cls, v), r in sorted(rows.items()):
+    # read_results reads every results_*.jsonl of the folder: key by study too
+    rows = {}
+    for r in L.read_results(tag_dir / "results.jsonl"):
+        if r["mode"] == "router-id":
+            rows[(r["study"], tuple(r["classes"] or []), r["spec"].split("/")[1])] = r
+    if True:
+        for (study, cls, v), r in sorted(rows.items()):
             if v == "blend_calib":
                 continue
-            b = rows[(cls, "blend_calib")]
+            b = rows[(study, cls, "blend_calib")]
             ks = sorted(r["per_subject"], key=int)
             dlt = np.array([r["per_subject"][k] - b["per_subject"][k] for k in ks])
             bs = rng.choice(dlt, (10000, len(dlt))).mean(1)

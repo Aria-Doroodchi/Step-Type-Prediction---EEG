@@ -1738,3 +1738,36 @@ decision.
 `analysis/pc_screen.py` on Zhou: its own `blend_calib` reproduces the
 committed `sealed_f0929p` row (x=bpt4, router-id 0.8000, w 0.75). The screen
 lane `scripts/sprint1001_p7.sh` launched 20:25, beside Phase 5.
+
+### Phase 7 — personal LDA with a shared covariance: screen (20:25–20:54:26, 29 min; est. 60)
+
+`scripts/sprint1001_p7.sh` → `analysis/pc_screen.py` (4 threads, beside
+Phase 5); `logs/sealed_s1001/RESULTS_p7.md`. Recipe x=bpt4, router-psd,
+`--wcv last`. The baseline `blend_calib` reproduces the committed rows
+(Scherer 3-class 0.5295, Zhou 0.8000).
+
+| Proxy | blend_calib | blend_calibpc1 (γ = 1: pooled covariance, personal means) | blend_calibpc5 (γ = 0.5) |
+|---|---|---|---|
+| **Scherer 3-class** | 0.5295 | 0.5029: **−2.66 (−5.16, −0.24)**, 2 up / 7 down, w 0 | 0.5209: −0.86 (−2.76, +1.92), w 0 |
+| Scherer 5-class | 0.3492 | −2.35 (−6.69, +1.09) | −0.71 (−4.41, +2.92) |
+| Tangermann | 0.8171 | −0.50 (−1.43, +0.46) | +1.66 (+0.42, +2.93), 6 up / 1 down |
+| Zhou | 0.8000 | +1.67 (−3.17, +5.50) | −0.33 (−5.67, +5.67) |
+
+**Decision (pre-registered rule): NO GAIN for both.** Scherer 3-class
+needed ≥ +1.5 with the CI above 0. pc1 is reliably worse there; pc5's
+others-mean is +0.20.
+- **Why it fails:** both variants raise the training-CV score of the
+  personal part (Scherer 3-class pc5 CV 0.624 vs 0.602), so the weight goes
+  to w = 0 (fully personal). The halves folds (one training session) do not
+  show the session-to-session drift that the pooled model absorbs, and the
+  test session drops.
+- **Not adopted, no follow-up.** Tangermann's +1.66 for pc5 is noted but
+  would need its own pre-registered test.
+
+**Incident (analysis only).** The first summary keyed rows by
+(classes, variant), but `xsess_lib.read_results` returns every sibling
+`results_*.jsonl` of the folder. Zhou overwrote Tangermann and Scherer
+5-class (both classes = all), and the rule printed INCOMPLETE. Fixed: the
+key includes the study. `compare_results.py` had the same latent issue (it
+did not affect any gate: every compared new folder held one study); it now
+filters rows by study, and the Scherer gate re-run PASSES.
