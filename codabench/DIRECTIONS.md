@@ -33,7 +33,7 @@ changes a decision, a number or the plan (§ 8).
 
 | # | Decision | My recommendation | Why it matters | Your effort |
 |---|---|---|---|---|
-| 1 | **Ask the organisers** whether `predict()` may use statistics of unlabelled test windows, in what order they arrive, and whether the model stays loaded | Send it now: email `neurips2026-eeg-emg-competition@googlegroups.com` (the Codabench support address; the forum is off) or Discord (the site's contact) | Online re-centring is the largest lever we have: **+3 to +7.5 points**. We can't use it unless allowed | one email |
+| 1 | **Ask the organisers** whether `predict()` may use statistics of unlabelled test windows. Order and persistence are settled from the public code: one model object, batches of 64, unshuffled recording order | Post it on Discord, the only live channel: the listed email bounced (10-02), and GitHub issues get no replies. Without a yes it stays off, which is already the plan | Online re-centring is the largest lever: **+3.5 to +7.5 points** in recording order | one Discord message |
 | 2 | ~~Deployment-test upload~~ **done 2026-10-02**: Finished, 0.62, 59 s | — | The sealed model's format runs on the scoring server | — |
 | 3 | **Keep bpt4 by default on release day** unless the real data shows ≥ 1 point better without it | Accept | It is the one solid gain of 09-29 (+4.4). Rule 3b in [RELEASE_DAY § 6](RELEASE_DAY.md) | read one rule |
 | 4 | **Review: strict CV references are now the release-day setting** (`WREF=strict`) | Accept | They remove a known bias in choosing the blend weight. Solver and harness agree exactly; the cost is +12 min at 500 Hz. Rule 4 in [RELEASE_DAY § 6](RELEASE_DAY.md) | read one rule |
@@ -143,8 +143,8 @@ a shared-covariance personal LDA.
   here.
 - **Numbers:** each one must match its source document.
 - **Change log** (newest first, one line each):
-  - 2026-10-02: deployment test passed on Codabench (0.62, 59 s); decision 2 done;
-    organiser contact (email / Discord) in decision 1.
+  - 2026-10-02: deployment test passed (0.62, 59 s); decision 2 done. Organiser
+    email bounced: decision 1 is now one Discord question (order/persistence from code).
   - 2026-10-02: sprint 10-01. Dual LDA (icoh fits at 500 Hz: old decision 4
     resolved); strict CV references adopted (new decision 4: review);
     deployment zip ready; release day ~4–4.5 h; shared-covariance LDA no gain.

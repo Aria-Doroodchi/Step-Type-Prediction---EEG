@@ -65,9 +65,11 @@ local only. The deployment-test zip is for the user to upload (SUBMISSIONS.md).
 
 ## What the user needs to do
 
-1. Send the organiser question (SEALED_RECIPE § 5 step 1): email
-   `neurips2026-eeg-emg-competition@googlegroups.com` (the Codabench support
-   address; the forum is off), or Discord, which the site links as its contact.
+1. Ask the organisers on **Discord** (https://discord.gg/yZv8KqKMpH) whether
+   `predict()` may use statistics of unlabelled test windows. The listed email
+   `neurips2026-eeg-emg-competition@googlegroups.com` bounced (2026-10-02), and
+   GitHub issues get no organiser replies. Order and persistence are answered
+   by the public code (LOG 2026-10-02).
    A draft (2026-10-02) also asks whether running statistics count as
    "training" (the guide says not to train during `predict`) and whether the
    model stays loaded between calls. It is still the largest lever.

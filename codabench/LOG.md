@@ -1948,3 +1948,22 @@ sha256 `0cf3c91b…2e1c17`) to the Track 2 warm-up.
   The participant guide says "During `load_model` and `predict`, do not
   train", so the drafted email asks whether running statistics count as
   training, and about order, batching and persistence.
+- **Later 2026-10-02: the email bounced** ("address not found"). The live
+  repo still lists it, and GitHub issues get no organiser replies (#24 and #41
+  are open with no answer), so Discord is the only live channel.
+- **Order and persistence come from the public code**, so they need no
+  question:
+  - `objective.evaluate_result` loops over one test loader and calls
+    `predict` on the same model object for every batch: the state persists
+    for the whole evaluation;
+  - `nb_task._make_loaders` shuffles only the train split, so test windows
+    come in the dataset's recording order, in batches of 64 (`BCI` default;
+    the warm-up phase config does not override it);
+  - the ingestion program is a plain `benchopt run` of the bundled benchmark.
+- **Only the permission question remains for the organisers.** Without a yes,
+  online re-centring stays off (rule 6), so nothing else depends on it.
+- **Side finding** (issue #24, open, no reply): the scorer computes balanced
+  accuracy over all test windows (`objective.py`), while the track text
+  describes a cell average over subject × session × context. Our gates
+  compare the benchopt score with the harness's `pooled` (the same metric);
+  the release-day rules and the weight search use the cell average.
