@@ -1967,3 +1967,21 @@ sha256 `0cf3c91b…2e1c17`) to the Track 2 warm-up.
   describes a cell average over subject × session × context. Our gates
   compare the benchopt score with the harness's `pooled` (the same metric);
   the release-day rules and the weight search use the cell average.
+
+## 2026-10-02 (evening) — open sprint: thesis window check + warm-up ensemble try
+
+Brief for the thesis part: `docs/sprints/2026-10-02_window_effect_check.md` on branch `feat/window-effect-check`
+(worktree `C:\Users\Ali D\wt-window`; results `..._RESULTS.md`, pushed to `personal`, not merged). The sealed
+recipe was left alone: real data still unreleased, every lever measured.
+
+| Time | Step | Estimate | Actual | Result |
+|---|---|---|---|---|
+| 16:04-16:54 | thesis window-effect run, 34 people | 30 min | 50 min (first launch 200 s/person with 100 permutations: my estimate error; cut to 20) | no CV leakage (-0.004 [-0.022, 0.014]); full-late +0.098 survives; early 0-0.5 s carries it (cross-person AUC 0.675); t=0 is the 96 event ~0.55 s after the One/Two prompt |
+| 18:34-18:50 | XGB window split (20 people, fixed params) | 30 min | 16 min | first 0.5 s 0.689, all 0.653, late 0.580, 0.5-2 s 0.568 |
+| 16:55-18:34 | warm-up try 1: 5-member EEGNet softmax ensemble (`solvers/bci_decoding/eegnet_steptype_ens.py`, `scripts/warmup_1002_ens.sh`) on clean Dreyer | 1.8-2.5 h | 1 h 39 min | **0.8095** vs WU1 0.820 (config mean 0.806 +/- 0.016): no gain |
+
+- **Warm-up decision:** stop. The ensemble is inside the single model's seed range; the Riemann + EEGNet ensemble was
+  already +0.8 (2026-09-25) and tuning plateaued at 200 epochs. Reaching 0.9+ honestly is not in sight: the
+  entries above 0.9 pretrain on all of Dreyer (includes the test subjects 61-81) or normalise on the prediction
+  batch (rule question still open). A model trained on the test subjects' labelled recordings was not built.
+- Nothing uploaded; nothing running.

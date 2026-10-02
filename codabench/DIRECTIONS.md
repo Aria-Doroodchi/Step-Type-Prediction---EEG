@@ -15,6 +15,7 @@ changes a decision, a number or the plan (§ 8).
 - **Data:** the sealed training data (Graz + BrainHero) is still *"coming soon"*
   (checked 2026-10-01 17:40). Every number below comes from public stand-in
   datasets with 4–9 people each. Differences under ~2 points are noise.
+- **Warm-up (clean Dreyer split):** a 5-seed EEGNet ensemble scored **0.8095** vs the single model's 0.820: no gain, so no more tries. The 0.9+ leaderboard entries pretrain on all of Dreyer (test subjects included) or use per-batch statistics: not built.
 - **Uploaded so far** (warm-up, which doesn't rank;
   [SUBMISSIONS.md](SUBMISSIONS.md)):
   - EEGNet, 0.82;
@@ -38,6 +39,7 @@ changes a decision, a number or the plan (§ 8).
 | 3 | **Keep bpt4 by default on release day** unless the real data shows ≥ 1 point better without it | Accept | It is the one solid gain of 09-29 (+4.4). Rule 3b in [RELEASE_DAY § 6](RELEASE_DAY.md) | read one rule |
 | 4 | **Review: strict CV references are now the release-day setting** (`WREF=strict`) | Accept | They remove a known bias in choosing the blend weight. Solver and harness agree exactly; the cost is +12 min at 500 Hz. Rule 4 in [RELEASE_DAY § 6](RELEASE_DAY.md) | read one rule |
 | 5 | Optional: approve REVE/LaBraM weights; merge the thesis docs branch `docs/sprint0928-consistency` (`main`'s perf-loop SUMMARY and MODELS still show old numbers) | Low priority | REVE/LaBraM are hours per epoch on this CPU | — |
+| 6 | **Thesis: what is the One/Two prompt, and what is the `96` trigger?** The window check ([results](../docs/sprints/2026-10-02_window_effect_check_RESULTS.md), branch `feat/window-effect-check`, not merged) found no CV leakage, but the full-vs-late gap lives entirely in the first 0.5 s after t = 0 (cross-person AUC 0.675 there, chance after 0.5 s). t = 0 is the `96` event ~0.55 s after the prompt | Tell me the prompt's form (spoken word, symbol, image). If it differs by condition, reword the README Results (the 0.714 mostly reads the instruction response) | Protects a public number | a short answer |
 
 ## 3. The model in one picture (Riemann-Sealed + bpt4)
 
@@ -116,7 +118,7 @@ changes a decision, a number or the plan (§ 8).
 | 1 | Decision 1 above (send the organiser question) | unlocks +3 to +7.5 | minutes | you |
 | 2 | Release day (download → ablations → train → zip) | decides bpt4, icoh, contexts, channels on real data | ~4–4.5 h | the data release |
 | 3 | Riemann + EEGNet probability ensemble | +1 to +2 (EEGNet is now 6–12 points behind, so likely less) | half a day | nothing |
-| 4 | Thesis workstream: check that the full-window AUC advantage (0.714 headline) is not a cue/response artefact ([MODELS.md](../MODELS.md) "Confirm window effect is not leakage") | integrity of a public number | ~3 h | nothing |
+| 4 | Thesis: **done 2026-10-02**, see decision 6. Next: the nested XGB pipeline on the 0.5-2 s window for a headline-comparable number | Wait for decision 6 | ~3-4 h | decision 6 |
 
 Done on 10-01 (no longer open): faster per-person LDA; icoh's 500 Hz cost;
 strict per-fold blend-weight search. Not worth it now: REVE/LaBraM on this CPU,
@@ -143,6 +145,7 @@ a shared-covariance personal LDA.
   here.
 - **Numbers:** each one must match its source document.
 - **Change log** (newest first, one line each):
+  - 2026-10-02: sprint 10-02 (evening). Thesis window check done (decision 6); warm-up EEGNet ensemble 0.8095, no gain, stopped.
   - 2026-10-02: deployment test passed (0.62, 59 s); decision 2 done. Organiser
     email bounced: decision 1 is now one Discord question (order/persistence from code).
   - 2026-10-02: sprint 10-01. Dual LDA (icoh fits at 500 Hz: old decision 4

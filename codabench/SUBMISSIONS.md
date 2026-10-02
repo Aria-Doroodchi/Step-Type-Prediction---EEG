@@ -78,6 +78,7 @@ What to check after the upload:
 | 2026-09-24 | dreyer2023 full | Riemann-StepType | xDAWN nfilter 8, ref car / none | 0.760 / 0.759 | same |
 | 2026-09-24 | dreyer2023 full | Riemann-StepType | xDAWN nfilter 4 + 1–40 Hz band-pass / nfilter 2 | 0.71–0.72 / 0.66–0.70 | same |
 | 2026-09-25 | dreyer2023 full | EEGNet-StepType | 200 epochs, patience 30, ref none; 3 seeds | 0.810 ± 0.008 | `logs/overnight_2026-09-24_p3/` |
+| 2026-10-02 | dreyer2023 full | **EEGNet-StepType-ENS** (5 members, softmax mean), 100 epochs, patience 20, seeds 33-37 | 0.8095 (single run; WU1 0.820) | `logs/warmup_1002_ens/` |
 | 2026-09-25 | dreyer2023 full | EEGNet-StepType-WU1 (candidate) | defaults (100 ep, pat 20, none, seed 33); train run / platform replay | 0.82004 / 0.82004 | same |
 | 2026-09-25 | dreyer2023 full | Riemann-StepType | xDAWN on, ref none, blocks off (541 features): baseline re-run | 0.75377 (= phase 1 exactly) | `logs/riemann_blocks_2026-09-25/` |
 | 2026-09-25 | dreyer2023 full | Riemann-StepType | xDAWN on + `slow_block` (919 features) | 0.75635 (+0.003) | same |
