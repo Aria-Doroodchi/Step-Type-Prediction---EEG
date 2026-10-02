@@ -227,3 +227,30 @@ additions, run after the 500 Hz sizing (which runs alone):
 ### Phase 6: the deployment-test zip from the final solver (est. 15 min)
 `sprint1001_deploytest.sh` once more after the last solver change.
 SUBMISSIONS.md gets the ready (not uploaded) row and checklist.
+
+### Phase 7 (added 2026-10-01 20:05, before any of its numbers): personal LDA with a shared covariance (screen)
+- **Idea.** The per-subject ("calib") LDA has its own class means but a
+  Ledoit-Wolf covariance from only ~120–700 windows against 3–9 k features.
+  Its shrinkage is near 1, so it is close to a nearest-mean classifier. A
+  personal LDA with the subject's class means and a covariance mixed with
+  the pooled (all subjects', re-centred) within-class covariance,
+  Σ_k = γ Σ_pooled + (1 − γ) Σ_k^LW, is regularised discriminant analysis with
+  subject-to-subject transfer. It was not tested here before (grep: no
+  "shared/pooled covariance" in LOG / SEALED_RECIPE).
+- **Harness only, opt-in** (`sealed_personal.py`): variants `calibpc1`
+  (γ = 1: pooled covariance, personal means) and `calibpc5` (γ = 0.5), each
+  with its own `blend_*` weight chosen by the existing training CV
+  (`--wcv last`, release settings, `WREF=all` as the committed rows). The
+  defaults are unchanged; the committed rows are the reference.
+- **Runs:** recipe x=bpt4, router-psd, on Scherer 3-class, Tangermann, Zhou
+  and Scherer 5-class (the four confirmation proxies).
+- **Rule** (blend variant vs `blend_calib`, router ids, cell metric; paired
+  subject bootstrap as `sealed_bootstrap.py`; two variants tried, so
+  stricter than a single screen):
+  - **PROMISING** (a release-day ablation candidate, after a solver port in a
+    later sprint): Scherer 3-class Δ ≥ +1.5 with the 95 % CI excluding 0, and
+    the mean Δ over the other three ≥ 0.
+  - **NO GAIN** otherwise; say so plainly. Never adopted into the recipe from
+    this screen alone.
+- **Launch only if** Phase 5 has finished, and only if its ETA × 1.5 fits
+  before 04:06.

@@ -576,13 +576,12 @@ These rules were written before any Graz + BrainHero number existed.
      is worse**. That is the brief's rule, literally.
    - **If both fire,** only the single change with the larger gain is applied
      (both were tested alone).
-   - **On a 500 Hz cache,** adding icoh also needs a fit ≤ 1.5× the recipe's,
-     and bpt4 + icoh **fails** that gate. It measured 1.78× on an idle machine:
-     34 min vs 19 min on the full-size mock (§ 8).
-     - There, keep icoh out unless the user accepts the older absolute rule
-       (fit ≤ 45 min, which it meets).
-     - Or icoh is restricted (e.g. to 8–13 and 13–30 Hz) and re-gated.
-     - At 120 Hz the same ratio applies to much smaller absolute times.
+   - **On a 500 Hz cache,** adding icoh also needs a fit ≤ 1.5× the
+     recipe's. Since the dual LDA (2026-10-01), bpt4 + icoh **passes**: it
+     measured 1.23× on an idle machine (19.3 vs 15.7 min on the full-size
+     mock, § 8). Before the dual LDA it failed at 1.78× (34 vs 19 min). So
+     rule 3b applies at 500 Hz exactly as at 120 Hz: no restriction and no
+     user decision is needed.
    - The summarizer prints both lines and the resulting `RECIPE_SPEC`. It
      reads `spec=` / `xb=` from the run's `config.txt`, and refuses a
      `--spec` / `--xb` that differs.
@@ -907,13 +906,26 @@ wide margin: 30.4 min, 11.8 GiB, 77 s and 66 s.
 | bpt4 + icoh (step `xa`) | 3,061 s | **1.56×** (1.68× vs the rehearsal; 2 other jobs ran) | 13.0 | 9,373 | 24.2 ms/window | **FAIL** |
 | *re-measured alone (2026-09-30 01:08–02:03):* none | 1,157 s (19.3 min) | 1.00× | 11.2 | 5,073 | 11.8 ms/window | reference |
 | *alone:* bpt4 + icoh | 2,062 s (34.4 min) | **1.78×** | 13.3 | 9,373 | 17.3 ms/window | **FAIL** of the relative gate (within the older absolute rule, fit ≤ 45 min) |
+| ***dual LDA, alone (2026-10-01 18:59–19:53):*** none | **940 s (15.7 min)** | 1.00× | 11.8 | 5,073 | 12.0 ms/window | reference (−19 % vs 1,157 s) |
+| *dual, alone:* **bpt4** (the default) | **1,061 s (17.7 min)** | **1.13×** | 11.9 | 5,761 | 16.3 ms/window | PASS |
+| *dual, alone:* **bpt4 + icoh** | **1,161 s (19.3 min)** | **1.23×** | 13.3 | 9,373 | 17.9 ms/window | **PASS** (was 1.78×) |
+
+The dual-LDA series (`logs/sealed_s1001/RESULTS_sizing.md`) chose the same
+weights with the same fold cell scores as the earlier series (bit-identical
+CV), so only the time changed:
+- per-subject LDAs: 20 per fold at n ≈ 420 went from ~9 s each (p = 9,373)
+  to ~0.15 s;
+- folds: 123–130 s → 87–100 s for the recipe, and 201–268 s → 88–129 s for
+  bpt4 + icoh;
+- the remaining fold time is the per-fold xDAWN / tangent-space refits and
+  the pooled LDA (n = 8,400–9,600 ≥ p for the recipe: Cholesky).
 
 Contention inflated the recipe's fit 1.7× (1,961 s vs 1,157 s), so compare
 ratios only within one series. bpt4 alone was not re-measured: its 1.06× came
 from a run under the same conditions as its reference.
 
-If rule 3b adds icoh, budget ~+20 min per 500 Hz flow. At 120 Hz the LDAs
-dominate the extra cost in the same proportion. The `xb` and `xa` steps add two
+If rule 3b adds icoh, budget ~+2 min per 500 Hz flow over bpt4 alone (dual
+LDA; it was ~+20 min before 2026-10-01). The `xb` and `xa` steps add two
 `sealed_personal` runs to § 5 (a). On `mock_sealed_s` at 5 threads per lane,
 base took 5.6 min, xb 4.3 and xa 9.3. At full size, expect xb ≈ one base run
 (10–14 min) and xa ≈ 1.7× that.

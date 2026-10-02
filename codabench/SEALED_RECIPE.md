@@ -325,6 +325,7 @@ It is also the release-day regression gate (RELEASE_DAY § 0).
   in one calibration session, that fold is oracle-aligned (10–17 points). It has
   not changed a chosen weight so far. RELEASE_DAY rule 4 carries the interim
   guard. Effort: ~2–3 h with the bit-identity gate.
+  **Done 2026-10-01** (`WREF=strict`, see below).
 
 **Added by the feature sprint (2026-09-29):**
 
@@ -343,12 +344,42 @@ It is also the release-day regression gate (RELEASE_DAY § 0).
     before release day.
   - A dual (n < d) LDA solve would cut most of the cost, since the extra
     time is in the per-subject LDAs.
+  **Resolved 2026-10-01 by the dual LDA:** bpt4 + icoh now fits in 19.3 min,
+  1.23× the recipe's 15.7 min, so it passes (below).
 - **If online re-centring is allowed (step 1):** bpt4 kept its gain under
   `online-64` on Scherer 3-class (information run: 0.592 vs 0.561).
 - **Not now: time-segment covariances (tseg3).** They showed no gain under the
   deployed recipe and add 11 k features at 43 ch. At that size, 20 per-subject
   LDAs would solve 16 k × 16 k systems from ~500 windows each; a dual (n < d)
   shrinkage-LDA solve would be needed first.
+
+**Done in the sprint 2026-10-01** (brief `prompts/2026-10-01_dual_lda_strict_wcv.md`, LOG 2026-10-01):
+
+- **Dual (n < p) shrinkage LDA.** It is the same Ledoit-Wolf LDA, solved in
+  the n × n Woodbury form whenever a fit has fewer windows than features
+  (p > 4,000). Every per-subject LDA and the pooled one at large p qualify.
+  - **Equivalence:** within 4e-12 of the Cholesky solve in probabilities on
+    real features, the same as sklearn's own fit to ≤ 1.3e-9, 50–60× faster
+    per subject.
+  - **Gates:** every committed number reproduces (regression flow, mock
+    flows, Scherer bpt4+icoh rows, ablations: identical scores and weights).
+  - **500 Hz sizing:** recipe 15.7 min (was 19.3), bpt4 17.7 min (1.13×),
+    bpt4 + icoh 19.3 min (**1.23×, passes**; was 1.78×). icoh is a normal
+    release-day ablation at 500 Hz too.
+  - **Harness:** the mock ablations ran 2.4–4.9× faster (xa 9.3 → 1.9 min),
+    which shortens release day.
+  - **Also:** the solver drops every LDA's unused `covariance_`. A Dreyer
+    candidate (52 subjects, p = 2,485) went from a 2.6 GB to a 4.6 MB joblib.
+- **Strict per-fold whitening references** (`WREF=strict`: harness
+  `--wref strict`, solver `wcv_ref="strict"`). Each CV fold's references come
+  from its fit rows only, as a test session's do.
+  - Solver and harness agree to 4 dp on the mock replica, with pairs and with
+    subjects. The defaults are unchanged.
+  - On Zhou the chosen weight moved 0.5 → 0.75 (more pooled, the bias's
+    direction). The mock, Scherer and Tangermann kept their weight.
+  - **It is the release-day setting** (RELEASE_DAY rule 4, DEC). It lifts the
+    one-context-per-session guard.
+- **Deployment-test zip ready** (not uploaded): `SUBMISSIONS.md`.
 
 Not recommended now: more participants (warm-up: no gain), REVE/LaBraM on this
 CPU (hours per epoch; revisit on a GPU or with a frozen probe on the release),
