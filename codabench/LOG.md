@@ -1701,3 +1701,40 @@ Fixed (applied 18:52):
 § 5 / § 7 and in DEC. The solver and harness defaults stay `all`, so every
 committed number reproduces. The 500 Hz cost of strict is measured in the
 sizing series (`sz3_bpt4_strict`).
+
+### Phase 2 G4 — 500 Hz sizing with the dual LDA, alone (18:59:08–20:23:00, 84 min; est. 80)
+
+`scripts/sprint1001_sz.sh` (`analysis/xblocks_sizing.py`, `mock_sealed_500`,
+`blend_w="auto"`, 6 LOSO folds, 43 EEG ch, 10 threads, nothing else running;
+`logs/sealed_s1001/RESULTS_sizing.md`).
+
+| Variant | Fit | vs recipe | Peak RSS | Features | LOSO folds | Earlier (alone, 2026-09-30) |
+|---|---|---|---|---|---|---|
+| recipe | **940 s (15.7 min)** | 1.00× | 11.8 GiB | 5,073 | 87–100 s | 1,157 s; folds 123–130 s |
+| **bpt4** (default) | **1,061 s (17.7 min)** | **1.13×** | 11.9 | 5,761 | — | 2,073 s contended (1.06× of its reference) |
+| **bpt4 + icoh** | **1,161 s (19.3 min)** | **1.23×** | 13.3 | 9,373 | 88–129 s | 2,062 s = 1.78×; folds 201–268 s |
+| bpt4, `wcv_ref="strict"` | 1,784 s (29.7 min) | 1.90× (1.68× of bpt4) | 13.4 | 5,761 | 229–245 s | — |
+
+- **Identical choices.** Every variant chose the same w with the same fold
+  cell scores as its earlier run, so the dual LDA changed only the time. This
+  also checks the default (`all`) weight-search path after the Phase 3 patch.
+- **Where the time went.** LDA stage 51 → 13 s (recipe) and 199 → 40 s
+  (bpt4 + icoh). The remaining fold time is the per-fold xDAWN /
+  tangent-space refits and the pooled LDA (n = 8,400–9,600 ≥ p for the
+  recipe: Cholesky).
+- **Strict.** It costs +12 min at 500 Hz because every fold recomputes the
+  per-window blocks (~230 s at 500 Hz). It runs only where the solver chooses
+  its own weight (§ 7 step 1); step 2 bakes that weight. It stays within the
+  absolute rule (≤ 45 min) and the RSS limit. At 120 Hz the blocks are ~4×
+  cheaper.
+
+**Decision D2.** fit(bpt4 + icoh) = 1.23× ≤ 1.5× fit(recipe) in one series,
+alone, so **icoh passes rule 3b's 500 Hz gate**. RELEASE_DAY rule 3b and § 8
+are updated, and DIRECTIONS decision 4 is resolved: no restriction, no user
+decision.
+
+### Phase 7 smoke (20:23–20:24)
+
+`analysis/pc_screen.py` on Zhou: its own `blend_calib` reproduces the
+committed `sealed_f0929p` row (x=bpt4, router-id 0.8000, w 0.75). The screen
+lane `scripts/sprint1001_p7.sh` launched 20:25, beside Phase 5.
